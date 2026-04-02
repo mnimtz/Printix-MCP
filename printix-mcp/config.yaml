@@ -1,0 +1,88 @@
+# Home Assistant Add-on: Printix MCP Server
+# https://github.com/YOUR_USER/printix-mcp-addon
+name: Printix MCP Server
+version: "1.11.0"
+slug: printix-mcp
+description: >-
+  Model Context Protocol (MCP) Server für die Printix Cloud Print API.
+  Ermöglicht die Steuerung von Printix Druckern, Benutzern, Karten,
+  Standorten und SNMP-Konfigurationen über Claude, ChatGPT und andere
+  MCP-kompatible AI-Assistenten.
+url: "https://github.com/YOUR_USER/printix-mcp-addon"
+arch:
+  - amd64
+  - aarch64
+  - armv7
+  - i386
+startup: application
+boot: auto
+init: false
+homeassistant_api: false
+hassio_api: false
+
+# Netzwerk: Container-Port 8765 wird auf Host-Port 8765 gemappt
+ports:
+  8765/tcp: 8765
+ports_description:
+  8765/tcp: "MCP SSE Endpoint (HTTP)"
+
+# Optionen mit Defaults — werden über die HA-Konfigurationsoberfläche gesetzt
+options:
+  # Printix Tenant
+  tenant_id: ""
+
+  # Print API Credentials
+  print_client_id: ""
+  print_client_secret: ""
+
+  # Card Management API Credentials
+  card_client_id: ""
+  card_client_secret: ""
+
+  # Workstation Monitoring API Credentials
+  ws_client_id: ""
+  ws_client_secret: ""
+
+  # Shared Fallback Credentials (optional)
+  shared_client_id: ""
+  shared_client_secret: ""
+
+  # Bearer Token für MCP-Absicherung (leer = wird beim ersten Start generiert)
+  bearer_token: ""
+
+  # OAuth 2.0 (für ChatGPT und andere OAuth-Clients)
+  # Frei wählbare Werte — diese trägst du dann in ChatGPT ein
+  oauth_client_id: ""
+  oauth_client_secret: ""
+
+  # Öffentliche URL des Servers (z.B. Cloudflare-Domain)
+  # Wird beim Start im Log als fertige Verbindungsinformation angezeigt
+  public_url: ""
+
+  # Log Level
+  log_level: "info"
+
+# Schema-Validierung für die Konfigurationsoberfläche
+schema:
+  tenant_id: "str"
+  print_client_id: "str"
+  print_client_secret: "password"
+  card_client_id: "str"
+  card_client_secret: "password"
+  ws_client_id: "str"
+  ws_client_secret: "password"
+  shared_client_id: "str?"
+  shared_client_secret: "password?"
+  bearer_token: "password?"
+  oauth_client_id: "str?"
+  oauth_client_secret: "password?"
+  public_url: "url?"
+  log_level: "list(debug|info|warning|error|critical)"
+
+# Labels
+map:
+  - config:rw
+
+# Kein 'image:' hier = HA baut lokal aus dem Dockerfile (für lokales Testen)
+# Für Production mit GitHub Actions würde hier stehen:
+# image: "ghcr.io/{arch}-addon-printix-mcp"
