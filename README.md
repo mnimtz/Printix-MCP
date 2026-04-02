@@ -60,7 +60,7 @@ Vollständige Dokumentation: [DOCS.md](printix-mcp/DOCS.md)
 
 ## Lizenz
 
-MIT
+-
 
 ## Autor
 
