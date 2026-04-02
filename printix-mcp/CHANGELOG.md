@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.13.0 (2026-04-02)
+
+### Behoben
+- **`RuntimeError: Task group is not initialized`**: `DualTransportApp` leitete
+  den ASGI-`lifespan`-Scope nicht an `http_app` weiter — dadurch wurde der
+  `StreamableHTTPSessionManager` des Streamable-HTTP-Transports nie gestartet.
+  Fix: `lifespan`-Scope wird jetzt zuerst an `http_app` weitergeleitet, bevor
+  HTTP-Requests entgegengenommen werden. Der SSE-Transport hat nur ein No-Op-
+  Lifespan und benötigt keine gesonderte Behandlung.
+
+## 1.12.0 (2026-04-02)
+
+### Geändert
+- **Dual Transport**: Server unterstützt jetzt beide MCP-Transports parallel
+  - `POST /mcp` → Streamable HTTP Transport (claude.ai, neuere Clients)
+  - `GET  /sse` → SSE Transport (ChatGPT, ältere Clients)
+- Claude-Konnektoren-URL muss auf `/mcp` enden (statt `/sse`)
+- `/favicon.ico` und `/robots.txt` werden ohne Bearer-Token-Prüfung mit 404 beantwortet (kein 401-Spam im Log mehr beim OAuth-Dialog)
+- `oauth-protected-resource` Discovery zeigt jetzt `/mcp` als primären Endpunkt
+
 ## 1.11.0 (2026-04-02)
 
 ### Dokumentation / Verhalten

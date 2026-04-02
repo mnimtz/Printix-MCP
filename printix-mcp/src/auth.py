@@ -44,6 +44,11 @@ class BearerAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Browser-Ressourcen die beim OAuth-Approval-Dialog angefragt werden
+        if path in ("/favicon.ico", "/robots.txt"):
+            await self._not_found(send)
+            return
+
         # Authorization Header prüfen
         headers = dict(scope.get("headers", []))
         auth_header = headers.get(b"authorization", b"").decode("utf-8", errors="ignore")
@@ -79,6 +84,15 @@ class BearerAuthMiddleware:
             "type": "http.response.body",
             "body": body,
         })
+
+    async def _not_found(self, send):
+        """Send 404 for known-irrelevant browser requests (favicon etc.)."""
+        await send({
+            "type": "http.response.start",
+            "status": 404,
+            "headers": [[b"content-length", b"0"]],
+        })
+        await send({"type": "http.response.body", "body": b""})
 
     async def _health_response(self, send):
         """Send 200 OK health check response."""

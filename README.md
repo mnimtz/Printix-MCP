@@ -1,67 +1,67 @@
 # Printix MCP Server — Home Assistant Add-on
 
-MCP-Server (Model Context Protocol) für die Printix Cloud Print API als Home Assistant Add-on. Ermöglicht die Steuerung von Printix-Druckern, Benutzern, Karten und mehr über AI-Assistenten wie Claude und ChatGPT.
+MCP-Server (Model Context Protocol) für die Printix Cloud Print API als Home Assistant Add-on.
+Ermöglicht AI-Assistenten wie **claude.ai** und **ChatGPT** die Steuerung von Printix-Druckern,
+Benutzern, Karten, Netzwerken und mehr — gesichert über OAuth 2.0 oder Bearer Token.
 
 ## Features
 
-- 30+ MCP-Tools für Printix Cloud Print API
+- 30+ MCP-Tools für die Printix Cloud Print API
 - Drei API-Bereiche: Print, Card Management, Workstation Monitoring
-- Bearer Token Authentifizierung (kompatibel mit Claude & ChatGPT)
-- Auto-Generierung des Bearer Tokens beim ersten Start
+- **Dual Transport**: Streamable HTTP (`/mcp`) für claude.ai + SSE (`/sse`) für ChatGPT
+- **OAuth 2.0** Authorization Code Flow (kompatibel mit claude.ai Konnektoren + ChatGPT)
+- Bearer Token Authentifizierung als Fallback
+- Auto-Generierung von Bearer Token + OAuth-Credentials beim ersten Start
+- Persistente Secrets in `/data/mcp_secrets.json` — überleben Add-on-Updates
+- `public_url` Konfigurationsfeld: fertige Verbindungs-URLs direkt im Startup-Log
 - Konfigurierbares Logging (debug bis critical)
-- Health-Check Endpoint
-- Multi-Architektur: amd64, aarch64, armv7, i386
+- Health-Check Endpoint (`/health`)
 
 ## Installation
 
-### Als Home Assistant Add-on
+### Als Home Assistant Add-on (lokal)
 
-1. In Home Assistant unter **Einstellungen → Add-ons → Add-on Store** auf die drei Punkte klicken
-2. **Repositories** wählen und die Repository-URL eintragen:
-   ```
-   https://github.com/YOUR_USER/printix-mcp-addon
-   ```
-3. **Printix MCP Server** aus der Liste installieren
-4. Unter **Konfiguration** die Printix-Credentials eintragen
-5. Add-on starten
-6. Bearer Token aus dem Log kopieren und in die Konfiguration eintragen
+1. Add-on-Ordner in `/addons/printix-mcp/` ablegen
+2. In Home Assistant: **Einstellungen → Add-ons → Add-on Store → Neu laden**
+3. **Printix MCP Server** aus „Lokale Add-ons" installieren
+4. Unter **Konfiguration** mindestens `tenant_id` und ein Credentials-Paar eintragen
+5. `public_url` auf die öffentlich erreichbare URL setzen (z.B. via Cloudflare Tunnel)
+6. Add-on starten — alle Verbindungs-URLs erscheinen im Log
 
-### Standalone (Docker)
+### Via GitHub Repository (geplant)
 
-```bash
-docker build -t printix-mcp ./printix-mcp
-docker run -d \
-  -p 8765:8765 \
-  -e PRINTIX_TENANT_ID=your-tenant-id \
-  -e PRINTIX_PRINT_CLIENT_ID=your-client-id \
-  -e PRINTIX_PRINT_CLIENT_SECRET=your-secret \
-  -e MCP_BEARER_TOKEN=your-token \
-  printix-mcp
+```
+https://github.com/YOUR_USER/printix-mcp-addon
 ```
 
-## Schnellstart
+## Verbindung mit claude.ai
 
-Nach der Installation und Konfiguration den Bearer Token in Claude Desktop eintragen:
+1. claude.ai → **Einstellungen → Konnektoren → Verbinden**
+2. Felder aus dem Add-on-Log kopieren:
+   - **Remote MCP URL:** `https://deine-domain.de/mcp`  ← `/mcp`, nicht `/sse`
+   - **OAuth Client-ID:** aus dem Log
+   - **OAuth Client-Secret:** aus dem Log
+3. OAuth-Autorisierungsseite bestätigen
 
-```json
-{
-  "printix": {
-    "url": "http://<home-assistant-ip>:8765/sse",
-    "headers": {
-      "Authorization": "Bearer <dein-token>"
-    }
-  }
-}
-```
+## Verbindung mit ChatGPT
 
-## Dokumentation
+1. ChatGPT → **Neue App → Authentifizierung: OAuth**
+2. Felder aus dem Add-on-Log kopieren:
+   - **URL des MCP-Servers:** `https://deine-domain.de/sse`
+   - **OAuth Client-ID / Secret:** aus dem Log
+   - **Token-Authentif.-methode:** `client_secret_post`
+   - **Auth-URL:** `https://deine-domain.de/oauth/authorize`
+   - **Token-URL:** `https://deine-domain.de/oauth/token`
+   - Scopes und Registrierungs-URL: leer lassen
 
-Vollständige Dokumentation: [DOCS.md](printix-mcp/DOCS.md)
+## Vollständige Dokumentation
+
+→ [DOCS.md](printix-mcp/DOCS.md)
 
 ## Lizenz
 
--
+MIT
 
 ## Autor
 
-Marcus N.
+Marcus Nimtz — Tungsten Automation

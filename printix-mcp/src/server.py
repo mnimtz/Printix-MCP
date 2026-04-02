@@ -949,6 +949,42 @@ def printix_delete_snmp_config(config_id: str) -> str:
         return _err(e)
 
 
+# ─── Dual Transport Router ────────────────────────────────────────────────────
+
+class DualTransportApp:
+    """
+    ASGI-Router: leitet Anfragen an den passenden MCP-Transport weiter.
+
+      POST /mcp   → Streamable HTTP Transport (claude.ai, neuere MCP-Clients)
+      GET  /sse   → SSE Transport             (ChatGPT, ältere MCP-Clients)
+      POST /messages/ → SSE Message Handler
+
+    Lifespan wird an http_app weitergeleitet, damit der StreamableHTTP-
+    SessionManager seinen anyio-TaskGroup beim Start initialisieren kann.
+    Der SSE-Transport benötigt kein Lifespan (no-op).
+
+    Auth-Middleware sitzt davor und schützt beide Endpunkte gleichermaßen.
+    """
+
+    def __init__(self, sse_app, http_app):
+        self.sse_app = sse_app
+        self.http_app = http_app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "lifespan":
+            # Lifespan an http_app weiterleiten — initialisiert den
+            # StreamableHTTPSessionManager (anyio TaskGroup).
+            # SSE-Transport hat nur _DefaultLifespan (no-op), kein Handlungsbedarf.
+            await self.http_app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if path == "/mcp" or path.startswith("/mcp/"):
+            await self.http_app(scope, receive, send)
+        else:
+            await self.sse_app(scope, receive, send)
+
+
 # ─── Entry Point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -960,10 +996,12 @@ if __name__ == "__main__":
     oauth_id     = os.environ.get("OAUTH_CLIENT_ID", "")
     oauth_secret = os.environ.get("OAUTH_CLIENT_SECRET", "")
 
-    # Basis-App
-    app = mcp.sse_app()
+    # Beide MCP-Transport-Apps
+    sse_transport  = mcp.sse_app()
+    http_transport = mcp.streamable_http_app()
+    app = DualTransportApp(sse_transport, http_transport)
 
-    # Layer 1: Bearer Token Auth (schützt den MCP SSE Endpoint)
+    # Layer 1: Bearer Token Auth (schützt beide Endpunkte)
     if bearer_token:
         logger.info("Bearer Token Authentifizierung aktiviert")
         app = BearerAuthMiddleware(app, token=bearer_token)
@@ -971,8 +1009,6 @@ if __name__ == "__main__":
         logger.warning("KEIN Bearer Token gesetzt — MCP-Endpoint ist UNGESCHÜTZT!")
 
     # Layer 2: OAuth 2.0 (sitzt vor Bearer Auth, stellt Tokens aus)
-    # ChatGPT und andere OAuth-Clients authentifizieren sich hier und
-    # erhalten als Access Token den Bearer Token — danach läuft alles normal.
     if oauth_id and oauth_secret and bearer_token:
         logger.info("OAuth 2.0 aktiviert (client_id=%s)", oauth_id)
         logger.info("  Authorize: https://<deine-domain>/oauth/authorize")
@@ -984,5 +1020,7 @@ if __name__ == "__main__":
     elif oauth_id or oauth_secret:
         logger.warning("OAuth unvollständig konfiguriert — OAUTH_CLIENT_ID und OAUTH_CLIENT_SECRET werden beide benötigt")
 
-    logger.info("Starte Printix MCP Server auf %s:%d (SSE Transport)", host, port)
+    logger.info("Starte Printix MCP Server auf %s:%d (SSE + Streamable HTTP)", host, port)
+    logger.info("  ChatGPT → %s/sse", f"http://{host}:{port}")
+    logger.info("  Claude  → %s/mcp", f"http://{host}:{port}")
     uvicorn.run(app, host=host, port=port, log_level=LOG_LEVEL.lower())

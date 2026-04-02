@@ -234,8 +234,12 @@ class OAuthMiddleware:
             }
         elif "oauth-protected-resource" in path:
             # RFC 9728 Protected Resource Metadata
+            # Beide MCP-Endpunkte als Ressourcen eintragen:
+            #   /mcp  → Streamable HTTP (claude.ai)
+            #   /sse  → SSE Transport   (ChatGPT)
             data = {
-                "resource": f"{base}/sse",
+                "resource": f"{base}/mcp",
+                "resource_documentation": f"{base}/mcp",
                 "authorization_servers": [base],
             }
         else:
