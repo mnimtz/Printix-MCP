@@ -64,4 +64,4 @@ MIT
 
 ## Autor
 
-Marcus Nimtz — Tungsten Automation
+Marcus N.
