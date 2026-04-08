@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Printix MCP{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card">
+    <div class="section-title">Mein MCP-Account</div>
+    <div class="section-sub">Verbindungsinfos und Zugangsdaten für deine MCP-Clients.</div>
+
+    {% if tenant %}
+    <table style="margin-bottom:24px;">
+      <tr><th style="width:180px;">Tenant</th><td>{{ tenant.name }}</td></tr>
+      <tr><th>Printix Tenant-ID</th><td><code>{{ tenant.printix_tenant_id }}</code></td></tr>
+      <tr>
+        <th>MCP-Endpunkt (claude.ai)</th>
+        <td><div class="code-block" style="padding:8px 12px; display:inline-flex; gap:8px;" id="mcp-url">{{ mcp_url }}<button class="copy-btn" style="position:static;" onclick="copyToClipboard('mcp-url')">⧉</button></div></td>
+      </tr>
+      <tr>
+        <th>SSE-Endpunkt (ChatGPT)</th>
+        <td><div class="code-block" style="padding:8px 12px; display:inline-flex; gap:8px;" id="sse-url">{{ sse_url }}<button class="copy-btn" style="position:static;" onclick="copyToClipboard('sse-url')">⧉</button></div></td>
+      </tr>
+      <tr>
+        <th>OAuth Client-ID</th>
+        <td><div class="code-block" style="padding:8px 12px;" id="oauth-id">{{ tenant.oauth_client_id }}<button class="copy-btn" style="position:static;" onclick="copyToClipboard('oauth-id')">⧉</button></div></td>
+      </tr>
+    </table>
+    <div class="alert alert-info">
+      <strong>Bearer Token</strong> und <strong>OAuth-Secret</strong> wurden bei der Registrierung angezeigt.
+      Bitte beim Admin melden wenn du sie erneut benötigst.
+    </div>
+    {% else %}
+    <div class="alert alert-warning">Kein Tenant-Account gefunden. Bitte Support kontaktieren.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

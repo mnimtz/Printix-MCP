@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Registrierung — Zusammenfassung{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card">
+    <div class="steps">
+      <div class="step-item"><div class="step-circle done">✓</div><span class="step-label">Konto</span></div>
+      <div class="step-connector"></div>
+      <div class="step-item"><div class="step-circle done">✓</div><span class="step-label">Printix API</span></div>
+      <div class="step-connector"></div>
+      <div class="step-item"><div class="step-circle done">✓</div><span class="step-label">Optional</span></div>
+      <div class="step-connector"></div>
+      <div class="step-item"><div class="step-circle active">4</div><span class="step-label active">Zusammenfassung</span></div>
+    </div>
+
+    <div class="section-title">Zusammenfassung</div>
+    <div class="section-sub">Bitte prüfe deine Angaben. Nach dem Absenden werden Zugangsdaten generiert.</div>
+
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+    <table style="margin-bottom:24px;">
+      <tr><th style="width:180px;">Benutzername</th><td>{{ username }}</td></tr>
+      <tr><th>Tenant</th><td>{{ tenant_name or tenant_id }}</td></tr>
+      <tr><th>Printix Tenant-ID</th><td><code>{{ tenant_id }}</code></td></tr>
+      <tr>
+        <th>SQL Reporting</th>
+        <td>{% if sql_configured %}<span class="badge badge-green">✓ Konfiguriert</span>{% else %}<span class="badge badge-yellow">Nicht konfiguriert</span>{% endif %}</td>
+      </tr>
+      <tr>
+        <th>Mail-Versand</th>
+        <td>{% if mail_configured %}<span class="badge badge-green">✓ Konfiguriert</span>{% else %}<span class="badge badge-yellow">Nicht konfiguriert</span>{% endif %}</td>
+      </tr>
+      <tr><th>MCP Endpoint</th><td><code>{{ base_url }}/mcp</code></td></tr>
+    </table>
+
+    <div class="alert alert-info">
+      Nach dem Abschließen erhältst du <strong>Bearer Token</strong> und <strong>OAuth-Credentials</strong>
+      — bitte sofort notieren oder sichern.
+    </div>
+
+    <form method="post" action="/register/summary">
+      <div style="display:flex; gap:12px;">
+        <a href="/register/optional" class="btn btn-secondary">← Zurück</a>
+        <button type="submit" class="btn btn-primary">🚀 Registrierung abschließen</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

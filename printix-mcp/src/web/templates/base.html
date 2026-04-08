@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Printix MCP{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #f0f2f5; color: #1a1a2e; min-height: 100vh;
+    }
+    nav {
+      background: #1e3a5f; color: #fff; padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 56px; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+    .nav-brand { font-weight: 700; font-size: 1.1em; display: flex; align-items: center; gap: 8px; }
+    .nav-links { display: flex; gap: 16px; }
+    .nav-links a { color: rgba(255,255,255,.8); text-decoration: none; font-size: .9em; transition: color .15s; }
+    .nav-links a:hover { color: #fff; }
+    .container { max-width: 860px; margin: 40px auto; padding: 0 20px; }
+    .card {
+      background: #fff; border-radius: 12px; padding: 32px 36px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.07);
+    }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; font-size: .87em; font-weight: 600; color: #444; margin-bottom: 6px; }
+    input[type=text], input[type=password], input[type=email], select {
+      width: 100%; padding: 10px 14px; border: 1px solid #d1d5db;
+      border-radius: 8px; font-size: .95em; transition: border-color .15s; background: #fff;
+    }
+    input:focus, select:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+    small.hint { display: block; margin-top: 4px; color: #6b7280; font-size: .82em; }
+    .btn {
+      display: inline-block; padding: 10px 22px; border: none;
+      border-radius: 8px; font-size: .95em; font-weight: 600;
+      cursor: pointer; transition: background .15s, box-shadow .15s; text-decoration: none;
+    }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; box-shadow: 0 2px 8px rgba(37,99,235,.3); }
+    .btn-secondary { background: #f1f5f9; color: #374151; }
+    .btn-secondary:hover { background: #e2e8f0; }
+    .btn-danger { background: #ef4444; color: #fff; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-success { background: #16a34a; color: #fff; }
+    .btn-success:hover { background: #15803d; }
+    .btn-sm { padding: 6px 14px; font-size: .85em; }
+    .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: .9em; }
+    .alert-error { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+    .alert-success { background: #dcfce7; border: 1px solid #86efac; color: #166534; }
+    .alert-info { background: #dbeafe; border: 1px solid #93c5fd; color: #1e40af; }
+    .alert-warning { background: #fef9c3; border: 1px solid #fde047; color: #854d0e; }
+    table { width: 100%; border-collapse: collapse; font-size: .9em; }
+    th { text-align: left; padding: 10px 14px; background: #f8fafc; color: #6b7280;
+         font-size: .82em; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+         border-bottom: 1px solid #e5e7eb; }
+    td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: .78em; font-weight: 600;
+    }
+    .badge-green { background: #dcfce7; color: #166534; }
+    .badge-yellow { background: #fef9c3; color: #854d0e; }
+    .badge-red { background: #fee2e2; color: #991b1b; }
+    .badge-blue { background: #dbeafe; color: #1e40af; }
+    .code-block {
+      background: #1e293b; color: #e2e8f0; padding: 14px 16px;
+      border-radius: 8px; font-family: 'Courier New', monospace; font-size: .88em;
+      word-break: break-all; position: relative;
+    }
+    .copy-btn {
+      position: absolute; top: 8px; right: 8px;
+      background: rgba(255,255,255,.1); color: #e2e8f0;
+      border: none; border-radius: 6px; padding: 4px 10px;
+      font-size: .78em; cursor: pointer; transition: background .15s;
+    }
+    .copy-btn:hover { background: rgba(255,255,255,.2); }
+    .divider { height: 1px; background: #e5e7eb; margin: 24px 0; }
+    .steps { display: flex; align-items: center; margin-bottom: 32px; }
+    .step-item { display: flex; align-items: center; flex: 1; }
+    .step-circle {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: .85em; flex-shrink: 0;
+    }
+    .step-circle.active { background: #2563eb; color: #fff; }
+    .step-circle.done { background: #16a34a; color: #fff; }
+    .step-circle.pending { background: #e5e7eb; color: #9ca3af; }
+    .step-label { margin-left: 8px; font-size: .82em; font-weight: 500; color: #6b7280; }
+    .step-label.active { color: #1a1a2e; font-weight: 700; }
+    .step-connector { flex: 1; height: 2px; background: #e5e7eb; margin: 0 8px; }
+    .section-title { font-size: 1.05em; font-weight: 700; color: #1e3a5f; margin-bottom: 6px; }
+    .section-sub { color: #6b7280; font-size: .88em; margin-bottom: 20px; }
+    @media (max-width: 600px) {
+      .card { padding: 24px 20px; }
+      .container { padding: 0 12px; margin: 20px auto; }
+    }
+  </style>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  {% if show_nav | default(true) %}
+  <nav>
+    <div class="nav-brand">🖨️ Printix MCP</div>
+    <div class="nav-links">
+      {% if user %}
+        {% if user.is_admin %}<a href="/admin">Admin</a>{% endif %}
+        <a href="/dashboard">Dashboard</a>
+        <a href="/logout">Abmelden</a>
+      {% else %}
+        <a href="/login">Anmelden</a>
+      {% endif %}
+    </div>
+  </nav>
+  {% endif %}
+  {% block content %}{% endblock %}
+  <script>
+    function copyToClipboard(id) {
+      const el = document.getElementById(id);
+      navigator.clipboard.writeText(el.textContent.trim()).then(() => {
+        const btn = el.parentElement.querySelector('.copy-btn');
+        if (btn) { btn.textContent = '✓ Kopiert'; setTimeout(() => btn.textContent = '⧉ Kopieren', 1500); }
+      });
+    }
+  </script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

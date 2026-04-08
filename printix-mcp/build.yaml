@@ -1,0 +1,7 @@
+# Home Assistant Add-on Build-Konfiguration
+# Verwendet Debian-Base-Images (erforderlich für FreeTDS/ODBC-Treiber)
+build_from:
+  amd64:   "ghcr.io/home-assistant/amd64-base-debian:latest"
+  aarch64: "ghcr.io/home-assistant/aarch64-base-debian:latest"
+  armv7:   "ghcr.io/home-assistant/armv7-base-debian:latest"
+  i386:    "ghcr.io/home-assistant/i386-base-debian:latest"

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Benutzerverwaltung — Printix MCP{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+      <div>
+        <div class="section-title">Benutzerverwaltung</div>
+        <div class="section-sub">Benutzer genehmigen, deaktivieren und verwalten.</div>
+      </div>
+      <a href="/admin" class="btn btn-secondary btn-sm">← Übersicht</a>
+    </div>
+
+    {% if users %}
+    <table>
+      <thead>
+        <tr>
+          <th>Benutzername</th><th>E-Mail</th><th>Status</th><th>Rolle</th><th>Registriert</th><th>Aktionen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td><strong>{{ u.username }}</strong></td>
+          <td>{{ u.email or '—' }}</td>
+          <td>
+            {% if u.status == 'approved' %}<span class="badge badge-green">✓ Freigegeben</span>
+            {% elif u.status == 'pending' %}<span class="badge badge-yellow">⏳ Ausstehend</span>
+            {% else %}<span class="badge badge-red">✗ Deaktiviert</span>{% endif %}
+          </td>
+          <td>
+            {% if u.is_admin %}<span class="badge badge-blue">Admin</span>
+            {% else %}<span style="color:#6b7280; font-size:.85em;">Benutzer</span>{% endif %}
+          </td>
+          <td style="font-size:.85em; color:#6b7280;">{{ u.created_at[:10] if u.created_at else '—' }}</td>
+          <td>
+            {% if u.id != user.id %}
+              {% if u.status != 'approved' %}
+              <form method="post" action="/admin/users/{{ u.id }}/approve" style="display:inline;">
+                <button type="submit" class="btn btn-success btn-sm">✓ Freischalten</button>
+              </form>
+              {% endif %}
+              {% if u.status != 'disabled' %}
+              <form method="post" action="/admin/users/{{ u.id }}/disable" style="display:inline; margin-left:6px;">
+                <button type="submit" class="btn btn-danger btn-sm"
+                        onclick="return confirm('Benutzer {{ u.username }} wirklich deaktivieren?')">✗ Sperren</button>
+              </form>
+              {% endif %}
+            {% else %}
+              <span style="font-size:.82em; color:#9ca3af;">— (dein Account)</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="alert alert-info">Noch keine Benutzer registriert.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

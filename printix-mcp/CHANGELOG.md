@@ -1,6 +1,66 @@
 # Changelog
 
-## 1.13.0 (2026-04-02)
+## 1.15.0 (2026-04-08)
+
+### Behoben
+- **FreeTDS/ODBC-Treiber nicht gefunden**: HA-Base-Image ist Debian-basiert, nicht Alpine —
+  `apk add freetds` hatte keinen Effekt. Fix:
+  - `build.yaml` erstellt: erzwingt `ghcr.io/home-assistant/{arch}-base-debian:latest`
+  - Dockerfile auf `apt-get install tdsodbc` umgestellt (registriert Treiber automatisch)
+  - Fallback im Dockerfile: findet `libtdsodbc.so` per `find` wenn `odbcinst.ini` leer
+  - `echo "\n"` → `printf` (Echo schrieb Literal `\n` statt Zeilenumbruch)
+
+### Neu
+- `printix_reporting_status` Tool: zeigt ODBC-Treiber, SQL-Konfiguration und Mail-Status —
+  für einfache Diagnose ohne Log-Suche
+
+### Geändert
+- `sql_client.py`: robustere Treiber-Erkennung mit priorisierter Suche, direktem `.so`-Pfad
+  als letztem Fallback und hilfreichen Fehlermeldungen
+- FreeTDS-Verbindungsstring: Port `,1433` + `TDS_Version=7.4` (kein `Encrypt=yes` bei FreeTDS)
+
+## 1.14.0 (2026-04-08)
+
+### Neu — AI Reporting & Automation (v1.0)
+
+**Datengrundlage**: Direktzugriff auf Printix Azure SQL BI-Datenbank
+(`printix-bi-data-2.database.windows.net / printix_bi_data_2_1`).
+Kostenformeln aus dem offiziellen Printix PowerBI-Template übernommen.
+
+**6 neue Query-Tools** (Datenabfrage):
+- `printix_query_print_stats` — Druckvolumen nach Zeitraum/User/Drucker/Standort
+- `printix_query_cost_report` — Kosten mit Papier-/Toner-/Gesamtaufschlüsselung
+- `printix_query_top_users`   — Nutzer-Ranking nach Volumen oder Kosten
+- `printix_query_top_printers`— Drucker-Ranking nach Volumen oder Kosten
+- `printix_query_anomalies`   — Ausreißer-Erkennung via Mittelwert + StdAbw
+- `printix_query_trend`       — Periodenvergleich mit Delta-Prozenten
+
+**5 neue Template-Tools** (Wiederverwendbare Reports):
+- `printix_save_report_template` — Speichert vollständige Report-Definition
+- `printix_list_report_templates`— Listet alle Templates
+- `printix_get_report_template`  — Ruft einzelnes Template ab
+- `printix_delete_report_template`— Löscht Template + Schedule
+- `printix_run_report_now`       — On-demand Ausführung mit Mail-Versand
+
+**4 neue Schedule-Tools** (Automatische Ausführung):
+- `printix_schedule_report`  — Legt Cron-Job an (täglich/wöchentlich/monatlich)
+- `printix_list_schedules`   — Aktive Schedules mit nächstem Run-Zeitpunkt
+- `printix_delete_schedule`  — Entfernt Schedule (Template bleibt)
+- `printix_update_schedule`  — Ändert Timing oder Empfänger
+
+**Infrastruktur**:
+- `src/reporting/` Modul: sql_client, query_tools, report_engine, template_store,
+  scheduler, mail_client
+- APScheduler (Background Thread) für zeitgesteuerte Ausführung
+- Resend API für HTML-Mail-Versand
+- Jinja2 HTML-Report-Template mit Branding (Firmenfarbe, Logo, Footer)
+- Templates persistent in `/data/report_templates.json`
+- Dynamische Datumswerte: `last_month_start`, `last_month_end`, `this_month_start`
+- Neues `config.yaml`-Schema: `sql_server`, `sql_database`, `sql_username`,
+  `sql_password`, `mail_api_key`, `mail_from`
+- Dockerfile: FreeTDS ODBC-Treiber für Alpine Linux
+
+## 1.13.0 (2026-04-08)
 
 ### Behoben
 - **`RuntimeError: Task group is not initialized`**: `DualTransportApp` leitete

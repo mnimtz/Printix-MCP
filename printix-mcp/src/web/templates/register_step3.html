@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Registrierung — Optionen{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card">
+    <div class="steps">
+      <div class="step-item"><div class="step-circle done">✓</div><span class="step-label">Konto</span></div>
+      <div class="step-connector"></div>
+      <div class="step-item"><div class="step-circle done">✓</div><span class="step-label">Printix API</span></div>
+      <div class="step-connector"></div>
+      <div class="step-item"><div class="step-circle active">3</div><span class="step-label active">Optional</span></div>
+      <div class="step-connector"></div>
+      <div class="step-item"><div class="step-circle pending">4</div><span class="step-label">Zusammenfassung</span></div>
+    </div>
+
+    <div class="section-title">Optionale Erweiterungen</div>
+    <div class="section-sub">Diese Einstellungen sind nicht erforderlich — du kannst sie jederzeit später hinzufügen.</div>
+
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+    <form method="post" action="/register/optional">
+      <div style="font-size:.9em; font-weight:700; color:#1e3a5f; margin-bottom:4px;">📊 Azure SQL Reporting</div>
+      <div style="font-size:.83em; color:#6b7280; margin-bottom:16px;">
+        Direktzugriff auf die Printix BI-Datenbank für AI-gestütztes Reporting.
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label>SQL Server</label>
+          <input type="text" name="sql_server" placeholder="printix-bi-data-2.database.windows.net">
+        </div>
+        <div class="form-group">
+          <label>Datenbank</label>
+          <input type="text" name="sql_database" value="printix_bi_data_2_1">
+        </div>
+        <div class="form-group">
+          <label>Benutzername</label>
+          <input type="text" name="sql_username" placeholder="SQL-Benutzername">
+        </div>
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label>Passwort</label>
+          <input type="password" name="sql_password" placeholder="SQL-Passwort">
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div style="font-size:.9em; font-weight:700; color:#1e3a5f; margin-bottom:4px;">📧 E-Mail-Versand (Resend)</div>
+      <div style="font-size:.83em; color:#6b7280; margin-bottom:16px;">
+        Für automatischen Versand von Reports. API-Key unter <strong>resend.com → API Keys</strong>.
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label>Resend API-Key</label>
+          <input type="password" name="mail_api_key" placeholder="re_...">
+        </div>
+        <div class="form-group">
+          <label>Absenderadresse</label>
+          <input type="email" name="mail_from" placeholder="reports@firma.de">
+        </div>
+      </div>
+
+      <div style="display:flex; gap:12px; margin-top:8px;">
+        <a href="/register/api" class="btn btn-secondary">← Zurück</a>
+        <button type="submit" class="btn btn-primary">Weiter →</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
