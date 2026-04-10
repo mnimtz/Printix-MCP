@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.6.5 (2026-04-10)
+
+### Fixed
+- Report-Vorschau: Symbolische Datumswerte (last_year_start/end etc.) werden vor Query-Ausführung aufgelöst
+
 ## 3.6.4 (2026-04-10)
 
 ### Fixed

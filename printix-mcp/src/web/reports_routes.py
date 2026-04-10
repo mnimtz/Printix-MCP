@@ -511,8 +511,9 @@ def register_reports_routes(
             from reporting.query_tools import run_query
             from reporting.report_engine import generate_report
             from reporting.sql_client import get_tenant_id
+            from reporting.scheduler import _resolve_dynamic_dates
 
-            qp = report.get("query_params", {})
+            qp = _resolve_dynamic_dates(report.get("query_params", {}))
             data = await __import__("asyncio").to_thread(
                 run_query,
                 query_type=report["query_type"],
