@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.6.4 (2026-04-10)
+
+### Fixed
+- Report-Vorschau: `run_query`-Dispatcher in query_tools.py ergänzt (fehlender Import)
+
 ## 3.6.3 (2026-04-10)
 
 ### Fixed

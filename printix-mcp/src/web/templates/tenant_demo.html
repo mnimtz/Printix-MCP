@@ -543,6 +543,8 @@ function startProgress() {
           window.location.href = demoPath + "?flash=generate_ok";
         } else if (d.status === "error") {
           window.location.href = demoPath + "?flash=error&flash_msg=" + encodeURIComponent(d.error || "Unbekannter Fehler");
+        } else if (d.status === 'unknown') {
+          window.location.href = demoPath + '?flash=error&flash_msg=' + encodeURIComponent('Verbindung unterbrochen. Bitte erneut starten.');
         } else {
           setTimeout(poll, 3000);
         }
