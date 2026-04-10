@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ _('admin_settings') }} — Printix MCP{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card" style="max-width:560px;margin:40px auto;">
+    <h2 class="section-title">{{ _('admin_settings') }}</h2>
+    <p class="section-sub" style="margin-bottom:24px;">
+      Server-weite Einstellungen — gelten für alle Benutzer.
+    </p>
+
+    {% if saved %}
+    <div class="alert alert-success">✓ {{ _('admin_saved') }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/admin/settings">
+      <div class="form-group">
+        <label>{{ _('admin_base_url') }}</label>
+        <input type="url" name="public_url" value="{{ public_url | default('') }}"
+               placeholder="https://mcp.firma.de">
+        <small class="hint">{{ _('admin_base_url_hint') }}</small>
+      </div>
+
+      <div class="alert alert-info" style="margin-bottom:20px;font-size:.88em;">
+        <strong>Aktuell aktive URL:</strong><br>
+        MCP: <code>{{ public_url or 'http://&lt;HA-IP&gt;:8765' }}/mcp</code><br>
+        SSE: <code>{{ public_url or 'http://&lt;HA-IP&gt;:8765' }}/sse</code><br>
+        OAuth: <code>{{ public_url or 'http://&lt;HA-IP&gt;:8765' }}/oauth/authorize</code>
+      </div>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button type="submit" class="btn btn-primary">{{ _('admin_save') }}</button>
+        <a href="/admin" class="btn btn-secondary">{{ _('cancel') }}</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

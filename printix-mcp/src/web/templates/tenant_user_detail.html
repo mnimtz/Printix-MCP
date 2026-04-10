@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}{{ _('tenant_tab_users') }} — Printix MCP{% endblock %}
+{% block extra_head %}
+<style>
+  .tenant-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid #e5e7eb; padding-bottom:0; }
+  .tenant-tab {
+    padding:8px 18px; font-size:.9em; font-weight:600; text-decoration:none;
+    color:#6b7280; border-radius:6px 6px 0 0; border:1px solid transparent;
+    border-bottom:none; margin-bottom:-2px;
+  }
+  .tenant-tab.active { background:#fff; border-color:#e5e7eb; border-bottom-color:#fff; color:#1e3a5f; }
+  .tenant-tab:hover:not(.active) { color:#374151; background:#f8fafc; }
+  .info-grid { display:grid; grid-template-columns:160px 1fr; gap:6px 16px; font-size:.9em; margin-bottom:20px; }
+  .info-label { color:#6b7280; font-weight:600; }
+  .role-badge {
+    display:inline-block; font-size:.78em; padding:2px 10px; border-radius:10px;
+    background:#fef3c7; color:#92400e; font-weight:700;
+  }
+  .role-badge.guest { background:#ede9fe; color:#5b21b6; }
+  .card-row { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; background:#f8fafc; margin-bottom:6px; }
+  .card-id { font-family:monospace; font-size:.85em; color:#374151; flex:1; word-break:break-all; }
+  .btn-danger-sm { background:#ef4444; color:#fff; border:none; border-radius:6px; padding:4px 12px; font-size:.8em; cursor:pointer; }
+  .btn-danger-sm:hover { background:#dc2626; }
+  .flash-ok  { background:#d1fae5; color:#065f46; border:1px solid #6ee7b7; padding:10px 16px; border-radius:8px; margin-bottom:16px; }
+  .flash-err { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; padding:10px 16px; border-radius:8px; margin-bottom:16px; }
+  .divider { border:none; border-top:1px solid #e5e7eb; margin:20px 0; }
+  .action-box { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:12px; }
+  .action-box h4 { margin:0 0 10px; font-size:.9em; color:#374151; }
+  .avatar-lg {
+    width:56px; height:56px; border-radius:50%; background:#dbeafe; color:#1d4ed8;
+    font-weight:700; font-size:1.4em; display:inline-flex; align-items:center;
+    justify-content:center; text-transform:uppercase; flex-shrink:0;
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container" style="max-width:900px;">
+  <div class="card">
+    <h2 class="section-title" style="margin-bottom:16px;">🖨️ {{ _('nav_tenant') }}</h2>
+
+    <!-- Sub-Tabs -->
+    <div class="tenant-tabs">
+      <a href="/tenant/printers" class="tenant-tab">🖨️ {{ _('tenant_tab_printers') }}</a>
+      <a href="/tenant/queues"   class="tenant-tab">📋 {{ _('tenant_tab_queues') }}</a>
+      <a href="/tenant/users"    class="tenant-tab active">👤 {{ _('tenant_tab_users') }}</a>
+    </div>
+
+    <!-- Flash messages -->
+    {% if flash == "card_added" %}
+    <div class="flash-ok">✅ {{ _('user_card_added_ok') }}</div>
+    {% elif flash == "card_deleted" %}
+    <div class="flash-ok">✅ {{ _('user_card_deleted_ok') }}</div>
+    {% elif flash == "code_generated" %}
+    <div class="flash-ok">🔑 {{ _('user_code_generated') }}: <strong>{{ request.query_params.get('idcode', '?') }}</strong></div>
+    {% elif flash == "created" %}
+    <div class="flash-ok">✅ {{ _('user_card_added_ok') }}</div>
+    {% elif flash == "error" %}
+    <div class="flash-err">❌ {{ request.query_params.get('errmsg', 'Error') }}</div>
+    {% endif %}
+
+    {% if error == "no_card_creds" %}
+    <div class="alert alert-warning">⚠️ {{ _('tenant_no_card_creds') }}</div>
+    {% elif error %}
+    <div class="alert alert-error">❌ {{ error }}</div>
+    {% elif px_user %}
+
+    {% set display = px_user.get('name') or px_user.get('displayName') or px_user.get('fullName') or '?' %}
+    {% set roles_list = px_user.get('roles') or [] %}
+    {% set role = roles_list[0] if roles_list else px_user.get('role', 'USER') %}
+    {% set is_guest = role == 'GUEST_USER' %}
+
+    <!-- User Header -->
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+      <div class="avatar-lg">{{ display[:1] }}</div>
+      <div>
+        <div style="font-size:1.15em;font-weight:700;color:#1e3a5f;">{{ display }}</div>
+        <div style="color:#6b7280;font-size:.88em;">{{ px_user.get('email', '–') }}</div>
+        <span class="role-badge {% if is_guest %}guest{% endif %}">
+          {{ role | replace('_', ' ') }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Info Grid -->
+    <div class="info-grid">
+      <span class="info-label">ID:</span>
+      <span style="font-family:monospace;font-size:.82em;color:#6b7280;">{{ printix_user_id }}</span>
+      {% if px_user.get('idCode') %}
+      <span class="info-label">ID-Code:</span>
+      <span style="font-family:monospace;">{{ px_user.get('idCode') }}</span>
+      {% endif %}
+      {% if px_user.get('expirationTimestamp') %}
+      <span class="info-label">Expires:</span>
+      <span>{{ px_user.get('expirationTimestamp') }}</span>
+      {% endif %}
+    </div>
+
+    <hr class="divider">
+
+    <!-- Cards Section -->
+    <h3 style="font-size:1em;font-weight:700;margin-bottom:12px;">🃏 {{ _('user_detail_cards') }} ({{ cards|length }})</h3>
+
+    {% for c in cards %}
+    {% set cid = c.get('card_id') or c.get('id', '') %}
+    <div class="card-row">
+      <span style="font-size:1.2em;">🃏</span>
+      <span class="card-id">{{ cid }}</span>
+      <form method="post" action="/tenant/users/{{ printix_user_id }}/delete-card"
+            onsubmit="return confirm('{{ _('user_confirm_del_card') }}')">
+        <input type="hidden" name="card_id" value="{{ cid }}">
+        <button type="submit" class="btn-danger-sm">🗑</button>
+      </form>
+    </div>
+    {% else %}
+    <p style="color:#9ca3af;font-size:.88em;font-style:italic;">No cards registered.</p>
+    {% endfor %}
+
+    <!-- Add Card -->
+    <div class="action-box" style="margin-top:14px;">
+      <h4>➕ {{ _('user_detail_add_card') }}</h4>
+      <form method="post" action="/tenant/users/{{ printix_user_id }}/add-card"
+            style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input type="text" name="card_number" placeholder="{{ _('user_detail_card_number') }}"
+               required style="flex:1;min-width:180px;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:.9em;">
+        <button type="submit" class="btn btn-primary" style="white-space:nowrap;">
+          ➕ {{ _('user_detail_add_card') }}
+        </button>
+      </form>
+    </div>
+
+    <hr class="divider">
+
+    <!-- Actions -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+
+      {% if is_guest %}
+      <!-- Generate ID Code -->
+      <form method="post" action="/tenant/users/{{ printix_user_id }}/generate-id-code">
+        <button type="submit" class="btn btn-secondary">🔑 {{ _('user_detail_gen_code') }}</button>
+      </form>
+
+      <!-- Delete User -->
+      <form method="post" action="/tenant/users/{{ printix_user_id }}/delete"
+            onsubmit="return confirm('{{ _('user_confirm_del_user') }}')">
+        <button type="submit" class="btn" style="background:#ef4444;color:#fff;border:none;">
+          🗑 {{ _('user_detail_delete_user') }}
+        </button>
+      </form>
+      {% else %}
+      <span style="font-size:.82em;color:#9ca3af;">
+        ℹ️ Regular users (USER) are managed via directory services and cannot be deleted here.
+      </span>
+      {% endif %}
+
+    </div>
+
+    {% else %}
+    <div class="alert alert-info">User not found.</div>
+    {% endif %}
+
+    <div style="margin-top:24px;">
+      <a href="/tenant/users" class="btn btn-secondary">← {{ _('user_detail_back') }}</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

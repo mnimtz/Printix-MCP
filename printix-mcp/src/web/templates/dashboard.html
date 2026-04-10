@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ _('dash_title') }} — Printix MCP{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card">
+    <div class="section-title">{{ _('dash_title') }}</div>
+    <div class="section-sub">{{ _('dash_connection') }}</div>
+
+    {% if tenant %}
+    <table style="margin-bottom:24px;">
+      <tr><th style="width:200px;">Tenant</th><td>{{ tenant.name }}</td></tr>
+      <tr>
+        <th>Printix Tenant-ID</th>
+        <td><code>{{ tenant.printix_tenant_id }}</code></td>
+      </tr>
+      <tr>
+        <th>MCP (claude.ai)</th>
+        <td>
+          <div class="code-block" id="mcp-url-block">
+            <button class="copy-btn" onclick="copyToClipboard('mcp-url-val', this)">⧉</button>
+            <span id="mcp-url-val">{{ mcp_url }}</span>
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <th>SSE (ChatGPT)</th>
+        <td>
+          <div class="code-block" id="sse-url-block">
+            <button class="copy-btn" onclick="copyToClipboard('sse-url-val', this)">⧉</button>
+            <span id="sse-url-val">{{ sse_url }}</span>
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <th>{{ _('dash_bearer') }}</th>
+        <td>
+          <div class="code-block" id="bearer-block">
+            <button class="copy-btn" onclick="copyToClipboard('bearer-val', this)">⧉</button>
+            <span id="bearer-val">{{ tenant.bearer_token }}</span>
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <th>{{ _('dash_oauth_id') }}</th>
+        <td>
+          <div class="code-block" id="oauth-id-block">
+            <button class="copy-btn" onclick="copyToClipboard('oauth-id-val', this)">⧉</button>
+            <span id="oauth-id-val">{{ tenant.oauth_client_id }}</span>
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
+      <a href="/help" class="btn btn-primary">📖 {{ _('dash_connection') }}</a>
+      <a href="/settings" class="btn btn-secondary">⚙️ {{ _('dash_edit_creds') }}</a>
+      <a href="/settings/password" class="btn btn-secondary">🔑 {{ _('dash_change_pw') }}</a>
+    </div>
+
+    {% else %}
+    <div class="alert alert-warning">
+      Kein Tenant-Account gefunden. Bitte
+      <a href="/settings">Einstellungen</a> öffnen und Printix-Credentials eintragen.
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

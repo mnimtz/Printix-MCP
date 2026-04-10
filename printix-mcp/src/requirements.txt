@@ -1,3 +1,18 @@
 mcp[cli]>=1.6.0
 requests>=2.31.0
 uvicorn>=0.29.0
+
+# Web-Verwaltungsoberfläche (FastAPI + Jinja2)
+fastapi>=0.111.0,<0.116.0
+starlette>=0.40.0,<1.0.0
+python-multipart>=0.0.9
+jinja2>=3.1.0
+itsdangerous>=2.1.0
+
+# Multi-Tenant Verschlüsselung + Passwort-Hashing
+cryptography>=42.0.0
+bcrypt>=4.1.0
+
+# Reporting — SQL, Scheduling, Mail
+pyodbc>=5.1.0
+APScheduler>=3.10.0

@@ -11,10 +11,13 @@ Auth:     https://auth.printix.net/oauth/token
 API Base: https://api.printix.net/cloudprint
 """
 
+import logging
 import time
 import base64
 import requests
 from typing import Optional, Any
+
+logger = logging.getLogger("printix_client")
 
 
 class PrintixAPIError(Exception):
@@ -49,6 +52,7 @@ class _TokenManager:
     def get_token(self) -> str:
         if self._token and time.time() < self._expires_at - 60:
             return self._token
+        logger.debug("OAuth token request: %s", self.label)
         resp = self._session.post(
             self.AUTH_URL,
             data={
@@ -65,6 +69,7 @@ class _TokenManager:
         data = resp.json()
         self._token = data["access_token"]
         self._expires_at = time.time() + data.get("expires_in", 3600)
+        logger.info("OAuth token OK: %s (expires_in=%ss)", self.label, data.get("expires_in", 3600))
         return self._token
 
 
@@ -134,6 +139,7 @@ class PrintixClient:
     def _handle_response(self, resp: requests.Response) -> Any:
         if resp.status_code == 429:
             retry = resp.headers.get("X-Rate-Limit-Retry-After-Seconds", "?")
+            logger.warning("Rate limit hit (retry-after=%ss): %s", retry, resp.url)
             raise PrintixAPIError(429, f"Rate limit exceeded. Retry after {retry}s.")
         if not resp.ok:
             try:
@@ -143,9 +149,11 @@ class PrintixClient:
             except Exception:
                 msg = resp.text
                 err_id = ""
+            logger.error("API %s %s → %s: %s", resp.request.method if resp.request else '?', resp.url, resp.status_code, msg)
             raise PrintixAPIError(resp.status_code, msg, err_id)
         if resp.status_code == 204 or not resp.content:
             return {"success": True}
+        logger.debug("API %s %s → %s", resp.request.method if resp.request else '?', resp.url, resp.status_code)
         return resp.json()
 
     def _get(self, tm: _TokenManager, path: str, params: Optional[dict] = None) -> Any:
@@ -358,8 +366,11 @@ class PrintixClient:
         else:
             raise ValueError("Either card_id or card_number must be provided.")
 
-    def delete_card(self, card_id: str) -> Any:
-        """Remove a card association."""
+    def delete_card(self, card_id: str, user_id: Optional[str] = None) -> Any:
+        """Remove a card association.
+        Uses DELETE /cards/{card_id} (global Card API endpoint).
+        The user-scoped /users/{uid}/cards/{cid} endpoint returns 405 Method Not Allowed.
+        user_id parameter kept for backward-compat but is intentionally ignored."""
         tm = self._require_tm(self._card_tm, "Card Management")
         return self._delete(tm, f"/cards/{card_id}")
 

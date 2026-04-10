@@ -1,17 +1,18 @@
 """
-Minimaler OAuth 2.0 Authorization Code Server für Printix MCP.
+Multi-Tenant OAuth 2.0 Authorization Code Server für Printix MCP.
 
 Implementiert den Authorization Code Flow (RFC 6749):
-  1. GET  /oauth/authorize  → zeigt Bestätigungsseite im Browser
+  1. GET  /oauth/authorize  → Bestätigungsseite (zeigt Tenant-Name)
   2. POST /oauth/authorize  → User klickt "Erlauben" → Redirect mit Code
   3. POST /oauth/token      → Code gegen Bearer Token tauschen
 
-Kompatibel mit ChatGPT MCP Connector (Authentifizierung: "Gemischt" / OAuth).
+Alle OAuth-Credentials (client_id, client_secret) und der ausgestellte
+Bearer Token werden pro Tenant in der SQLite-DB verwaltet.
+Der Tenant wird anhand der client_id aus dem Token-Request bestimmt.
 
-Konfiguration (via Umgebungsvariablen):
-  OAUTH_CLIENT_ID      — Client-ID, die in ChatGPT eingetragen wird
-  OAUTH_CLIENT_SECRET  — Client-Secret, das in ChatGPT eingetragen wird
-  MCP_BEARER_TOKEN     — der eigentliche Access Token (wird nach OAuth ausgegeben)
+Kompatibel mit:
+  - claude.ai Konnektoren (Streamable HTTP /mcp)
+  - ChatGPT MCP Connector (SSE /sse)
 """
 
 import json
@@ -22,8 +23,7 @@ import time
 
 logger = logging.getLogger("printix.oauth")
 
-# In-memory Authorization Code Store
-# {code: {client_id, redirect_uri, expires_at}}
+# In-memory Authorization Code Store: {code: {tenant_id, client_id, redirect_uri, expires_at}}
 _auth_codes: dict = {}
 _request_count = 0
 
@@ -55,50 +55,38 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
       min-height: 100vh;
     }}
     .card {{
-      background: #fff;
-      border-radius: 16px;
-      padding: 40px 36px;
-      max-width: 440px;
-      width: 100%;
+      background: #fff; border-radius: 16px; padding: 40px 36px;
+      max-width: 440px; width: 100%;
       box-shadow: 0 8px 32px rgba(0,0,0,.10);
     }}
-    .icon {{ font-size: 2.4em; margin-bottom: 12px; }}
+    .logo {{ font-size: 2.4em; margin-bottom: 12px; }}
     h1 {{ font-size: 1.4em; color: #111; margin-bottom: 8px; }}
     .sub {{ color: #555; font-size: .95em; line-height: 1.55; margin-bottom: 24px; }}
-    .client-box {{
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      border-radius: 8px;
-      padding: 12px 16px;
-      margin-bottom: 28px;
-      font-size: .9em;
-      color: #1d4ed8;
-      font-weight: 600;
+    .tenant-box {{
+      background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;
+      padding: 12px 16px; margin-bottom: 28px;
+      font-size: .9em; color: #1d4ed8; font-weight: 600;
     }}
     .btn {{
       display: block; width: 100%; padding: 14px;
       border: none; border-radius: 10px; font-size: 1em;
       font-weight: 600; cursor: pointer; transition: background .15s;
     }}
-    .btn-approve {{
-      background: #2563eb; color: #fff; margin-bottom: 10px;
-    }}
+    .btn-approve {{ background: #2563eb; color: #fff; margin-bottom: 10px; }}
     .btn-approve:hover {{ background: #1d4ed8; }}
-    .btn-deny {{
-      background: #f1f5f9; color: #374151;
-    }}
+    .btn-deny {{ background: #f1f5f9; color: #374151; }}
     .btn-deny:hover {{ background: #e2e8f0; }}
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="icon">🖨️</div>
+    <div class="logo">🖨️</div>
     <h1>Printix MCP Server</h1>
     <p class="sub">
       Eine externe App möchte auf deinen Printix MCP Server zugreifen
       und Printix-Ressourcen in deinem Namen verwalten.
     </p>
-    <div class="client-box">App: {client_id}</div>
+    <div class="tenant-box">Tenant: {tenant_name}<br><small>App: {client_id}</small></div>
 
     <form method="post" action="/oauth/authorize">
       <input type="hidden" name="client_id"    value="{client_id}">
@@ -124,20 +112,21 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
 
 class OAuthMiddleware:
     """
-    ASGI Middleware: OAuth 2.0 Authorization Code Flow.
+    ASGI Middleware: Multi-Tenant OAuth 2.0 Authorization Code Flow.
+
+    Tenant-Lookup erfolgt per client_id aus der SQLite-DB.
+    Kein festes client_id/secret mehr in env vars.
 
     Routet:
       GET/POST /oauth/authorize  → Authorize-Logik
-      POST     /oauth/token      → Token-Endpunkt
-      GET      /health           → Health-Check (ohne Auth)
-      *                          → BearerAuthMiddleware → MCP SSE App
+      POST     /oauth/token      → Token-Endpunkt (gibt tenant.bearer_token zurück)
+      GET      /.well-known/*    → OAuth Discovery (RFC 8414 / 9728)
+      GET      /health           → Health-Check
+      *                          → BearerAuthMiddleware → DualTransportApp → MCP
     """
 
-    def __init__(self, app, client_id: str, client_secret: str, bearer_token: str):
+    def __init__(self, app):
         self.app = app
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.bearer_token = bearer_token
 
     async def __call__(self, scope, receive, send):
         if scope["type"] not in ("http", "websocket"):
@@ -206,23 +195,21 @@ class OAuthMiddleware:
                                  [b"content-length", str(len(body)).encode()]]})
         await send({"type": "http.response.body", "body": body})
 
+    def _lookup_tenant_by_client(self, client_id: str) -> dict | None:
+        """Findet Tenant anhand der OAuth client_id in der DB."""
+        try:
+            from db import get_tenant_by_oauth_client_id
+            return get_tenant_by_oauth_client_id(client_id)
+        except Exception as e:
+            logger.error("DB-Fehler bei OAuth-Client-Lookup: %s", e)
+            return None
+
     # ── OAuth Discovery ────────────────────────────────────────────────────────
 
     async def _well_known(self, path: str, send):
-        """
-        RFC 8414 / RFC 9728 OAuth Discovery Endpoints.
-
-        ChatGPT fragt diese Endpunkte beim Einrichten einer OAuth-App ab:
-          /.well-known/oauth-authorization-server
-          /.well-known/oauth-authorization-server/sse   (Ressourcen-Pfad-Variante)
-          /.well-known/oauth-protected-resource
-          /.well-known/oauth-protected-resource/sse
-          /.well-known/openid-configuration
-        """
         base = os.environ.get("MCP_PUBLIC_URL", "").rstrip("/") or "http://localhost:8765"
 
         if "oauth-authorization-server" in path or "openid-configuration" in path:
-            # RFC 8414 Authorization Server Metadata
             data = {
                 "issuer": base,
                 "authorization_endpoint": f"{base}/oauth/authorize",
@@ -233,10 +220,6 @@ class OAuthMiddleware:
                 "code_challenge_methods_supported": [],
             }
         elif "oauth-protected-resource" in path:
-            # RFC 9728 Protected Resource Metadata
-            # Beide MCP-Endpunkte als Ressourcen eintragen:
-            #   /mcp  → Streamable HTTP (claude.ai)
-            #   /sse  → SSE Transport   (ChatGPT)
             data = {
                 "resource": f"{base}/mcp",
                 "resource_documentation": f"{base}/mcp",
@@ -252,22 +235,27 @@ class OAuthMiddleware:
     # ── OAuth Endpunkte ────────────────────────────────────────────────────────
 
     async def _authorize_get(self, scope, send):
-        """Zeigt die Bestätigungsseite."""
+        """Zeigt die Bestätigungsseite für den Tenant."""
         params = self._parse_query(scope.get("query_string", b""))
-        client_id = params.get("client_id", "")
+        client_id   = params.get("client_id", "")
         redirect_uri = params.get("redirect_uri", "")
-        state = params.get("state", "")
+        state       = params.get("state", "")
 
         if not client_id or not redirect_uri:
             await self._json(send, 400, {"error": "invalid_request",
                                           "error_description": "client_id und redirect_uri erforderlich"})
             return
 
-        logger.info("OAuth: Authorize-Anfrage von client_id=%s", client_id)
+        # Tenant anhand client_id finden
+        tenant = self._lookup_tenant_by_client(client_id)
+        tenant_name = tenant.get("name", client_id) if tenant else client_id
+
+        logger.info("OAuth: Authorize-Anfrage von client_id=%s (Tenant: %s)", client_id, tenant_name)
         html = _AUTHORIZE_HTML.format(
             client_id=client_id,
             redirect_uri=redirect_uri,
             state=state,
+            tenant_name=tenant_name,
         )
         body = html.encode("utf-8")
         await send({"type": "http.response.start", "status": 200,
@@ -280,17 +268,18 @@ class OAuthMiddleware:
         raw = await self._read_body(receive)
         params = self._parse_form(raw)
 
-        client_id = params.get("client_id", "")
+        client_id    = params.get("client_id", "")
         redirect_uri = params.get("redirect_uri", "")
-        state = params.get("state", "")
-        approved = params.get("approved", "false") == "true"
+        state        = params.get("state", "")
+        approved     = params.get("approved", "false") == "true"
 
         if not approved:
             logger.info("OAuth: Zugriff abgelehnt für client_id=%s", client_id)
             await self._redirect(send, f"{redirect_uri}?error=access_denied&state={state}")
             return
 
-        if client_id != self.client_id:
+        tenant = self._lookup_tenant_by_client(client_id)
+        if not tenant:
             logger.warning("OAuth: Unbekannte client_id=%s", client_id)
             await self._redirect(send, f"{redirect_uri}?error=unauthorized_client&state={state}")
             return
@@ -298,20 +287,21 @@ class OAuthMiddleware:
         # Authorization Code generieren (gültig 10 Min.)
         code = secrets.token_urlsafe(32)
         _auth_codes[code] = {
-            "client_id": client_id,
+            "tenant_id":    tenant["id"],
+            "client_id":    client_id,
             "redirect_uri": redirect_uri,
-            "expires_at": time.time() + 600,
+            "expires_at":   time.time() + 600,
         }
         _cleanup_codes()
 
-        logger.info("OAuth: Code ausgestellt für client_id=%s → Redirect", client_id)
+        logger.info("OAuth: Code ausgestellt für client_id=%s (Tenant: %s)", client_id, tenant.get("name", "?"))
         await self._redirect(send, f"{redirect_uri}?code={code}&state={state}")
 
     async def _token(self, scope, receive, send):
-        """Tauscht Authorization Code gegen Access Token."""
+        """Tauscht Authorization Code gegen den Tenant-Bearer-Token."""
         raw = await self._read_body(receive)
 
-        # Content-Type erkennen (form-encoded oder JSON)
+        # Content-Type: form-encoded oder JSON
         ct = ""
         for k, v in scope.get("headers", []):
             if k == b"content-type":
@@ -326,40 +316,54 @@ class OAuthMiddleware:
         else:
             params = self._parse_form(raw)
 
-        grant_type = params.get("grant_type", "")
-        code = params.get("code", "")
-        client_id = params.get("client_id", "")
+        grant_type    = params.get("grant_type", "")
+        code          = params.get("code", "")
+        client_id     = params.get("client_id", "")
         client_secret = params.get("client_secret", "")
 
-        # Client-Credentials prüfen
-        if client_id != self.client_id or client_secret != self.client_secret:
-            logger.warning("OAuth: Token-Anfrage mit ungültigen Client-Credentials (client_id=%s)", client_id)
-            await self._json(send, 401, {
-                "error": "invalid_client",
-                "error_description": "Ungültige Client-ID oder Client-Secret"
-            })
+        # Client-Credentials + Tenant aus DB prüfen
+        tenant = self._lookup_tenant_by_client(client_id)
+        if not tenant:
+            logger.warning("OAuth: Token-Anfrage mit unbekannter client_id=%s", client_id)
+            await self._json(send, 401, {"error": "invalid_client",
+                                          "error_description": "Unbekannte client_id"})
+            return
+
+        # client_secret validieren (stored in DB, plain — tenant hat eigenen OAuth-Secret)
+        try:
+            from db import verify_tenant_oauth_secret
+            if not verify_tenant_oauth_secret(tenant["id"], client_secret):
+                logger.warning("OAuth: Falsches client_secret für client_id=%s", client_id)
+                await self._json(send, 401, {"error": "invalid_client",
+                                              "error_description": "Falsches client_secret"})
+                return
+        except Exception as e:
+            logger.error("OAuth Secret-Prüfung fehlgeschlagen: %s", e)
+            await self._json(send, 500, {"error": "server_error"})
             return
 
         if grant_type != "authorization_code":
-            await self._json(send, 400, {
-                "error": "unsupported_grant_type",
-                "error_description": "Nur authorization_code wird unterstützt"
-            })
+            await self._json(send, 400, {"error": "unsupported_grant_type",
+                                          "error_description": "Nur authorization_code wird unterstützt"})
             return
 
         # Authorization Code validieren
         code_data = _auth_codes.pop(code, None)
         if not code_data or code_data["expires_at"] < time.time():
             logger.warning("OAuth: Ungültiger oder abgelaufener Code")
-            await self._json(send, 400, {
-                "error": "invalid_grant",
-                "error_description": "Authorization Code ungültig oder abgelaufen"
-            })
+            await self._json(send, 400, {"error": "invalid_grant",
+                                          "error_description": "Authorization Code ungültig oder abgelaufen"})
             return
 
-        logger.info("OAuth: Access Token ausgestellt für client_id=%s", client_id)
+        if code_data["tenant_id"] != tenant["id"]:
+            logger.warning("OAuth: Code gehört zu anderem Tenant")
+            await self._json(send, 400, {"error": "invalid_grant",
+                                          "error_description": "Code ungültig"})
+            return
+
+        logger.info("OAuth: Access Token ausgestellt für Tenant '%s'", tenant.get("name", "?"))
         await self._json(send, 200, {
-            "access_token": self.bearer_token,
-            "token_type": "bearer",
-            "expires_in": 31536000,  # 1 Jahr
+            "access_token": tenant["bearer_token"],
+            "token_type":   "bearer",
+            "expires_in":   31536000,  # 1 Jahr
         })

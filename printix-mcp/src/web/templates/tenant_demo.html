@@ -1,0 +1,494 @@
+{% extends "base.html" %}
+{% block title %}{{ _('tenant_tab_demo') }} — Printix MCP{% endblock %}
+{% block extra_head %}
+<style>
+  .tenant-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid #e5e7eb; padding-bottom:0; flex-wrap:wrap; }
+  .tenant-tab {
+    padding:8px 18px; font-size:.9em; font-weight:600; text-decoration:none;
+    color:#6b7280; border-radius:6px 6px 0 0; border:1px solid transparent;
+    border-bottom:none; margin-bottom:-2px;
+  }
+  .tenant-tab.active { background:#fff; border-color:#e5e7eb; border-bottom-color:#fff; color:#1e3a5f; }
+  .tenant-tab:hover:not(.active) { color:#374151; background:#f8fafc; }
+
+  .demo-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media(max-width:640px){ .demo-grid { grid-template-columns:1fr; } }
+
+  .lang-checkboxes { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .lang-check { display:flex; align-items:center; gap:5px; background:#f1f5f9; padding:5px 10px; border-radius:6px; cursor:pointer; font-size:.88em; }
+  .lang-check input { width:auto; min-width:14px; }
+  .lang-check:hover { background:#dbeafe; }
+
+  .period-select, .preset-select { width:100%; padding:10px 14px; border:1px solid #d1d5db; border-radius:8px; font-size:.95em; }
+
+  /* Preset cards */
+  .preset-cards { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .preset-card {
+    flex:1; min-width:140px; border:2px solid #e5e7eb; border-radius:10px;
+    padding:12px 14px; cursor:pointer; transition:all .15s; background:#fff;
+    text-align:center; position:relative;
+  }
+  .preset-card:hover { border-color:#93c5fd; background:#eff6ff; }
+  .preset-card.selected { border-color:#2563eb; background:#eff6ff; box-shadow:0 0 0 3px #bfdbfe; }
+  .preset-card .preset-icon { font-size:1.6em; display:block; margin-bottom:4px; }
+  .preset-card .preset-name { font-weight:700; font-size:.85em; color:#1e3a5f; display:block; }
+  .preset-card .preset-desc { font-size:.75em; color:#6b7280; display:block; margin-top:2px; line-height:1.3; }
+  .preset-card input[type=radio] { position:absolute; opacity:0; }
+
+  .sessions-table { width:100%; border-collapse:collapse; font-size:.88em; margin-top:8px; }
+  .sessions-table th { text-align:left; padding:8px 12px; background:#f8fafc; color:#6b7280; font-size:.8em; font-weight:600; text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid #e5e7eb; }
+  .sessions-table td { padding:8px 12px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
+  .sessions-table tr:last-child td { border-bottom:none; }
+  .sessions-table tr:hover td { background:#fafafa; }
+
+  .tag-badge { display:inline-block; background:#e0e7ff; color:#3730a3; padding:2px 8px; border-radius:6px; font-size:.82em; font-weight:600; font-family:monospace; }
+  .preset-badge { display:inline-block; padding:2px 8px; border-radius:6px; font-size:.78em; font-weight:600; }
+  .preset-badge.small  { background:#d1fae5; color:#065f46; }
+  .preset-badge.medium { background:#fef3c7; color:#92400e; }
+  .preset-badge.large  { background:#fee2e2; color:#991b1b; }
+  .preset-badge.custom { background:#f3f4f6; color:#374151; }
+  .num-cell { text-align:right; color:#374151; }
+
+  .info-box {
+    background:#fef3c7; border:1px solid #fde68a; color:#92400e;
+    border-radius:10px; padding:14px 18px; margin-bottom:20px;
+    display:flex; gap:12px; align-items:flex-start; font-size:.9em; line-height:1.5;
+  }
+  .info-box .info-icon { font-size:1.4em; flex-shrink:0; margin-top:1px; }
+
+  .progress-section { display:none; }
+  .progress-bar-wrap { background:#e5e7eb; border-radius:99px; height:8px; margin:10px 0; overflow:hidden; }
+  .progress-bar { background:#2563eb; height:100%; width:0; border-radius:99px; transition:width .4s ease; }
+
+  .slider-wrap { display:flex; gap:10px; align-items:center; }
+  .slider-wrap input[type=range] { flex:1; }
+  .slider-val { min-width:36px; text-align:center; font-weight:700; color:#1e3a5f; font-size:.95em; }
+
+  .stats-summary { display:flex; gap:12px; flex-wrap:wrap; margin-top:16px; }
+  .stat-box { background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:8px 16px; text-align:center; flex:1; min-width:90px; }
+  .stat-box .stat-num { font-size:1.3em; font-weight:800; color:#1e3a5f; }
+  .stat-box .stat-lbl { font-size:.72em; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; }
+
+  .spinner { display:none; }
+  .btn-loading .spinner { display:inline; }
+  .btn-loading .btn-text { display:none; }
+
+  .section-sep { margin: 24px 0 16px; border:none; border-top:2px solid #f1f5f9; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width:1100px;">
+  <div class="card">
+    <h2 class="section-title" style="margin-bottom:16px;">🖨️ {{ _('nav_tenant') }}</h2>
+
+    <!-- Sub-Tabs -->
+    <div class="tenant-tabs">
+      <a href="/tenant/printers" class="tenant-tab {% if active_tab == 'printers' %}active{% endif %}">
+        🖨️ {{ _('tenant_tab_printers') }}
+      </a>
+      <a href="/tenant/queues" class="tenant-tab {% if active_tab == 'queues' %}active{% endif %}">
+        📋 {{ _('tenant_tab_queues') }}
+      </a>
+      <a href="/tenant/users" class="tenant-tab {% if active_tab == 'users' %}active{% endif %}">
+        👤 {{ _('tenant_tab_users') }}
+      </a>
+      <a href="/tenant/demo" class="tenant-tab {% if active_tab == 'demo' %}active{% endif %}">
+        🧪 {{ _('tenant_tab_demo') }}
+      </a>
+    </div>
+
+    <!-- Azure SQL Hinweis-Box (immer sichtbar) -->
+    <div class="info-box">
+      <span class="info-icon">⚠️</span>
+      <div>
+        <strong>{{ _('demo_info_title') }}</strong><br>
+        {{ _('demo_info_text') }}
+      </div>
+    </div>
+
+    {% if error == "no_sql" %}
+    <div class="alert alert-warning">⚠️ {{ _('demo_no_sql') }}</div>
+    {% elif error %}
+    <div class="alert alert-error">❌ {{ error }}</div>
+    {% endif %}
+
+    {% if flash == "schema_ok" %}
+    <div class="alert alert-success">✅ {{ _('demo_schema_ok') }}</div>
+    {% elif flash == "generate_ok" %}
+    <div class="alert alert-success">✅ {{ _('demo_generate_ok') }}</div>
+    {% elif flash == "rollback_ok" %}
+    <div class="alert alert-success">✅ {{ _('demo_rollback_ok') }}</div>
+    {% elif flash == "error" %}
+    <div class="alert alert-error">❌ {{ flash_msg or 'Error' }}</div>
+    {% endif %}
+
+    <!-- Schema-Init (nur wenn noch nicht vorhanden) -->
+    {% if not schema_ready %}
+    <div class="alert alert-info" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <span>ℹ️ {{ _('demo_schema_info') }}</span>
+      <form method="post" action="/tenant/demo/setup" style="margin:0;">
+        <button type="submit" class="btn btn-primary btn-sm">⚙️ {{ _('demo_btn_setup') }}</button>
+      </form>
+    </div>
+    {% endif %}
+
+    <div class="divider"></div>
+
+    <!-- ── Generator-Formular ─────────────────────────────────────────── -->
+    <h3 class="section-title" style="margin-bottom:4px;">🧪 {{ _('demo_title') }}</h3>
+    <p class="section-sub">{{ _('demo_subtitle') }}</p>
+
+    <form method="post" action="/tenant/demo/generate" id="demoForm">
+
+      <!-- ── Preset Auswahl ──────────────────────────────────────────── -->
+      <div class="form-group" style="margin-bottom:20px;">
+        <label style="margin-bottom:10px;display:block;">🏢 {{ _('demo_preset') }}</label>
+        <small class="hint" style="display:block;margin-bottom:10px;">{{ _('demo_preset_hint') }}</small>
+        <div class="preset-cards" id="presetCards">
+          <label class="preset-card {% if form.preset|default('custom') == 'small' %}selected{% endif %}" onclick="applyPreset('small')">
+            <input type="radio" name="preset" value="small" {% if form.preset|default('custom') == 'small' %}checked{% endif %}>
+            <span class="preset-icon">🏪</span>
+            <span class="preset-name">{{ _('demo_preset_small') }}</span>
+            <span class="preset-desc">{{ _('demo_preset_small_desc') }}</span>
+          </label>
+          <label class="preset-card {% if form.preset|default('custom') == 'medium' %}selected{% endif %}" onclick="applyPreset('medium')">
+            <input type="radio" name="preset" value="medium" {% if form.preset|default('custom') == 'medium' %}checked{% endif %}>
+            <span class="preset-icon">🏢</span>
+            <span class="preset-name">{{ _('demo_preset_medium') }}</span>
+            <span class="preset-desc">{{ _('demo_preset_medium_desc') }}</span>
+          </label>
+          <label class="preset-card {% if form.preset|default('custom') == 'large' %}selected{% endif %}" onclick="applyPreset('large')">
+            <input type="radio" name="preset" value="large" {% if form.preset|default('custom') == 'large' %}checked{% endif %}>
+            <span class="preset-icon">🏭</span>
+            <span class="preset-name">{{ _('demo_preset_large') }}</span>
+            <span class="preset-desc">{{ _('demo_preset_large_desc') }}</span>
+          </label>
+          <label class="preset-card {% if form.preset|default('custom') == 'custom' %}selected{% endif %}" onclick="applyPreset('custom')">
+            <input type="radio" name="preset" value="custom" {% if form.preset|default('custom') == 'custom' %}checked{% endif %}>
+            <span class="preset-icon">⚙️</span>
+            <span class="preset-name">{{ _('demo_preset_custom') }}</span>
+            <span class="preset-desc">{{ _('demo_preset_custom_desc') }}</span>
+          </label>
+        </div>
+      </div>
+
+      <hr class="section-sep">
+
+      <div class="demo-grid">
+
+        <!-- Benutzer -->
+        <div class="form-group">
+          <label>👤 {{ _('demo_field_user_count') }}</label>
+          <div class="slider-wrap">
+            <input type="range" id="user_count_range" name="user_count" min="1" max="200" value="{{ form.user_count | default(20) }}"
+                   oninput="document.getElementById('user_count_val').textContent=this.value">
+            <span class="slider-val" id="user_count_val">{{ form.user_count | default(20) }}</span>
+          </div>
+          <small class="hint">{{ _('demo_hint_user_count') }}</small>
+        </div>
+
+        <!-- Drucker -->
+        <div class="form-group">
+          <label>🖨️ {{ _('demo_field_printer_count') }}</label>
+          <div class="slider-wrap">
+            <input type="range" id="printer_count_range" name="printer_count" min="1" max="50" value="{{ form.printer_count | default(6) }}"
+                   oninput="document.getElementById('printer_count_val').textContent=this.value">
+            <span class="slider-val" id="printer_count_val">{{ form.printer_count | default(6) }}</span>
+          </div>
+          <small class="hint">{{ _('demo_hint_printer_count') }}</small>
+        </div>
+
+        <!-- Queues pro Drucker -->
+        <div class="form-group">
+          <label>📋 {{ _('demo_field_queue_count') }}</label>
+          <div class="slider-wrap">
+            <input type="range" id="queue_count_range" name="queue_count" min="1" max="5" value="{{ form.queue_count | default(2) }}"
+                   oninput="document.getElementById('queue_count_val').textContent=this.value">
+            <span class="slider-val" id="queue_count_val">{{ form.queue_count | default(2) }}</span>
+          </div>
+          <small class="hint">{{ _('demo_hint_queue_count') }}</small>
+        </div>
+
+        <!-- Zeitraum -->
+        <div class="form-group">
+          <label>📅 {{ _('demo_field_months') }}</label>
+          <select name="months" id="months_select" class="period-select">
+            <option value="3"  {% if form.months|default('12') == '3'  %}selected{% endif %}>{{ _('demo_period_3') }}</option>
+            <option value="6"  {% if form.months|default('12') == '6'  %}selected{% endif %}>{{ _('demo_period_6') }}</option>
+            <option value="12" {% if form.months|default('12') == '12' %}selected{% endif %}>{{ _('demo_period_12') }}</option>
+            <option value="24" {% if form.months|default('12') == '24' %}selected{% endif %}>{{ _('demo_period_24') }}</option>
+          </select>
+        </div>
+
+        <!-- Jobs pro Tag -->
+        <div class="form-group">
+          <label>📄 {{ _('demo_field_jobs_per_day') }}</label>
+          <div class="slider-wrap">
+            <input type="range" id="jpd_range" name="jobs_per_day" min="0.5" max="15" step="0.5" value="{{ form.jobs_per_day | default(3) }}"
+                   oninput="document.getElementById('jpd_val').textContent=parseFloat(this.value).toFixed(1)">
+            <span class="slider-val" id="jpd_val">{{ form.jobs_per_day | default('3.0') }}</span>
+          </div>
+        </div>
+
+      </div><!-- /demo-grid -->
+
+      <!-- Sprachen -->
+      <div class="form-group">
+        <label>🌍 {{ _('demo_field_languages') }}</label>
+        <small class="hint" style="margin-bottom:8px;display:block;">{{ _('demo_languages_hint') }}</small>
+        <div class="lang-checkboxes" id="langCheckboxes">
+          {% set sel_langs = form.languages.split(',') if form.languages else ['de','en'] %}
+          {% for code, label in [('de','Deutsch'),('en','English'),('fr','Français'),('it','Italiano'),('es','Español'),('nl','Nederlands'),('sv','Svenska'),('no','Norsk'),('pt','Português'),('pl','Polski'),('ja','日本語')] %}
+          <label class="lang-check">
+            <input type="checkbox" name="languages" value="{{ code }}"
+                   {% if code in sel_langs %}checked{% endif %}>
+            {{ label }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Standorte -->
+      <div class="form-group">
+        <label>🏢 {{ _('demo_field_sites') }}</label>
+        <input type="text" id="sites_input" name="sites" value="{{ form.sites | default('') or _('demo_sites_default') }}" placeholder="{{ _('demo_sites_placeholder') }}">
+        <small class="hint">{{ _('demo_hint_sites') }}</small>
+      </div>
+
+      <!-- Demo-Tag -->
+      <div class="form-group">
+        <label>🏷️ {{ _('demo_field_tag') }}</label>
+        <input type="text" name="demo_tag" value="{{ form.demo_tag | default('') }}"
+               placeholder="DEMO_2025_Kunde_ABC" maxlength="60"
+               style="font-family:monospace;">
+        <small class="hint">{{ _('demo_hint_tag') }}</small>
+      </div>
+
+      <!-- Vorschau-Statistik -->
+      <div class="stats-summary" id="statsPreview">
+        <div class="stat-box">
+          <div class="stat-num" id="prev_users">20</div>
+          <div class="stat-lbl">👤 {{ _('demo_lbl_user') }}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num" id="prev_printers">6</div>
+          <div class="stat-lbl">🖨️ {{ _('demo_lbl_printers') }}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num" id="prev_queues">12</div>
+          <div class="stat-lbl">📋 {{ _('demo_lbl_queues') }}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num" id="prev_jobs">~15k</div>
+          <div class="stat-lbl">📄 {{ _('demo_lbl_jobs_est') }}</div>
+        </div>
+      </div>
+
+      <!-- Generate Button -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:16px;">
+        <button type="submit" class="btn btn-success" id="generateBtn"
+                {% if not schema_ready %}disabled title="{{ _('demo_schema_info') }}"{% endif %}
+                onclick="startProgress()">
+          <span class="spinner">⏳</span>
+          <span class="btn-text">🚀 {{ _('demo_btn_generate') }}</span>
+        </button>
+        {% if not schema_ready %}
+        <span style="font-size:.82em;color:#9ca3af;">{{ _('demo_schema_info') }}</span>
+        {% endif %}
+      </div>
+
+      <!-- Progress Indikator -->
+      <div class="progress-section" id="progressSection" style="margin-top:16px;">
+        <p style="font-size:.88em;color:#374151;" id="progressMsg">⏳ {{ _('demo_btn_generate') }}…</p>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
+        <small class="hint" id="progressHint"></small>
+      </div>
+
+    </form>
+
+    <div class="divider"></div>
+
+    <!-- ── Bestehende Sessions ────────────────────────────────────────── -->
+    <h3 class="section-title" style="margin-bottom:12px;">📊 {{ _('demo_sessions_title') }}</h3>
+
+    {% if sessions %}
+    <div style="overflow-x:auto;">
+      <table class="sessions-table">
+        <thead>
+          <tr>
+            <th>{{ _('demo_col_tag') }}</th>
+            <th>{{ _('demo_col_preset') }}</th>
+            <th>{{ _('demo_col_created') }}</th>
+            <th class="num-cell">{{ _('demo_col_users') }}</th>
+            <th class="num-cell">{{ _('demo_col_printers') }}</th>
+            <th class="num-cell">{{ _('demo_col_queues') }}</th>
+            <th class="num-cell">{{ _('demo_col_print_jobs') }}</th>
+            <th class="num-cell">{{ _('demo_col_scan_jobs') }}</th>
+            <th class="num-cell">{{ _('demo_col_copy_jobs') }}</th>
+            <th>{{ _('demo_col_actions') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in sessions %}
+          <tr>
+            <td><span class="tag-badge">{{ s.demo_tag }}</span></td>
+            <td>
+              {% set ps = s.preset | default('custom') %}
+              <span class="preset-badge {{ ps }}">
+                {% if ps == 'small' %}🏪{% elif ps == 'medium' %}🏢{% elif ps == 'large' %}🏭{% else %}⚙️{% endif %}
+                {{ ps }}
+              </span>
+            </td>
+            <td style="color:#6b7280;font-size:.85em;">{{ s.created_at | string | truncate(16, True, '') }}</td>
+            <td class="num-cell">{{ s.user_count }}</td>
+            <td class="num-cell">{{ s.printer_count }}</td>
+            <td class="num-cell">{{ s.queue_count | default(0) }}</td>
+            <td class="num-cell">{{ s.print_job_count | default(0) }}</td>
+            <td class="num-cell">{{ s.scan_job_count | default(0) }}</td>
+            <td class="num-cell">{{ s.copy_job_count | default(0) }}</td>
+            <td>
+              <form method="post" action="/tenant/demo/rollback" style="margin:0;"
+                    onsubmit="return confirm('{{ _('demo_confirm_rollback') }} [{{ s.demo_tag }}]')">
+                <input type="hidden" name="demo_tag" value="{{ s.demo_tag }}">
+                <button type="submit" class="btn btn-danger btn-sm">🗑️ {{ _('demo_btn_rollback') }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p style="color:#9ca3af;font-size:.9em;">{{ _('demo_no_sessions') }}</p>
+    {% endif %}
+
+    <div style="margin-top:24px;">
+      <a href="/dashboard" class="btn btn-secondary">← {{ _('nav_dashboard') }}</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Preset-Definitionen (synchron mit Python COMPANY_PRESETS)
+const PRESETS = {
+  small:  { user_count:15,  printer_count:3,  queue_count:1, months:12, jobs_per_day:1.5,
+             sites:"{{ _('demo_sites_preset_small') | e }}", langs:["de","en"] },
+  medium: { user_count:50,  printer_count:10, queue_count:2, months:12, jobs_per_day:3.0,
+             sites:"{{ _('demo_sites_preset_medium') | e }}", langs:["de","en","fr"] },
+  large:  { user_count:120, printer_count:30, queue_count:3, months:24, jobs_per_day:5.0,
+             sites:"{{ _('demo_sites_preset_large') | e }}",
+             langs:["de","en","fr","it","es","nl"] },
+  custom: null,
+};
+
+function applyPreset(name) {
+  // Preset-Karten Auswahl aktualisieren
+  document.querySelectorAll('.preset-card').forEach(c => c.classList.remove('selected'));
+  event.currentTarget.classList.add('selected');
+  document.querySelector(`input[name=preset][value=${name}]`).checked = true;
+
+  const p = PRESETS[name];
+  if (!p) return; // custom: nichts ändern
+
+  setSlider('user_count_range',    'user_count_val',    p.user_count);
+  setSlider('printer_count_range', 'printer_count_val', p.printer_count);
+  setSlider('queue_count_range',   'queue_count_val',   p.queue_count);
+  setSlider('jpd_range',           'jpd_val',           p.jobs_per_day, true);
+  document.getElementById('months_select').value = p.months;
+  document.getElementById('sites_input').value   = p.sites;
+
+  // Sprachen setzen
+  document.querySelectorAll('#langCheckboxes input[type=checkbox]').forEach(cb => {
+    cb.checked = p.langs.includes(cb.value);
+  });
+
+  updatePreview();
+}
+
+function setSlider(rangeId, valId, val, isFloat) {
+  const el = document.getElementById(rangeId);
+  el.value = val;
+  document.getElementById(valId).textContent = isFloat ? parseFloat(val).toFixed(1) : val;
+}
+
+function updatePreview() {
+  const users    = parseInt(document.getElementById('user_count_range').value);
+  const printers = parseInt(document.getElementById('printer_count_range').value);
+  const queues   = parseInt(document.getElementById('queue_count_range').value);
+  const months   = parseInt(document.getElementById('months_select').value);
+  const jpd      = parseFloat(document.getElementById('jpd_range').value);
+
+  const wdays = Math.round(months * 30 * 5 / 7);
+  const estJobs = Math.round(users * jpd * wdays * 0.7);
+
+  document.getElementById('prev_users').textContent    = users;
+  document.getElementById('prev_printers').textContent = printers;
+  document.getElementById('prev_queues').textContent   = printers * queues;
+
+  let jobStr = estJobs > 999999 ? '~' + Math.round(estJobs/1000) + 'k' :
+               estJobs > 9999   ? '~' + Math.round(estJobs/1000) + 'k' :
+               '~' + estJobs;
+  document.getElementById('prev_jobs').textContent = jobStr;
+}
+
+// Slider-Werte initial setzen + Live-Updates
+document.addEventListener('DOMContentLoaded', function() {
+  ['user_count', 'printer_count', 'queue_count'].forEach(function(name) {
+    const r = document.getElementById(name + '_range');
+    const v = document.getElementById(name + '_val');
+    if (r && v) { v.textContent = r.value; r.addEventListener('input', updatePreview); }
+  });
+  const jpd = document.getElementById('jpd_range');
+  if (jpd) { jpd.addEventListener('input', updatePreview); }
+  const mo = document.getElementById('months_select');
+  if (mo) { mo.addEventListener('change', updatePreview); }
+  updatePreview();
+});
+
+// Progress-Animation beim Generieren
+function startProgress() {
+  const btn = document.getElementById('generateBtn');
+  const section = document.getElementById('progressSection');
+  const bar = document.getElementById('progressBar');
+  const hint = document.getElementById('progressHint');
+
+  btn.classList.add('btn-loading');
+  btn.disabled = true;
+  section.style.display = 'block';
+
+  const users = parseInt(document.getElementById('user_count_range').value);
+  const _PM = {
+    users:    "{{ _('demo_progress_users') | e }}",
+    printers: "{{ _('demo_progress_printers') | e }}",
+    days:     "{{ _('demo_progress_days') | e }}",
+    print:    "{{ _('demo_progress_print') | e }}",
+    scan:     "{{ _('demo_progress_scan') | e }}",
+    copy:     "{{ _('demo_progress_copy') | e }}",
+    write:    "{{ _('demo_progress_write') | e }}",
+  };
+  const steps = [
+    [8,  '👤 ' + (_PM.users || 'Generating users') + ' (' + users + ')…'],
+    [20, '🖨️ ' + (_PM.printers || 'Creating printers & queues') + '…'],
+    [35, '📅 ' + (_PM.days || 'Calculating working days') + '…'],
+    [55, '📄 ' + (_PM.print || 'Distributing print jobs') + '…'],
+    [70, '📷 ' + (_PM.scan || 'Generating scan jobs') + '…'],
+    [82, '📋 ' + (_PM.copy || 'Generating copy jobs') + '…'],
+    [94, '💾 ' + (_PM.write || 'Writing to database') + '…'],
+  ];
+
+  let i = 0;
+  function next() {
+    if (i < steps.length) {
+      const [pct, msg] = steps[i++];
+      bar.style.width = pct + '%';
+      hint.textContent = msg;
+      setTimeout(next, 900 + Math.random() * 700);
+    }
+  }
+  next();
+}
+</script>
+{% endblock %}

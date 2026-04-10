@@ -169,6 +169,14 @@ ChatGPT → **Mein GPT → Neue App → Authentifizierung: OAuth**
 - `printix_update_snmp_config` — SNMP-Konfiguration aktualisieren
 - `printix_delete_snmp_config` — SNMP-Konfiguration löschen
 
+### E-Mail & Reporting
+- `printix_send_test_email` — Test-E-Mail senden um die Mail-Konfiguration zu prüfen
+- `printix_reporting_status` — Status des Reporting-Moduls prüfen
+- `printix_run_report_now` — Report sofort ausführen und per Mail versenden
+- `printix_save_report_template` — Report-Template speichern
+- `printix_schedule_report` — Report automatisch einplanen
+- `printix_list_report_templates` — Alle Report-Templates auflisten
+
 ---
 
 ## Bekannte Verhaltensweisen
@@ -199,6 +207,105 @@ Die PIN muss **genau 4 Ziffern** haben (z.B. `"4242"`). Andere Längen führen z
 
 Erfordert eine konfigurierte Directory-Anbindung im Printix Tenant (z.B. Azure AD,
 Google Workspace). Ohne Directory schlägt der Aufruf fehl.
+
+---
+
+## E-Mail Benachrichtigungen (v2.13.0+)
+
+Der MCP-Server kann E-Mails über die **Resend API** versenden.
+Konfiguration in der Web-Oberfläche unter **Einstellungen → E-Mail**.
+
+### Voraussetzung
+- Resend-Account mit verifizierter Absenderadresse
+- Resend API-Key
+
+### Konfigurationsfelder
+
+| Feld | Beschreibung |
+|------|-------------|
+| **Mail API-Key** | Resend API-Key (beginnt mit `re_...`) |
+| **Absender-E-Mail** | Verifizierte Absenderadresse in Resend |
+| **Absender-Anzeigename** | Anzeigename im Postfach (z.B. „Printix Reports") — verhindert Spam-Klassifizierung |
+| **Alert-Empfänger** | Kommagetrennte Empfänger-Adressen für alle Benachrichtigungen |
+| **Alert-Mindest-Level** | Minimaler Log-Level für Log-Fehler-Benachrichtigungen (WARNING/ERROR/CRITICAL) |
+
+### Benachrichtigungs-Ereignisse (Checkboxen)
+
+| Ereignis | Beschreibung | Prüfintervall |
+|----------|-------------|---------------|
+| 🚨 **Kritische Log-Fehler** | Server-Log-Einträge auf ERROR/CRITICAL-Niveau | Sofort (Rate-Limit: 5 min) |
+| 🖨️ **Neuer Drucker** | Neuer Drucker in Printix erkannt | 30 Minuten |
+| 📋 **Neue Drucker-Queue** | Neue Queue in Printix erkannt | 30 Minuten |
+| 👤 **Neuer Gast-Benutzer** | Neuer Gast-Benutzer in Printix erkannt | 30 Minuten |
+| 📊 **Report versendet** | Bestätigung nach jedem automatischen Report | Bei Versand |
+| 🔔 **Neuer MCP-Benutzer** | Admin-Benachrichtigung wenn sich ein neuer Benutzer registriert | Sofort |
+
+---
+
+## Reports & Automatisierungen (v3.0.0+)
+
+Ab v3.0.0 bietet Printix MCP eine vollständige Report-Verwaltung direkt im Web-Browser.
+
+### Reports-Register öffnen
+
+Navigiere zu **Reports** in der oberen Navigationsleiste (erfordert Anmeldung).
+
+### Eigene Report-Templates
+
+In der Listenansicht erscheinen alle gespeicherten Report-Templates des angemeldeten Benutzers:
+
+| Spalte | Beschreibung |
+|--------|-------------|
+| Name | Template-Name, ggf. mit ⏰-Badge wenn aktiver Zeitplan |
+| Typ | Report-Typ (Druckvolumen, Kostenanalyse, Top-Benutzer, …) |
+| Empfänger | Kommagetrennte E-Mail-Empfänger |
+| Schedule | Automatisierungs-Rhythmus (täglich / wöchentlich / monatlich) |
+| Aktionen | ▶ Jetzt ausführen · ✏ Bearbeiten · 🗑 Löschen |
+
+### Neuen Report erstellen
+
+Klicke auf **+ Neuer Report** oder wähle ein Preset aus der Bibliothek (→ „Verwenden").
+
+Das Formular ist in 4 Abschnitte unterteilt:
+
+1. **Grunddaten** — Name, Report-Typ, E-Mail-Betreff
+2. **Abfrage-Parameter** — Zeitraum, Gruppierung, Kostenparameter (je nach Typ)
+3. **Ausgabe & Empfänger** — Formate (HTML / CSV / JSON), Empfänger, Firmenname, Akzentfarbe
+4. **Automatisierung** — optionaler Zeitplan (täglich / wöchentlich / monatlich)
+
+### Preset-Bibliothek
+
+Die Preset-Bibliothek enthält 18 vordefinierte Vorlagen basierend auf dem offiziellen Printix PowerBI-Template (v2025.4). Presets sind nach Kategorien gruppiert:
+
+| Kategorie | Presets (✅ = sofort verfügbar) |
+|-----------|------|
+| Überblick | ✅ Monatlicher Drucküberblick |
+| Trend | ✅ Wöchentlicher Drucktrend |
+| Drucker | ✅ Drucker-Übersicht, Drucker-Verlauf (v3.1) |
+| Standort | ✅ Standort-Übersicht |
+| Benutzer | ✅ Benutzer-Übersicht, Druckdetails (v3.1), Kopier-Details (v3.1), Scan-Details (v3.1) |
+| Kosten | ✅ Monatliche Kostenanalyse |
+| Analyse | ✅ Anomalie-Erkennung |
+| Service | Drucker Service-Status (v3.1), Service Desk (v3.1) |
+| Infrastruktur | Workstation-Übersicht (v3.1), Workstation-Details (v3.1) |
+| Nachhaltigkeit | Tree-O-Meter (v3.1) |
+| Verwaltung | Druckregeln-Übersicht (v3.1) |
+| Jobs | Job-Verlauf (v3.1) |
+
+### Voraussetzungen
+
+- **BI-Datenbank**: Für die Report-Ausführung wird eine Printix BI SQL Server-Verbindung benötigt.
+- **E-Mail**: Für den Versand ist ein Resend API-Key erforderlich.
+
+### MCP-Tools für Reports
+
+| Tool | Beschreibung |
+|------|-------------|
+| `printix_list_report_templates` | Alle eigenen Templates anzeigen |
+| `printix_save_report_template` | Template per KI-Chat erstellen/speichern |
+| `printix_run_report_now` | Report sofort ausführen (nach Name oder ID) |
+| `printix_schedule_report` | Automatischen Zeitplan einrichten |
+| `printix_delete_report_template` | Template löschen |
 
 ---
 
@@ -241,6 +348,6 @@ POST /mcp        GET /sse
      Printix Cloud Print API
 ```
 
-**Persistente Daten:** `/data/mcp_secrets.json` — Bearer Token + OAuth-Credentials
-**Port:** 8765
+**Persistente Daten:** `/data/printix_multi.db` — Multi-Tenant SQLite DB (Credentials, Reporting, Benachrichtigungen)
+**Port MCP:** 8765 · **Port Web-UI:** 8080
 **MCP-Version:** 2025-11-25

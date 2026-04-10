@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Registrierung — Printix API{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card">
+    <div class="steps">
+      <div class="step-item"><div class="step-circle done">✓</div><span class="step-label">Konto</span></div>
+      <div class="step-connector"></div>
+      <div class="step-item"><div class="step-circle active">2</div><span class="step-label active">Printix API</span></div>
+      <div class="step-connector"></div>
+      <div class="step-item"><div class="step-circle pending">3</div><span class="step-label">Optional</span></div>
+      <div class="step-connector"></div>
+      <div class="step-item"><div class="step-circle pending">4</div><span class="step-label">Zusammenfassung</span></div>
+    </div>
+
+    <div class="section-title">Printix API-Zugangsdaten</div>
+    <div class="section-sub">
+      Gib deine Printix Tenant-ID und mindestens ein API-Credentials-Paar ein.
+      Die Zugangsdaten findest du in der Printix Admin-Konsole unter
+      <strong>Einstellungen → API-Clients</strong>.
+    </div>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/register/api">
+      <div class="form-group">
+        <label for="tenant_name">Name für diesen Account (optional)</label>
+        <input type="text" id="tenant_name" name="tenant_name"
+               value="{{ tenant_name | default('') }}"
+               placeholder="z.B. Firma GmbH oder Standort München">
+        <small class="hint">Anzeigename in der Admin-Übersicht. Wird Tenant-ID verwendet wenn leer.</small>
+      </div>
+      <div class="form-group">
+        <label for="printix_tenant_id">Printix Tenant-ID <span style="color:#ef4444">*</span></label>
+        <input type="text" id="printix_tenant_id" name="printix_tenant_id"
+               value="{{ printix_tenant_id | default('') }}"
+               placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" required>
+        <small class="hint">UUID-Format. Zu finden in der Printix Admin-Konsole → Einstellungen → Tenant.</small>
+      </div>
+
+      <div class="divider"></div>
+      <div style="font-size:.87em; font-weight:600; color:#374151; margin-bottom:16px;">
+        API-Credentials (mindestens ein Paar vollständig ausfüllen)
+      </div>
+
+      <!-- Print API -->
+      <details style="margin-bottom:16px;" open>
+        <summary style="cursor:pointer; font-size:.9em; font-weight:600; color:#1e3a5f; padding:8px 0;">
+          Print API <small style="font-weight:400; color:#6b7280;">(Drucker, Jobs, Queues, Sites, Netzwerke)</small>
+        </summary>
+        <div style="padding: 12px 0 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label>Client-ID</label>
+            <input type="text" name="print_client_id" placeholder="xxxxxxxx-xxxx-...">
+          </div>
+          <div class="form-group">
+            <label>Client-Secret</label>
+            <input type="password" name="print_client_secret" placeholder="Geheimer Schlüssel">
+          </div>
+        </div>
+      </details>
+
+      <!-- Card Management -->
+      <details style="margin-bottom:16px;">
+        <summary style="cursor:pointer; font-size:.9em; font-weight:600; color:#1e3a5f; padding:8px 0;">
+          Card Management API <small style="font-weight:400; color:#6b7280;">(Karten, Benutzer)</small>
+        </summary>
+        <div style="padding: 12px 0 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label>Client-ID</label>
+            <input type="text" name="card_client_id" placeholder="xxxxxxxx-xxxx-...">
+          </div>
+          <div class="form-group">
+            <label>Client-Secret</label>
+            <input type="password" name="card_client_secret" placeholder="Geheimer Schlüssel">
+          </div>
+        </div>
+      </details>
+
+      <!-- Workstation -->
+      <details style="margin-bottom:16px;">
+        <summary style="cursor:pointer; font-size:.9em; font-weight:600; color:#1e3a5f; padding:8px 0;">
+          Workstation Monitoring API <small style="font-weight:400; color:#6b7280;">(Workstations, PCs)</small>
+        </summary>
+        <div style="padding: 12px 0 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label>Client-ID</label>
+            <input type="text" name="ws_client_id" placeholder="xxxxxxxx-xxxx-...">
+          </div>
+          <div class="form-group">
+            <label>Client-Secret</label>
+            <input type="password" name="ws_client_secret" placeholder="Geheimer Schlüssel">
+          </div>
+        </div>
+      </details>
+
+      <!-- Shared -->
+      <details style="margin-bottom:24px;">
+        <summary style="cursor:pointer; font-size:.9em; font-weight:600; color:#1e3a5f; padding:8px 0;">
+          Shared Credentials (Fallback) <small style="font-weight:400; color:#6b7280;">(wird für alle Bereiche ohne eigene Credentials genutzt)</small>
+        </summary>
+        <div style="padding: 12px 0 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label>Shared Client-ID</label>
+            <input type="text" name="shared_client_id" placeholder="xxxxxxxx-xxxx-...">
+          </div>
+          <div class="form-group">
+            <label>Shared Client-Secret</label>
+            <input type="password" name="shared_client_secret" placeholder="Geheimer Schlüssel">
+          </div>
+        </div>
+      </details>
+
+      <div style="display:flex; gap:12px;">
+        <a href="/register" class="btn btn-secondary">← Zurück</a>
+        <button type="submit" class="btn btn-primary">Weiter →</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
