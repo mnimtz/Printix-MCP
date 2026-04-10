@@ -447,6 +447,8 @@ def register_reports_routes(
 
         tenant = _get_tenant(user)
         try:
+            from reporting.sql_client import set_config_from_tenant
+            set_config_from_tenant(tenant)
             from reporting.scheduler import run_report_now
             result = run_report_now(
                 report_id,
