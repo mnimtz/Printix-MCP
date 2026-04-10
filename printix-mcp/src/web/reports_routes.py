@@ -73,9 +73,11 @@ def register_reports_routes(
         kind = request.session.pop("flash_kind", "success")
         return msg, kind
 
-    def _reporting_available() -> bool:
+    def _reporting_available(tenant: dict = None) -> bool:
         try:
-            from reporting.sql_client import is_configured
+            from reporting.sql_client import is_configured, set_config_from_tenant
+            if tenant:
+                set_config_from_tenant(tenant)
             return is_configured()
         except Exception:
             return False
@@ -142,7 +144,7 @@ def register_reports_routes(
             "templates_list":   user_templates,
             "presets_by_tag":   presets_by_tag,
             "tags":             tags,
-            "reporting_ok":     _reporting_available(),
+            "reporting_ok":     _reporting_available(tenant),
             "mail_ok":          _mail_configured(tenant),
             "flash_msg":        flash_msg,
             "flash_kind":       flash_kind,
@@ -492,7 +494,7 @@ def register_reports_routes(
                 status_code=503,
             )
 
-        if not _reporting_available():
+        if not _reporting_available(tenant):
             return HTMLResponse(
                 "<h2>Kein SQL-Server konfiguriert</h2>"
                 "<p>Bitte SQL-Credentials in den <a href='/settings'>Einstellungen</a> eintragen.</p>",

@@ -275,30 +275,66 @@ def execute_write(sql: str, params: tuple = ()) -> int:
 def execute_many(sql: str, params_list: list, batch_size: int = 500) -> int:
     """
     Führt ein SQL-Statement für viele Parametersätze aus (Bulk-INSERT).
-    Verarbeitet in Batches um Timeouts zu vermeiden.
+
+    Strategie je nach ODBC-Treiber:
+    - Microsoft ODBC: fast_executemany = True (optimal)
+    - FreeTDS:        Multi-Row-VALUES-INSERT  — INSERT … VALUES (…),(…),(…)
+                      deutlich schneller als executemany() Zeile für Zeile.
+                      Batch-Größe wird auto. auf SQL-Server-Limit (2100 Params)
+                      begrenzt.
 
     Args:
-        sql:         Parameterisiertes SQL (? als Platzhalter)
+        sql:         Parameterisiertes INSERT-SQL (? als Platzhalter)
         params_list: Liste von Tuples mit Parameterwerten
-        batch_size:  Batch-Größe (default 500)
+        batch_size:  Max. Rows pro Batch
 
     Returns:
         Gesamtanzahl verarbeiteter Zeilen
     """
     if not params_list:
         return 0
+
+    driver = _detect_driver()
+    is_freetds = "FreeTDS" in driver or driver.endswith(".so") or driver.endswith(".so.0")
+
     total = 0
     with get_connection() as conn:
         cursor = conn.cursor()
-        # fast_executemany nur für Microsoft ODBC Driver (nicht FreeTDS)
-        try:
-            cursor.fast_executemany = True
-        except AttributeError:
-            pass
-        for i in range(0, len(params_list), batch_size):
-            batch = params_list[i:i + batch_size]
-            cursor.executemany(sql, batch)
-            total += len(batch)
+
+        if not is_freetds:
+            # Microsoft ODBC: fast_executemany ist ideal
+            try:
+                cursor.fast_executemany = True
+            except AttributeError:
+                pass
+            for i in range(0, len(params_list), batch_size):
+                batch = params_list[i:i + batch_size]
+                cursor.executemany(sql, batch)
+                total += len(batch)
+        else:
+            # FreeTDS: Multi-Row-VALUES-INSERT
+            # SQL-Server-Limit: 2100 Parameter pro Statement
+            num_params = len(params_list[0]) if params_list else 1
+            max_rows   = max(1, min(batch_size, 2000 // num_params))
+            # INSERT-Präfix und Zeilen-Platzhalter aus SQL extrahieren
+            # z.B. "INSERT INTO t (a,b,c) VALUES (?,?,?)"
+            values_pos = sql.upper().rfind("VALUES")
+            if values_pos >= 0:
+                row_ph        = sql[values_pos + 6:].strip()   # "(?,?,?)"
+                insert_prefix = sql[:values_pos + 6]            # "INSERT … VALUES"
+                for i in range(0, len(params_list), max_rows):
+                    batch    = params_list[i:i + max_rows]
+                    multi_sql = insert_prefix + " " + ",".join([row_ph] * len(batch))
+                    flat     = [p for row in batch for p in row]
+                    cursor.execute(multi_sql, flat)
+                    total += len(batch)
+            else:
+                # Fallback für nicht-INSERT Statements
+                for i in range(0, len(params_list), batch_size):
+                    batch = params_list[i:i + batch_size]
+                    cursor.executemany(sql, batch)
+                    total += len(batch)
+
         conn.commit()
     return total
 
