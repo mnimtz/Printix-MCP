@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}{{ _('tenant_tab_users') }} — Printix MCP{% endblock %}
+{% block extra_head %}
+<style>
+  .tenant-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid #e5e7eb; padding-bottom:0; }
+  .tenant-tab {
+    padding:8px 18px; font-size:.9em; font-weight:600; text-decoration:none;
+    color:#6b7280; border-radius:6px 6px 0 0; border:1px solid transparent;
+    border-bottom:none; margin-bottom:-2px;
+  }
+  .tenant-tab.active { background:#fff; border-color:#e5e7eb; border-bottom-color:#fff; color:#1e3a5f; }
+  .tenant-tab:hover:not(.active) { color:#374151; background:#f8fafc; }
+  .search-bar { display:flex; gap:8px; margin-bottom:16px; }
+  .search-bar input { flex:1; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:.9em; }
+  .search-bar button { padding:8px 16px; background:#2563eb; color:#fff; border:none; border-radius:8px; cursor:pointer; font-size:.9em; font-weight:600; }
+  .avatar {
+    width:32px; height:32px; border-radius:50%; background:#dbeafe; color:#1d4ed8;
+    font-weight:700; font-size:.85em; display:inline-flex; align-items:center;
+    justify-content:center; text-transform:uppercase; flex-shrink:0;
+  }
+  .card-count {
+    display:inline-block; background:#dcfce7; color:#166534;
+    font-size:.78em; font-weight:700; padding:1px 8px; border-radius:10px;
+  }
+  .card-count.zero { background:#f1f5f9; color:#9ca3af; }
+  .card-count.unknown { background:#f1f5f9; color:#9ca3af; font-style:italic; }
+  .role-badge {
+    display:inline-block; font-size:.72em; padding:1px 6px; border-radius:8px;
+    background:#fef3c7; color:#92400e;
+  }
+  .role-badge.guest { background:#ede9fe; color:#5b21b6; }
+  tr.clickable { cursor:pointer; }
+  tr.clickable:hover td { background:#f0f7ff; }
+  .flash-ok  { background:#d1fae5; color:#065f46; border:1px solid #6ee7b7; padding:10px 16px; border-radius:8px; margin-bottom:16px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container" style="max-width:1000px;">
+  <div class="card">
+    <h2 class="section-title" style="margin-bottom:16px;">🖨️ {{ _('nav_tenant') }}</h2>
+
+    <!-- Sub-Tabs -->
+    <div class="tenant-tabs">
+      <a href="/tenant/printers" class="tenant-tab {% if active_tab == 'printers' %}active{% endif %}">
+        🖨️ {{ _('tenant_tab_printers') }}
+      </a>
+      <a href="/tenant/queues" class="tenant-tab {% if active_tab == 'queues' %}active{% endif %}">
+        📋 {{ _('tenant_tab_queues') }}
+      </a>
+      <a href="/tenant/users" class="tenant-tab {% if active_tab == 'users' %}active{% endif %}">
+        👤 {{ _('tenant_tab_users') }}
+      </a>
+      <a href="/tenant/demo" class="tenant-tab {% if active_tab == 'demo' %}active{% endif %}">
+        🧪 {{ _('tenant_tab_demo') }}
+      </a>
+    </div>
+
+    <!-- Flash messages -->
+    {% if request.query_params.get('flash') == 'deleted' %}
+    <div class="flash-ok">✅ {{ _('user_deleted_ok') }}</div>
+    {% elif request.query_params.get('flash') == 'created' %}
+    <div class="flash-ok">✅ {{ _('user_card_added_ok') }}</div>
+    {% endif %}
+
+    <!-- Toolbar: Search + Refresh + New User -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+      <form class="search-bar" method="get" action="/tenant/users" style="flex:1;min-width:200px;margin:0;">
+        <input type="text" name="search" value="{{ search }}" placeholder="Search name / email…">
+        <button type="submit">🔍</button>
+      </form>
+      <a href="/tenant/users{% if search %}?search={{ search }}{% endif %}"
+         class="btn btn-secondary" title="Reload from Printix API">
+        🔄 Aktualisieren
+      </a>
+      <a href="/tenant/users/create" class="btn btn-primary">
+        ➕ {{ _('user_new_btn') }}
+      </a>
+    </div>
+
+    {% if error == "no_card_creds" %}
+    <div class="alert alert-warning">⚠️ {{ _('tenant_no_card_creds') }}</div>
+    {% elif error == "no_tenant" %}
+    <div class="alert alert-warning">⚠️ No tenant configured.</div>
+    {% elif error %}
+    <div class="alert alert-error">❌ {{ error }}</div>
+    {% elif users %}
+    <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">{{ users|length }} user(s)</p>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>{{ _('tenant_col_name') }}</th>
+            <th>{{ _('tenant_col_email') }}</th>
+            <th>{{ _('tenant_col_cards') }}</th>
+            <th>Role</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          {% set display = u.get('name') or u.get('displayName') or u.get('fullName') or '?' %}
+          {% set email   = u.get('email', '–') %}
+          {% set roles_list = u.get('roles') or [] %}
+          {% set role    = roles_list[0] if roles_list else u.get('role', '') %}
+          {% set uid     = u.get('id', '') %}
+          {% set card_count = u.get('_card_count') %}
+          <tr class="clickable" onclick="location.href='/tenant/users/{{ uid }}'">
+            <td>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div class="avatar">{{ display[:1] }}</div>
+                <span style="font-weight:600;color:#2563eb;text-decoration:underline;">{{ display }}</span>
+              </div>
+            </td>
+            <td style="color:#6b7280;font-size:.88em;">{{ email }}</td>
+            <td>
+              {% if card_count is not none %}
+                <span class="card-count {% if card_count == 0 %}zero{% endif %}">
+                  🃏 {{ card_count }}
+                </span>
+              {% else %}
+                <span class="card-count unknown" title="Karten-API nicht erreichbar">🃏 –</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if role %}
+                <span class="role-badge {% if role == 'GUEST_USER' %}guest{% endif %}">
+                  {{ role | replace('_', ' ') }}
+                </span>
+              {% else %}–{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info">No users found.</div>
+    {% endif %}
+
+    <div style="margin-top:20px;">
+      <a href="/dashboard" class="btn btn-secondary">← {{ _('nav_dashboard') }}</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

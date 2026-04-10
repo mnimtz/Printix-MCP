@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}{{ _('settings_title') }} — Printix MCP{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card">
+    <h2 class="section-title">{{ _('settings_title') }}</h2>
+    <p class="section-sub">{{ _('settings_api') }}</p>
+
+    {% if saved %}
+    <div class="alert alert-success">✓ {{ _('settings_saved') }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/settings">
+
+      <!-- Printix API -->
+      <div class="section-title" style="margin-bottom:12px;">{{ _('settings_api') }}</div>
+
+      <div class="form-group">
+        <label>{{ _('px_tenant_id') }}</label>
+        <input type="text" name="printix_tenant_id"
+               value="{{ tenant.printix_tenant_id if tenant else '' }}" required>
+      </div>
+      <div class="form-group">
+        <label>Tenant Name</label>
+        <input type="text" name="tenant_name"
+               value="{{ tenant.name if tenant else '' }}">
+      </div>
+
+      <div class="divider"></div>
+      <div class="section-title" style="margin-bottom:12px;">Print API</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label>{{ _('px_client_id') }}</label>
+          <input type="text" name="print_client_id"
+                 value="{{ tenant.print_client_id if tenant else '' }}">
+        </div>
+        <div class="form-group">
+          <label>{{ _('px_client_secret') }}</label>
+          <input type="password" name="print_client_secret" value="" placeholder="(unverändert lassen)">
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-bottom:12px;">Card API</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label>{{ _('px_card_client_id') }}</label>
+          <input type="text" name="card_client_id"
+                 value="{{ tenant.card_client_id if tenant else '' }}">
+        </div>
+        <div class="form-group">
+          <label>{{ _('px_card_secret') }}</label>
+          <input type="password" name="card_client_secret" value="" placeholder="(unverändert lassen)">
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-bottom:12px;">Workstation API</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label>{{ _('px_ws_client_id') }}</label>
+          <input type="text" name="ws_client_id"
+                 value="{{ tenant.ws_client_id if tenant else '' }}">
+        </div>
+        <div class="form-group">
+          <label>{{ _('px_ws_secret') }}</label>
+          <input type="password" name="ws_client_secret" value="" placeholder="(unverändert lassen)">
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="section-title" style="margin-bottom:6px;">{{ _('settings_sql') }}
+        <small class="hint">{{ _('optional_hint') }}</small>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label>{{ _('sql_server') }}</label>
+          <input type="text" name="sql_server"
+                 value="{{ tenant.sql_server if tenant else '' }}">
+        </div>
+        <div class="form-group">
+          <label>{{ _('sql_database') }}</label>
+          <input type="text" name="sql_database"
+                 value="{{ tenant.sql_database if tenant else '' }}">
+        </div>
+        <div class="form-group">
+          <label>{{ _('sql_username') }}</label>
+          <input type="text" name="sql_username"
+                 value="{{ tenant.sql_username if tenant else '' }}">
+        </div>
+        <div class="form-group">
+          <label>{{ _('sql_password') }}</label>
+          <input type="password" name="sql_password" value="" placeholder="(unverändert lassen)">
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="section-title" style="margin-bottom:6px;">{{ _('settings_mail') }}
+        <small class="hint">{{ _('optional_hint') }}</small>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label>{{ _('mail_api_key') }}</label>
+          <input type="password" name="mail_api_key" value="" placeholder="(unverändert lassen)">
+        </div>
+        <div class="form-group">
+          <label>{{ _('mail_from') }} <small style="color:#6b7280;">Absender-E-Mail</small></label>
+          <input type="email" name="mail_from"
+                 value="{{ tenant.mail_from if tenant else '' }}">
+        </div>
+        <div class="form-group">
+          <label>Absender-Anzeigename <small style="color:#6b7280;">z.B. „Printix Reports"</small></label>
+          <input type="text" name="mail_from_name"
+                 value="{{ tenant.mail_from_name if tenant else '' }}"
+                 placeholder="Printix Reports">
+          <small class="hint" style="display:block;margin-top:4px;color:#6b7280;">
+            Wird als „Name &lt;email&gt;" im Absenderfeld angezeigt — verhindert Spam-Klassifizierung
+          </small>
+        </div>
+        <div class="form-group">
+          <label>Alert-Empfänger <small style="color:#6b7280;">kommagetrennt</small></label>
+          <input type="text" name="alert_recipients"
+                 value="{{ tenant.alert_recipients if tenant else '' }}"
+                 placeholder="admin@firma.de, it@firma.de">
+          <small class="hint" style="display:block;margin-top:4px;color:#6b7280;">
+            Empfänger für kritische Log-Benachrichtigungen
+          </small>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+        <div class="form-group">
+          <label>Alert-Mindest-Level</label>
+          <select name="alert_min_level" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+            {% set cur_level = tenant.alert_min_level if tenant else 'ERROR' %}
+            <option value="WARNING"  {% if cur_level == 'WARNING'  %}selected{% endif %}>WARNING — Warnungen und höher</option>
+            <option value="ERROR"    {% if cur_level == 'ERROR'    %}selected{% endif %}>ERROR — Nur Fehler und kritisch</option>
+            <option value="CRITICAL" {% if cur_level == 'CRITICAL' %}selected{% endif %}>CRITICAL — Nur kritische Fehler</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Mail Delivery: Benachrichtigungs-Ereignisse -->
+      <div style="margin-top:20px;">
+        <div class="section-title" style="margin-bottom:8px;">
+          📬 E-Mail Benachrichtigungen
+          <small class="hint">Für welche Ereignisse soll eine E-Mail verschickt werden?</small>
+        </div>
+        {% set ne = (tenant.notify_events | from_json) if (tenant and tenant.notify_events) else ["log_error"] %}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">
+            <input type="checkbox" name="notify_log_error" value="1"
+                   {% if "log_error" in ne %}checked{% endif %}
+                   style="margin-top:2px;accent-color:#2563eb;">
+            <span>
+              <strong>🚨 Kritische Log-Fehler</strong><br>
+              <small style="color:#6b7280;">ERROR / CRITICAL im Server-Log</small>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">
+            <input type="checkbox" name="notify_new_printer" value="1"
+                   {% if "new_printer" in ne %}checked{% endif %}
+                   style="margin-top:2px;accent-color:#2563eb;">
+            <span>
+              <strong>🖨️ Neuer Drucker</strong><br>
+              <small style="color:#6b7280;">Neuer Drucker in Printix erkannt</small>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">
+            <input type="checkbox" name="notify_new_queue" value="1"
+                   {% if "new_queue" in ne %}checked{% endif %}
+                   style="margin-top:2px;accent-color:#2563eb;">
+            <span>
+              <strong>📋 Neue Drucker-Queue</strong><br>
+              <small style="color:#6b7280;">Neue Queue in Printix erkannt</small>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">
+            <input type="checkbox" name="notify_new_guest_user" value="1"
+                   {% if "new_guest_user" in ne %}checked{% endif %}
+                   style="margin-top:2px;accent-color:#2563eb;">
+            <span>
+              <strong>👤 Neuer Gast-Benutzer</strong><br>
+              <small style="color:#6b7280;">Neuer Gast in Printix erkannt</small>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">
+            <input type="checkbox" name="notify_report_sent" value="1"
+                   {% if "report_sent" in ne %}checked{% endif %}
+                   style="margin-top:2px;accent-color:#2563eb;">
+            <span>
+              <strong>📊 Report versendet</strong><br>
+              <small style="color:#6b7280;">Bestätigung nach jedem automatischen Report</small>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">
+            <input type="checkbox" name="notify_user_registered" value="1"
+                   {% if "user_registered" in ne %}checked{% endif %}
+                   style="margin-top:2px;accent-color:#2563eb;">
+            <span>
+              <strong>🔔 Neuer MCP-Benutzer</strong><br>
+              <small style="color:#6b7280;">Neuer Benutzer hat sich registriert (Admin)</small>
+            </span>
+          </label>
+        </div>
+        <small class="hint" style="display:block;margin-top:8px;color:#6b7280;">
+          ℹ️ Benachrichtigungen für Drucker/Queue/Gast-Benutzer werden alle 30 Minuten geprüft.
+          Empfänger und Mail-Konfiguration oben eintragen.
+        </small>
+      </div>
+
+      <div class="divider"></div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <button type="submit" class="btn btn-primary">{{ _('settings_save') }}</button>
+        <a href="/dashboard" class="btn btn-secondary">{{ _('cancel') }}</a>
+        <a href="/settings/password" class="btn btn-secondary">{{ _('dash_change_pw') }}</a>
+      </div>
+    </form>
+
+    <!-- OAuth-Secret regenerieren -->
+    <div class="divider"></div>
+    <div class="section-title" style="margin-bottom:8px;">OAuth Secret</div>
+    {% if tenant and tenant.oauth_client_secret %}
+    <div class="code-block" id="oauth-secret-box" style="margin-bottom:12px;">
+      <button class="copy-btn" onclick="copyToClipboard('oauth-secret-val', this)">⧉</button>
+      <span id="oauth-secret-val">{{ tenant.oauth_client_secret }}</span>
+    </div>
+    {% endif %}
+    <button class="btn btn-danger btn-sm" onclick="regenOAuth()" id="regen-btn">
+      🔄 {{ _('dash_regen_secret') }}
+    </button>
+    <p id="regen-result" style="margin-top:8px;font-size:.88em;color:#166534;display:none;"></p>
+  </div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+async function regenOAuth() {
+  if (!confirm('{{ _("dash_regen_confirm") }}')) return;
+  const res = await fetch('/settings/regenerate-oauth', { method: 'POST' });
+  const data = await res.json();
+  if (data.oauth_client_secret) {
+    const box = document.getElementById('oauth-secret-val');
+    if (box) box.textContent = data.oauth_client_secret;
+    const msg = document.getElementById('regen-result');
+    msg.textContent = '✓ {{ _("settings_saved") }}';
+    msg.style.display = 'block';
+  }
+}
+</script>
+{% endblock %}

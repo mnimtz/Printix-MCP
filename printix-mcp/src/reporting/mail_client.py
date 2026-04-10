@@ -1,11 +1,17 @@
 """
 Mail Client — Resend API
 =========================
-Versendet Report-E-Mails über die Resend REST-API.
+Versendet Report-E-Mails und Log-Alerts über die Resend REST-API.
 
-Konfiguration via Umgebungsvariablen:
-  MAIL_API_KEY  — Resend API-Key (re_...)
-  MAIL_FROM     — Absenderadresse (z.B. reports@firma.de)
+Konfiguration (Priorität):
+  1. Explizite Parameter an send_report()/send_alert()
+  2. Modul-Level-Override via set_credentials()  (gesetzt beim Server-Start aus DB)
+  3. Umgebungsvariablen MAIL_API_KEY / MAIL_FROM  (Fallback für direkte Deployments)
+
+From-Header-Format:
+  Wenn mail_from_name gesetzt ist, wird "Name <email>" verwendet — verhindert
+  Spam-Klassifizierung durch fehlenden Anzeigenamen.
+  Beispiel: "Printix Reports <noreply@firma.de>"
 """
 
 import json
@@ -19,10 +25,57 @@ logger = logging.getLogger(__name__)
 
 RESEND_API_URL = "https://api.resend.com/emails"
 
+# Modul-Level-Override: gesetzt via set_credentials() aus Tenant-DB
+_override_api_key:       Optional[str] = None
+_override_mail_from:     Optional[str] = None
+_override_mail_from_name: Optional[str] = None
 
-def is_configured() -> bool:
-    """Prüft ob Mail-Versand konfiguriert ist."""
-    return bool(os.environ.get("MAIL_API_KEY") and os.environ.get("MAIL_FROM"))
+
+def set_credentials(api_key: str, mail_from: str, mail_from_name: str = "") -> None:
+    """
+    Setzt Modul-Level-Credentials (z.B. beim Server-Start aus Tenant-DB).
+    Überschreibt Env-Vars, wird selbst von expliziten Parametern überschrieben.
+    """
+    global _override_api_key, _override_mail_from, _override_mail_from_name
+    _override_api_key        = api_key        or None
+    _override_mail_from      = mail_from      or None
+    _override_mail_from_name = mail_from_name or None
+    logger.debug("Mail-Credentials gesetzt: from=%s, name=%s, key=%s…",
+                 mail_from, mail_from_name, (api_key or "")[:8])
+
+
+def _resolve_api_key(api_key: Optional[str] = None) -> str:
+    return api_key or _override_api_key or os.environ.get("MAIL_API_KEY", "")
+
+
+def _resolve_mail_from(mail_from: Optional[str] = None) -> str:
+    return mail_from or _override_mail_from or os.environ.get("MAIL_FROM", "")
+
+
+def _resolve_mail_from_name(mail_from_name: Optional[str] = None) -> str:
+    return mail_from_name or _override_mail_from_name or os.environ.get("MAIL_FROM_NAME", "")
+
+
+def _build_from_header(mail_from: str, mail_from_name: str) -> str:
+    """
+    Baut den From-Header.
+    Mit Name:     "Printix Reports <noreply@firma.de>"
+    Ohne Name:    "noreply@firma.de"
+    Ein Anzeigename verhindert Spam-Klassifizierung durch fehlenden Absendernamen.
+    """
+    name = mail_from_name.strip()
+    addr = mail_from.strip()
+    if name:
+        # RFC 5322: Anzeigename mit Sonderzeichen in Anführungszeichen
+        if any(c in name for c in (',', '"', '<', '>', '@', ';', ':')):
+            name = f'"{name}"'
+        return f"{name} <{addr}>"
+    return addr
+
+
+def is_configured(api_key: Optional[str] = None, mail_from: Optional[str] = None) -> bool:
+    """Prüft ob Mail-Versand konfiguriert ist (inkl. DB-Override und Env-Vars)."""
+    return bool(_resolve_api_key(api_key) and _resolve_mail_from(mail_from))
 
 
 def send_report(
@@ -30,15 +83,21 @@ def send_report(
     subject: str,
     html_body: str,
     attachments: Optional[list[dict]] = None,
+    api_key: Optional[str] = None,
+    mail_from: Optional[str] = None,
+    mail_from_name: Optional[str] = None,
 ) -> dict:
     """
     Versendet einen Report per E-Mail über Resend.
 
     Args:
-        recipients:  Liste von Empfänger-Adressen
-        subject:     Betreffzeile
-        html_body:   HTML-Inhalt der Mail
-        attachments: Optional — Liste von {filename, content (base64), content_type}
+        recipients:     Liste von Empfänger-Adressen
+        subject:        Betreffzeile
+        html_body:      HTML-Inhalt der Mail
+        attachments:    Optional — Liste von {filename, content (base64), content_type}
+        api_key:        Optional — überschreibt Modul-Override und Env-Var
+        mail_from:      Optional — Absender-E-Mail
+        mail_from_name: Optional — Absender-Anzeigename (z.B. "Printix Reports")
 
     Returns:
         Resend API Response als Dict (enthält 'id' bei Erfolg)
@@ -46,15 +105,16 @@ def send_report(
     Raises:
         RuntimeError: bei Konfigurationsfehler oder API-Fehler
     """
-    api_key  = os.environ.get("MAIL_API_KEY", "")
-    mail_from = os.environ.get("MAIL_FROM", "")
+    _api_key        = _resolve_api_key(api_key)
+    _mail_from      = _resolve_mail_from(mail_from)
+    _mail_from_name = _resolve_mail_from_name(mail_from_name)
 
-    if not api_key:
+    if not _api_key:
         raise RuntimeError(
             "MAIL_API_KEY nicht konfiguriert. "
             "Bitte Resend API-Key in den Add-on-Einstellungen hinterlegen."
         )
-    if not mail_from:
+    if not _mail_from:
         raise RuntimeError(
             "MAIL_FROM nicht konfiguriert. "
             "Bitte Absenderadresse in den Add-on-Einstellungen hinterlegen."
@@ -62,8 +122,10 @@ def send_report(
     if not recipients:
         raise ValueError("Keine Empfänger angegeben.")
 
+    from_header = _build_from_header(_mail_from, _mail_from_name)
+
     payload: dict = {
-        "from":    mail_from,
+        "from":    from_header,
         "to":      recipients,
         "subject": subject,
         "html":    html_body,
@@ -72,17 +134,14 @@ def send_report(
     if attachments:
         payload["attachments"] = attachments
 
-    logger.info(
-        "Sende Mail: '%s' → %s",
-        subject,
-        ", ".join(recipients),
-    )
+    att_names = [a.get("filename","?") for a in (attachments or [])]
+    logger.info("Sende Mail: '%s' -> %s (from: %s) | Anhaenge (%d): %s", subject, ", ".join(recipients), from_header, len(att_names), ", ".join(att_names))
 
     try:
         response = requests.post(
             RESEND_API_URL,
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {_api_key}",
                 "Content-Type":  "application/json",
             },
             data=json.dumps(payload),
@@ -99,3 +158,35 @@ def send_report(
     result = response.json()
     logger.info("Mail versendet, ID: %s", result.get("id"))
     return result
+
+
+def send_alert(
+    recipients: list[str],
+    subject: str,
+    text_body: str,
+    api_key: Optional[str] = None,
+    mail_from: Optional[str] = None,
+    mail_from_name: Optional[str] = None,
+) -> dict:
+    """
+    Versendet eine einfache Text-Alert-Mail (z.B. für kritische Log-Einträge).
+    Wrapper um send_report() mit auto-generiertem HTML.
+    """
+    html = f"""<!DOCTYPE html>
+<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+  <div style="background:#fee2e2;border-left:4px solid #dc2626;padding:16px;border-radius:4px;">
+    <h2 style="margin:0 0 8px;color:#991b1b;">⚠️ Printix MCP Alert</h2>
+    <pre style="margin:0;white-space:pre-wrap;color:#1f2937;font-size:.9em;">{text_body}</pre>
+  </div>
+  <p style="color:#6b7280;font-size:.8em;margin-top:16px;">
+    Automatische Benachrichtigung vom Printix MCP Add-on
+  </p>
+</body></html>"""
+    return send_report(
+        recipients=recipients,
+        subject=subject,
+        html_body=html,
+        api_key=api_key,
+        mail_from=mail_from,
+        mail_from_name=mail_from_name,
+    )

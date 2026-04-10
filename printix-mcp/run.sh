@@ -1,13 +1,13 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# Printix MCP Server v2.0.0 — Home Assistant Add-on Entrypoint
+# Printix MCP Server v3.5.1 — Home Assistant Add-on Entrypoint
 #
 # Startet zwei Services:
 #   1. Web-Verwaltungsoberfläche  (WEB_PORT,  Standard: 8080)
 #   2. MCP-Server (SSE + HTTP)   (MCP_PORT,  Standard: 8765)
 #
 # Alle Zugangsdaten werden in der SQLite-DB (/data/printix_multi.db) verwaltet.
-# Erstkonfiguration über die Web-UI: http://<HA-IP>:<WEB_PORT>
+# Erstkonfiguration über die Web-UI: http://<HA-IP>:<HOST_WEB_PORT>
 # ==============================================================================
 
 set -e
@@ -25,16 +25,17 @@ FERNET_KEY=$(cat /data/fernet.key)
 # ─── Konfiguration aus HA-Optionen lesen ──────────────────────────────────────
 
 export MCP_PORT=$(bashio::config 'mcp_port')
-export WEB_PORT=$(bashio::config 'web_port')
+export WEB_PORT=8080              # Container-intern immer fix — HA mapped extern via Network-Tab
+HOST_WEB_PORT=$(bashio::config 'web_port')   # Externer Host-Port (für Log-Ausgabe)
+HOST_WEB_PORT="${HOST_WEB_PORT:-8080}"
 export MCP_LOG_LEVEL=$(bashio::config 'log_level')
 
 PUBLIC_URL=$(bashio::config 'public_url')
 PUBLIC_URL="${PUBLIC_URL%/}"
 export MCP_PUBLIC_URL="${PUBLIC_URL}"
 
-# Fallback falls Ports leer
+# Fallback falls MCP_PORT leer
 MCP_PORT="${MCP_PORT:-8765}"
-WEB_PORT="${WEB_PORT:-8080}"
 
 # ─── Verbindungsinfo im Log ────────────────────────────────────────────────────
 
@@ -45,9 +46,9 @@ else
 fi
 
 bashio::log.info "╔══════════════════════════════════════════════════════════════╗"
-bashio::log.info "║        PRINTIX MCP SERVER v2.0.0 — MULTI-TENANT             ║"
+bashio::log.info "║        PRINTIX MCP SERVER v3.5.1 — MULTI-TENANT             ║"
 bashio::log.info "╠══════════════════════════════════════════════════════════════╣"
-bashio::log.info "║ Web-Verwaltung:  http://<HA-IP>:${WEB_PORT}"
+bashio::log.info "║ Web-Verwaltung:  http://<HA-IP>:${HOST_WEB_PORT}"
 bashio::log.info "║  → Erstkonfiguration / Benutzer registrieren"
 bashio::log.info "╠══════════════════════════════════════════════════════════════╣"
 bashio::log.info "║ MCP-Endpunkte:"
@@ -59,7 +60,7 @@ bashio::log.info "╚═══════════════════�
 
 # ─── Web-Verwaltungsoberfläche starten (Hintergrund) ──────────────────────────
 
-bashio::log.info "Starte Web-UI auf Port ${WEB_PORT}..."
+bashio::log.info "Starte Web-UI auf Port ${HOST_WEB_PORT} (Host) → ${WEB_PORT} (Container)..."
 export WEB_HOST="0.0.0.0"
 python3 /app/web/run.py &
 WEB_PID=$!

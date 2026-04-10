@@ -1,5 +1,5 @@
 """
-Printix MCP Server — Home Assistant Add-on v2.0.0 (Multi-Tenant)
+Printix MCP Server — Home Assistant Add-on v2.1.0 (Multi-Tenant)
 =================================================================
 Model Context Protocol server for the Printix Cloud Print API.
 
@@ -57,6 +57,50 @@ for _noisy in (
 
 logger = logging.getLogger("printix.mcp")
 logger.info("Log-Level: %s", LOG_LEVEL)
+
+
+# ─── Tenant-aware DB Log Handler ──────────────────────────────────────────────
+
+class _TenantDBHandler(logging.Handler):
+    """
+    Leitet Log-Einträge in die tenant_logs SQLite-Tabelle weiter,
+    sofern ein Tenant-Kontext (current_tenant ContextVar) aktiv ist.
+    Kategorien: PRINTIX_API | SQL | AUTH | SYSTEM
+    """
+    _CATEGORY_MAP = {
+        "printix_client": "PRINTIX_API",
+        "printix.api":    "PRINTIX_API",
+        "reporting":      "SQL",
+        "sql":            "SQL",
+        "auth":           "AUTH",
+        "oauth":          "AUTH",
+    }
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            tenant = current_tenant.get()
+            if not tenant:
+                return
+            tid = tenant.get("id", "")
+            if not tid:
+                return
+            name_lower = record.name.lower()
+            category = "SYSTEM"
+            for key, cat in self._CATEGORY_MAP.items():
+                if key in name_lower:
+                    category = cat
+                    break
+            msg = self.format(record)
+            from db import add_tenant_log
+            add_tenant_log(tid, record.levelname, category, msg)
+        except Exception:
+            pass  # Niemals den Server wegen Logging crashen
+
+
+_tenant_handler = _TenantDBHandler()
+_tenant_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
+_tenant_handler.setLevel(logging.DEBUG)
+logging.getLogger().addHandler(_tenant_handler)  # Root-Logger → alle Tenants
 
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
@@ -129,10 +173,28 @@ def printix_status() -> str:
 @mcp.tool()
 def printix_list_printers(search: str = "", page: int = 0, size: int = 50) -> str:
     """
-    Listet alle Drucker / Print Queues des Tenants.
+    Listet alle Drucker-Queues (Print Queues) des Tenants.
+
+    WICHTIG – Datenstruktur der Antwort:
+    Jedes Item in 'printers' ist ein Printer-Queue-Paar.
+    Ein physischer Drucker kann mehrere Queues haben.
+
+    - Physische Drucker ermitteln: Nach printer_id deduplizieren.
+      Die printer_id steht in _links.self.href als:
+      /printers/{printer_id}/queues/{queue_id}
+      Felder pro Drucker: name (Modell), vendor, location, connectionStatus,
+      printerSignId (Kurzcode), serialNo.
+
+    - Print Queues anzeigen: Jedes Item direkt als Queue verwenden.
+      Queue-Name = name (z.B. "HP-M577 (Printix)", "Guestprint").
+      Drucker-Modell = model + vendor.
+
+    Beispiel: Bei 10 Druckern mit 19 Queues liefert die API 19 Items.
+    Frage: "Zeige meine Drucker" → deduplizieren auf 10 eindeutige printer_ids.
+    Frage: "Zeige meine Queues"  → alle 19 Items direkt ausgeben.
 
     Args:
-        search: Optionaler Suchbegriff (Name des Druckers).
+        search: Optionaler Suchbegriff (Queue-/Druckername).
         page:   Seitennummer (0-basiert).
         size:   Einträge pro Seite (max. 100).
     """
@@ -946,7 +1008,11 @@ def printix_delete_snmp_config(config_id: str) -> str:
 try:
     from reporting import query_tools, template_store, report_engine, scheduler as rep_scheduler
     from reporting.mail_client import send_report as _send_report, is_configured as _mail_configured
-    from reporting.sql_client  import is_configured as _sql_configured
+    from reporting.sql_client  import is_configured as _sql_configured, get_tenant_id as _get_sql_tenant_id
+    from reporting.log_alert_handler import register_alert_handler as _register_alert_handler
+    from reporting.event_poller      import register_event_poller as _register_event_poller
+    _register_alert_handler()
+    _register_event_poller()
     _REPORTING_AVAILABLE = True
     logger.info("Reporting-Modul geladen")
 except ImportError as _e:
@@ -1289,11 +1355,25 @@ def printix_save_report_template(
 
     Args:
         name:               Lesbarer Name, z.B. "Monatlicher Kostenreport Controlling"
-        query_type:         print_stats | cost_report | top_users | top_printers | anomalies | trend
-        query_params:       JSON-String mit Query-Parametern, z.B. '{"start_date":"last_month_start","end_date":"last_month_end","group_by":"month"}'
+        query_type:         Einer der folgenden Werte:
+                            print_stats | cost_report | top_users | top_printers | trend |
+                            job_history | printer_history | user_detail | user_copy_detail |
+                            user_scan_detail | tree_meter | service_desk |
+                            workstation_overview | queue_stats | device_readings
+        query_params:       JSON-String mit Query-Parametern.
+                            Für start_date / end_date NUR diese Magic-Keywords verwenden:
+                              last_month_start | last_month_end
+                              this_month_start
+                              last_year_start  | last_year_end
+                              this_year_start
+                              last_quarter_start | last_quarter_end
+                              last_week_start  | last_week_end
+                              today
+                            KEIN festes Datum wie "2026-04-01" — immer Magic-Keywords!
+                            Beispiel: '{"start_date":"last_month_start","end_date":"last_month_end","group_by":"month"}'
         recipients:         Kommagetrennte E-Mail-Adressen, z.B. "controller@firma.de,cfo@firma.de"
         mail_subject:       Betreffzeile, z.B. "Druckkosten {month} {year}"
-        output_formats:     Kommagetrennte Formate: html,csv,json (default: html)
+        output_formats:     Kommagetrennte Formate: html,csv,json,pdf,xlsx (default: html)
         schedule_frequency: Leer = kein Schedule | monthly | weekly | daily
         schedule_day:       Bei monthly: Tag 1-28. Bei weekly: 0=Mo...6=So (default: 1)
         schedule_time:      Uhrzeit der Ausführung HH:MM (default: 08:00)
@@ -1330,12 +1410,18 @@ def printix_save_report_template(
     }
 
     try:
+        # owner_user_id aus Tenant-Kontext holen — nötig damit der Scheduler
+        # später die korrekten Mail-Credentials aus der DB laden kann
+        _t = current_tenant.get() or {}
+        owner_user_id = _t.get("user_id", "") or _t.get("id", "")
+
         template = template_store.save_template(
             name=name, query_type=query_type, query_params=params,
             recipients=recipient_list, mail_subject=mail_subject,
             output_formats=format_list, layout=layout,
             schedule=schedule, created_prompt=created_prompt,
             report_id=report_id or None,
+            owner_user_id=owner_user_id or None,
         )
 
         # Schedule registrieren wenn vorhanden
@@ -1368,16 +1454,31 @@ def _next_run_info(report_id: str) -> str | None:
 @mcp.tool()
 def printix_list_report_templates() -> str:
     """
-    Listet alle gespeicherten Report-Templates.
+    Listet alle gespeicherten Report-Templates des aktuellen Benutzers.
 
-    Zeigt Name, Query-Typ, Empfänger, Schedule und Erstellungsdatum.
-    Das Layout-Logo wird nicht angezeigt (zu groß).
+    WICHTIG: Dieses Tool immer zuerst aufrufen wenn der Benutzer einen Report
+    ausführen, versenden, löschen oder planen möchte und keine report_id bekannt ist.
+    Die report_id aus der Liste dann an printix_run_report_now oder andere Tools übergeben.
+
+    Gibt Name, Query-Typ, Empfänger, Schedule und nächste geplante Ausführung zurück.
     """
     if not _REPORTING_AVAILABLE:
         return _ok({"error": "Reporting-Modul nicht verfügbar."})
     try:
-        templates = template_store.list_templates()
-        return _ok({"templates": templates, "count": len(templates)})
+        _t = current_tenant.get() or {}
+        owner_id = _t.get("user_id", "") or ""
+        all_templates = template_store.list_templates()
+        # Per-Tenant-Filter: nur eigene Templates anzeigen
+        if owner_id:
+            templates = [t for t in all_templates if t.get("owner_user_id", "") == owner_id]
+        else:
+            templates = all_templates
+        scheduled_ids = {j["job_id"] for j in rep_scheduler.list_scheduled_jobs()}
+        for t in templates:
+            t["is_scheduled"] = t.get("report_id", "") in scheduled_ids
+            t["next_run"] = _next_run_info(t["report_id"]) if t.get("report_id") in scheduled_ids else None
+        return _ok({"templates": templates, "count": len(templates),
+                    "hint": "report_id aus dieser Liste an printix_run_report_now übergeben"})
     except Exception as e:
         return _ok({"error": str(e)})
 
@@ -1422,27 +1523,87 @@ def printix_delete_report_template(report_id: str) -> str:
 
 
 @mcp.tool()
-def printix_run_report_now(report_id: str) -> str:
+def printix_run_report_now(report_id: str = "", report_name: str = "") -> str:
     """
-    Führt ein gespeichertes Report-Template sofort aus (on-demand).
+    Führt ein gespeichertes Report-Template sofort aus und versendet ihn per Mail.
 
-    Holt aktuelle Daten, generiert den Report und versendet ihn per Mail
-    an die im Template hinterlegten Empfänger (falls Mail konfiguriert).
+    Workflow wenn der Benutzer "Report X senden" oder "schick mir den Bericht" sagt:
+      1. Falls report_id unbekannt: printix_list_report_templates() aufrufen
+      2. Passendes Template nach Name finden
+      3. Dieses Tool mit der report_id aufrufen
+
+    Alternativ: report_name direkt angeben — es wird automatisch nach Name gesucht
+    (Groß-/Kleinschreibung egal, Teilstring reicht, z.B. "Monat" findet "Monatsbericht IT").
 
     Args:
-        report_id: Template-ID (aus printix_list_report_templates)
+        report_id:   Template-ID (aus printix_list_report_templates) — bevorzugt
+        report_name: Name-Suche als Alternative wenn keine ID bekannt
     """
     err = _reporting_check()
     if err:
         return _ok({"error": err})
     try:
-        result = rep_scheduler.run_report_now(report_id)
+        _t = current_tenant.get() or {}
+        owner_id = _t.get("user_id", "") or ""
+
+        # Name-basierter Lookup wenn keine ID angegeben
+        if not report_id and report_name:
+            all_t = template_store.list_templates()
+            own_t = [t for t in all_t if not owner_id or t.get("owner_user_id","") == owner_id]
+            needle = report_name.lower()
+            matches = [t for t in own_t if needle in t.get("name","").lower()]
+            if not matches:
+                names = [t.get("name","?") for t in own_t]
+                return _ok({"error": f"Kein Template mit Name '{report_name}' gefunden.",
+                            "available_templates": names})
+            if len(matches) > 1:
+                return _ok({"error": f"Mehrere Templates passen zu '{report_name}' — bitte genauer angeben.",
+                            "matches": [{"report_id": t["report_id"], "name": t["name"]} for t in matches]})
+            report_id = matches[0]["report_id"]
+
+        if not report_id:
+            # Kein ID und kein Name — Templates auflisten damit der Nutzer wählen kann
+            all_t = template_store.list_templates()
+            own_t = [t for t in all_t if not owner_id or t.get("owner_user_id","") == owner_id]
+            return _ok({"error": "Bitte report_id oder report_name angeben.",
+                        "available_templates": [{"report_id": t["report_id"], "name": t["name"]} for t in own_t]})
+
+        result = rep_scheduler.run_report_now(
+            report_id,
+            mail_api_key=_t.get("mail_api_key", "") or "",
+            mail_from=_t.get("mail_from", "") or "",
+            mail_from_name=_t.get("mail_from_name", "") or "",
+        )
         return _ok(result)
     except Exception as e:
         return _ok({"error": str(e)})
 
 
 # ─── Reporting: Schedule-Management ───────────────────────────────────────────
+
+
+@mcp.tool()
+def printix_send_test_email(recipient: str) -> str:
+    """
+    Sendet eine Test-E-Mail über den konfigurierten Resend-API-Key des Tenants.
+    """
+    if not _REPORTING_AVAILABLE:
+        return _ok({"error": "Reporting-Modul nicht verfügbar."})
+    from reporting.mail_client import send_alert
+    _t = current_tenant.get() or {}
+    api_key        = _t.get("mail_api_key", "") or ""
+    mail_from      = _t.get("mail_from", "") or ""
+    mail_from_name = _t.get("mail_from_name", "") or ""
+    if not api_key:
+        return _ok({"error": "Kein mail_api_key konfiguriert."})
+    try:
+        send_alert(recipients=[recipient], subject="✅ Printix MCP Test-E-Mail",
+                   text_body="Test OK — Resend-Konfiguration funktioniert.",
+                   api_key=api_key, mail_from=mail_from, mail_from_name=mail_from_name)
+        return _ok({"sent": True, "recipient": recipient})
+    except Exception as e:
+        return _ok({"error": str(e)})
+
 
 @mcp.tool()
 def printix_schedule_report(
@@ -1613,6 +1774,133 @@ def printix_update_schedule(
         return _ok({"error": str(e)})
 
 
+
+
+# ─── Demo Data Generator ─────────────────────────────────────────────────────
+
+try:
+    from reporting import demo_generator as _demo_gen
+    _DEMO_AVAILABLE = True
+except Exception as _de:
+    _demo_gen = None  # type: ignore
+    _DEMO_AVAILABLE = False
+    logger.warning("Demo-Generator nicht verfügbar: %s", _de)
+
+
+def _demo_check() -> str | None:
+    if not _DEMO_AVAILABLE:
+        return "Demo-Generator nicht verfügbar — bitte Container neu bauen."
+    if not _sql_configured():
+        return ("SQL nicht konfiguriert. Bitte eigene Azure SQL eintragen "
+                "und dann printix_demo_setup_schema ausführen.")
+    return None
+
+
+@mcp.tool()
+def printix_demo_setup_schema() -> str:
+    """
+    Erstellt alle erforderlichen Tabellen für Demo-Daten in der konfigurierten Azure SQL.
+
+    Legt folgende Tabellen an (nur wenn noch nicht vorhanden):
+      dbo.networks, dbo.users, dbo.printers, dbo.jobs, dbo.tracking_data,
+      dbo.jobs_scan, dbo.jobs_copy, dbo.jobs_copy_details, dbo.demo_sessions
+
+    Idempotent — kann mehrfach ausgeführt werden.
+    Voraussetzung: Eigene Azure SQL mit CREATE/INSERT-Rechten konfiguriert.
+    """
+    err = _demo_check()
+    if err:
+        return _ok({"error": err})
+    try:
+        return _ok(_demo_gen.setup_schema())
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_demo_generate(
+    user_count: int = 15,
+    printer_count: int = 6,
+    months: int = 12,
+    languages: str = "de,en,fr",
+    sites: str = "Hauptsitz,Niederlassung",
+    demo_tag: str = "",
+    jobs_per_user_day: float = 3.0,
+) -> str:
+    """
+    Generiert ein vollständiges Demo-Dataset in der konfigurierten Azure SQL-Datenbank.
+
+    Erstellt realistische Print-, Scan- und Kopierjobs rückwirkend ab heute.
+    Alle Standard-Reports zeigen danach aussagekräftige Demo-Daten.
+
+    Args:
+        user_count:        Anzahl Demo-User (1–200, default: 15)
+        printer_count:     Anzahl Demo-Drucker (1–50, default: 6)
+        months:            Monate rückwirkend ab heute (1–36, default: 12)
+        languages:         Kommagetrennt: de,en,fr,it,es,nl,sv,no
+        sites:             Kommagetrennte Standortnamen, z.B. "Berlin,Hamburg,Wien"
+        demo_tag:          Name für diese Session (für Rollback), leer = auto
+        jobs_per_user_day: Durchschnittliche Druckjobs pro User/Werktag (default: 3.0)
+    """
+    err = _demo_check()
+    if err:
+        return _ok({"error": err})
+    try:
+        tenant_id = _get_sql_tenant_id()
+        result = _demo_gen.generate_demo_dataset(
+            tenant_id         = tenant_id,
+            user_count        = user_count,
+            printer_count     = printer_count,
+            months            = months,
+            languages         = [l.strip() for l in languages.split(",") if l.strip()],
+            sites             = [s.strip() for s in sites.split(",") if s.strip()],
+            demo_tag          = demo_tag,
+            jobs_per_user_day = jobs_per_user_day,
+        )
+        return _ok(result)
+    except Exception as e:
+        logger.error("Demo-Generator Fehler: %s", e, exc_info=True)
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_demo_rollback(demo_tag: str) -> str:
+    """
+    Löscht alle Demo-Daten einer bestimmten Session aus der Azure SQL.
+
+    Entfernt alle Zeilen aus tracking_data, jobs, jobs_scan, jobs_copy,
+    printers, users, networks und demo_sessions mit dem angegebenen demo_tag.
+
+    Args:
+        demo_tag: Name der Demo-Session, sichtbar via printix_demo_status
+    """
+    err = _demo_check()
+    if err:
+        return _ok({"error": err})
+    if not demo_tag.strip():
+        return _ok({"error": "demo_tag darf nicht leer sein."})
+    try:
+        return _ok(_demo_gen.rollback_demo(_get_sql_tenant_id(), demo_tag.strip()))
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_demo_status() -> str:
+    """
+    Zeigt alle aktiven Demo-Sessions im aktuellen Tenant.
+
+    Listet jede Session mit demo_tag, Datum, Anzahl User/Drucker/Jobs.
+    Gibt die Tags für printix_demo_rollback zurück.
+    """
+    err = _demo_check()
+    if err:
+        return _ok({"error": err})
+    try:
+        return _ok(_demo_gen.get_demo_status(_get_sql_tenant_id()))
+    except Exception as e:
+        return _ok({"error": str(e)})
+
 # ─── Dual Transport Router ────────────────────────────────────────────────────
 
 class DualTransportApp:
@@ -1679,7 +1967,7 @@ if __name__ == "__main__":
             logger.warning("Scheduler-Init fehlgeschlagen: %s", _sched_err)
 
     logger.info("╔══════════════════════════════════════════════════════════════╗")
-    logger.info("║        PRINTIX MCP SERVER v2.0.0 — MULTI-TENANT             ║")
+    logger.info("║        PRINTIX MCP SERVER v3.2.1 — MULTI-TENANT             ║")
     logger.info("╠══════════════════════════════════════════════════════════════╣")
     logger.info("║  MCP (claude.ai):  %s/mcp", base)
     logger.info("║  SSE (ChatGPT):    %s/sse", base)
@@ -1687,7 +1975,15 @@ if __name__ == "__main__":
     logger.info("║  OAuth Token:      %s/oauth/token", base)
     logger.info("║  Health-Check:     %s/health", base)
     logger.info("╠══════════════════════════════════════════════════════════════╣")
-    logger.info("║  Benutzer registrieren:  http://<HA-IP>:%d", int(os.environ.get("WEB_PORT", "8080")))
+    # Host-Port aus /data/options.json lesen (= externer Port wie in HA-Netzwerk-Tab konfiguriert)
+    try:
+        import json as _json
+        with open("/data/options.json") as _f:
+            _opts = _json.load(_f)
+        _host_web_port = int(_opts.get("web_port", os.environ.get("WEB_PORT", "8080")))
+    except Exception:
+        _host_web_port = int(os.environ.get("WEB_PORT", "8080"))
+    logger.info("║  Benutzer registrieren:  http://<HA-IP>:%d", _host_web_port)
     logger.info("╚══════════════════════════════════════════════════════════════╝")
 
     uvicorn.run(app, host=host, port=port, log_level=LOG_LEVEL.lower())

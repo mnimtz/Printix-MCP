@@ -144,6 +144,39 @@ def get_tenant_id() -> str:
     return ""
 
 
+def get_current_db_key() -> tuple:
+    """Gibt (server, database) Tupel aus dem aktuellen Request-Kontext zurück.
+    Wird als Cache-Schlüssel für View-Verfügbarkeits-Check verwendet."""
+    if _CONTEXTVAR_AVAILABLE and _current_sql_config is not None:
+        cfg = _current_sql_config.get()
+        if cfg:
+            return (cfg.get("server", ""), cfg.get("database", ""))
+    return ("", "")
+
+
+def set_config_from_tenant(tenant: dict) -> None:
+    """Setzt die SQL-Konfiguration aus einem Tenant-Dict direkt in die ContextVar.
+
+    Wird von Web-Routen verwendet, die keine Bearer-Auth haben (Session-Login),
+    um denselben SQL-Kontext zu setzen wie BearerAuthMiddleware.
+
+    Args:
+        tenant: Tenant-Dict aus db.get_tenant_full_by_user_id() — Passwort
+                bereits entschlüsselt.
+    """
+    if not _CONTEXTVAR_AVAILABLE or _current_sql_config is None:
+        raise RuntimeError(
+            "current_sql_config ContextVar nicht verfügbar — auth.py fehlt?"
+        )
+    _current_sql_config.set({
+        "server":    tenant.get("sql_server", ""),
+        "database":  tenant.get("sql_database", ""),
+        "username":  tenant.get("sql_username", ""),
+        "password":  tenant.get("sql_password", ""),
+        "tenant_id": tenant.get("printix_tenant_id", ""),
+    })
+
+
 def is_configured() -> bool:
     """Prüft ob alle SQL-Konfigurationsparameter im aktuellen Kontext gesetzt sind."""
     if not _CONTEXTVAR_AVAILABLE or _current_sql_config is None:
@@ -218,3 +251,75 @@ def query_fetchone(sql: str, params: tuple = ()) -> Optional[dict[str, Any]]:
     """Wie query_fetchall, gibt aber nur die erste Zeile zurück (oder None)."""
     results = query_fetchall(sql, params)
     return results[0] if results else None
+
+
+def execute_write(sql: str, params: tuple = ()) -> int:
+    """
+    Führt ein schreibendes SQL-Statement aus (INSERT, UPDATE, DELETE).
+
+    Args:
+        sql:    Parameterisiertes SQL (? als Platzhalter)
+        params: Tuple mit Parameterwerten
+
+    Returns:
+        Anzahl der betroffenen Zeilen (rowcount)
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        logger.debug("SQL-Write: %s | params: %s", sql[:200], params)
+        cursor.execute(sql, params)
+        conn.commit()
+        return cursor.rowcount if cursor.rowcount >= 0 else 0
+
+
+def execute_many(sql: str, params_list: list, batch_size: int = 500) -> int:
+    """
+    Führt ein SQL-Statement für viele Parametersätze aus (Bulk-INSERT).
+    Verarbeitet in Batches um Timeouts zu vermeiden.
+
+    Args:
+        sql:         Parameterisiertes SQL (? als Platzhalter)
+        params_list: Liste von Tuples mit Parameterwerten
+        batch_size:  Batch-Größe (default 500)
+
+    Returns:
+        Gesamtanzahl verarbeiteter Zeilen
+    """
+    if not params_list:
+        return 0
+    total = 0
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # fast_executemany nur für Microsoft ODBC Driver (nicht FreeTDS)
+        try:
+            cursor.fast_executemany = True
+        except AttributeError:
+            pass
+        for i in range(0, len(params_list), batch_size):
+            batch = params_list[i:i + batch_size]
+            cursor.executemany(sql, batch)
+            total += len(batch)
+        conn.commit()
+    return total
+
+
+def execute_script(statements: list[str]) -> None:
+    """
+    Führt eine Liste von SQL-Statements in einer Verbindung aus.
+    Jedes Statement wird einzeln committed (für DDL wie CREATE TABLE).
+
+    Args:
+        statements: Liste von SQL-Strings (z.B. CREATE TABLE ...)
+    """
+    with get_connection() as conn:
+        for stmt in statements:
+            stmt = stmt.strip()
+            if not stmt:
+                continue
+            cursor = conn.cursor()
+            logger.debug("SQL-Script: %s", stmt[:100])
+            cursor.execute(stmt)
+            try:
+                conn.commit()
+            except Exception:
+                pass  # Manche DDL-Statements committen automatisch

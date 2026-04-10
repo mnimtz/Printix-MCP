@@ -1,21 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Benutzerverwaltung — Printix MCP{% endblock %}
+{% block title %}{{ _('admin_users') }} — Printix MCP{% endblock %}
+{% block extra_head %}
+<style>
+  /* Admin-Seiten: breiter Container */
+  .container { max-width: 1140px; }
+  .card { padding: 28px 28px; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container">
   <div class="card">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
       <div>
-        <div class="section-title">Benutzerverwaltung</div>
-        <div class="section-sub">Benutzer genehmigen, deaktivieren und verwalten.</div>
+        <div class="section-title">{{ _('admin_users') }}</div>
+        <div class="section-sub">Benutzer genehmigen, sperren, bearbeiten und löschen.</div>
       </div>
-      <a href="/admin" class="btn btn-secondary btn-sm">← Übersicht</a>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <a href="/admin/users/create" class="btn btn-primary btn-sm">+ {{ _('admin_create_user') }}</a>
+        <a href="/admin" class="btn btn-secondary btn-sm">← {{ _('admin_title') }}</a>
+      </div>
     </div>
 
     {% if users %}
+    <div style="overflow-x:auto">
     <table>
       <thead>
         <tr>
-          <th>Benutzername</th><th>E-Mail</th><th>Status</th><th>Rolle</th><th>Registriert</th><th>Aktionen</th>
+          <th>{{ _('reg_username') }}</th>
+          <th>{{ _('admin_email') }}</th>
+          <th>{{ _('admin_status') }}</th>
+          <th>{{ _('admin_is_admin') }}</th>
+          <th>Erstellt</th>
+          <th>Aktionen</th>
         </tr>
       </thead>
       <tbody>
@@ -24,36 +41,54 @@
           <td><strong>{{ u.username }}</strong></td>
           <td>{{ u.email or '—' }}</td>
           <td>
-            {% if u.status == 'approved' %}<span class="badge badge-green">✓ Freigegeben</span>
-            {% elif u.status == 'pending' %}<span class="badge badge-yellow">⏳ Ausstehend</span>
-            {% else %}<span class="badge badge-red">✗ Deaktiviert</span>{% endif %}
+            {% if u.status == 'approved' %}
+              <span class="badge badge-green">✓ {{ _('admin_status_active') }}</span>
+            {% elif u.status == 'pending' %}
+              <span class="badge badge-yellow">⏳ {{ _('admin_status_pending') }}</span>
+            {% else %}
+              <span class="badge badge-red">✗ {{ _('admin_status_suspended') }}</span>
+            {% endif %}
           </td>
           <td>
-            {% if u.is_admin %}<span class="badge badge-blue">Admin</span>
-            {% else %}<span style="color:#6b7280; font-size:.85em;">Benutzer</span>{% endif %}
+            {% if u.is_admin %}
+              <span class="badge badge-blue">Admin</span>
+            {% else %}
+              <span style="color:#6b7280; font-size:.85em;">—</span>
+            {% endif %}
           </td>
-          <td style="font-size:.85em; color:#6b7280;">{{ u.created_at[:10] if u.created_at else '—' }}</td>
-          <td>
+          <td style="font-size:.85em; color:#6b7280;">
+            {{ u.created_at[:10] if u.created_at else '—' }}
+          </td>
+          <td style="white-space:nowrap;">
+            <a href="/admin/users/{{ u.id }}/edit"
+               class="btn btn-secondary btn-sm" style="margin-right:4px;">
+              ✏️ {{ _('admin_edit') }}
+            </a>
             {% if u.id != user.id %}
               {% if u.status != 'approved' %}
               <form method="post" action="/admin/users/{{ u.id }}/approve" style="display:inline;">
-                <button type="submit" class="btn btn-success btn-sm">✓ Freischalten</button>
+                <button type="submit" class="btn btn-success btn-sm">
+                  ✓ {{ _('admin_approve') }}
+                </button>
               </form>
               {% endif %}
-              {% if u.status != 'disabled' %}
-              <form method="post" action="/admin/users/{{ u.id }}/disable" style="display:inline; margin-left:6px;">
+              {% if u.status == 'approved' %}
+              <form method="post" action="/admin/users/{{ u.id }}/disable" style="display:inline; margin-left:4px;">
                 <button type="submit" class="btn btn-danger btn-sm"
-                        onclick="return confirm('Benutzer {{ u.username }} wirklich deaktivieren?')">✗ Sperren</button>
+                  onclick="return confirm('{{ u.username }} sperren?')">
+                  ✗ {{ _('admin_suspend') }}
+                </button>
               </form>
               {% endif %}
             {% else %}
-              <span style="font-size:.82em; color:#9ca3af;">— (dein Account)</span>
+              <span style="font-size:.78em; color:#9ca3af;">(du)</span>
             {% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <div class="alert alert-info">Noch keine Benutzer registriert.</div>
     {% endif %}

@@ -26,6 +26,16 @@
         <small class="hint">Mindestens 3 Zeichen. Wird für den Login verwendet.</small>
       </div>
       <div class="form-group">
+        <label for="full_name">{{ _('reg_full_name') }}</label>
+        <input type="text" id="full_name" name="full_name" value="{{ full_name | default('') }}"
+               placeholder="z.B. Marcus Mustermann" autocomplete="name">
+      </div>
+      <div class="form-group">
+        <label for="company">{{ _('reg_company') }}</label>
+        <input type="text" id="company" name="company" value="{{ company | default('') }}"
+               placeholder="z.B. Acme GmbH" autocomplete="organization">
+      </div>
+      <div class="form-group">
         <label for="email">E-Mail-Adresse (optional)</label>
         <input type="email" id="email" name="email" value="{{ email | default('') }}"
                placeholder="name@firma.de" autocomplete="email">

@@ -1,15 +1,13 @@
 """
-Report Engine — HTML/CSV/JSON Ausgabe
-======================================
+Report Engine — HTML/CSV/JSON/PDF/XLSX Ausgabe
+===============================================
 Generiert Reports aus Query-Ergebnissen.
 
-Unterstützte Formate (v1.0):
+Unterstützte Formate:
   html  — Vollständige HTML-Mail mit Branding
   csv   — Kommagetrennte Werte
   json  — Rohdaten als JSON
-
-v1.1 (geplant):
-  pdf   — WeasyPrint
+  pdf   — fpdf2 (Latin-1, _pdf_safe() für Sonderzeichen)
   xlsx  — openpyxl
 """
 
@@ -41,9 +39,11 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <style>
   body        { font-family: Arial, sans-serif; font-size: 13px; color: #333; margin: 0; padding: 0; background: #f5f5f5; }
   .wrapper    { max-width: 900px; margin: 20px auto; background: #fff; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
-  .header     { background: {{ primary_color }}; color: #fff; padding: 24px 32px; }
+  .header     { background: {{ primary_color }}; color: #fff; padding: 24px 32px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+  .header-text { flex: 1; }
   .header h1  { margin: 0 0 4px; font-size: 22px; font-weight: 600; }
   .header p   { margin: 0; opacity: .85; font-size: 13px; }
+  .header-logo { max-height: 56px; max-width: 160px; object-fit: contain; align-self: center; border-radius: 4px; }
   .content    { padding: 24px 32px; }
   .kpi-row    { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
   .kpi-card   { flex: 1; min-width: 140px; background: #f0f4ff; border-left: 4px solid {{ primary_color }}; padding: 14px 18px; border-radius: 4px; }
@@ -63,13 +63,25 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   .badge-ok   { background: #e8f5e9; color: #2e7d32; }
   .badge-warn { background: #fff3e0; color: #e65100; }
   .footer     { background: #f5f5f5; padding: 14px 32px; font-size: 11px; color: #888; border-top: 1px solid #ddd; }
+  /* CSS Bar Charts */
+  .chart-wrap  { margin: 0 0 24px; }
+  .chart-title { font-size: 12px; font-weight: 600; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .4px; }
+  .chart-tbl   { width: 100%; border-collapse: collapse; }
+  .chart-tbl .cl { width: 130px; font-size: 11px; color: #555; padding: 3px 10px 3px 0; white-space: nowrap; vertical-align: middle; max-width: 130px; overflow: hidden; }
+  .chart-tbl .cb { padding: 3px 6px; vertical-align: middle; }
+  .bar-bg      { width: 100%; height: 16px; background: #eee; border-radius: 3px; }
+  .bar         { height: 16px; border-radius: 3px; min-width: 3px; display: block; }
+  .chart-tbl .cv { width: 80px; font-size: 11px; color: #333; font-weight: 600; padding: 3px 0 3px 8px; text-align: right; white-space: nowrap; vertical-align: middle; }
 </style>
 </head>
 <body>
 <div class="wrapper">
   <div class="header">
-    <h1>{{ title }}</h1>
-    <p>{{ company_name }} &nbsp;|&nbsp; Zeitraum: {{ period }} &nbsp;|&nbsp; Erstellt: {{ generated_at }}</p>
+    <div class="header-text">
+      <h1>{{ title }}</h1>
+      <p>{{ company_name }} &nbsp;|&nbsp; Zeitraum: {{ period }} &nbsp;|&nbsp; Erstellt: {{ generated_at }}</p>
+    </div>
+    {%- if logo_url %}<img class="header-logo" src="{{ logo_url }}" alt="Logo">{% endif %}
   </div>
   <div class="content">
 
@@ -87,6 +99,20 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
   {%- for section in sections %}
   <h2>{{ section.title }}</h2>
+  {%- if section.chart %}
+  <div class="chart-wrap">
+    <div class="chart-title">{{ section.chart.title }}</div>
+    <table class="chart-tbl">
+      {%- for item in section.chart.bars %}
+      <tr>
+        <td class="cl" title="{{ item.label }}">{{ item.label | truncate(20, True, '…', 0) }}</td>
+        <td class="cb"><div class="bar-bg"><div class="bar" style="width:{{ item.pct }}%;background:{{ primary_color }}"></div></div></td>
+        <td class="cv">{{ item.value }}</td>
+      </tr>
+      {%- endfor %}
+    </table>
+  </div>
+  {%- endif %}
   {%- if section.rows %}
   <table>
     <thead><tr>
@@ -116,9 +142,30 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
 # ─── Formatierungshilfen ──────────────────────────────────────────────────────
 
+def _pdf_safe(text: str) -> str:
+    """
+    Ersetzt Unicode-Zeichen, die von fpdf2/Helvetica (Latin-1) nicht unterstützt werden.
+    Verhindert FPDFUnicodeEncodingException bei Em-Dash, Sonderzeichen etc.
+    """
+    replacements = {
+        "\u2013": "-",    # En-Dash -
+        "\u2014": "-",    # Em-Dash -
+        "\u2018": "'", "\u2019": "'",
+        "\u201c": '"', "\u201d": '"',
+        "\u2026": "...",
+        "\u20ac": "EUR",
+        "\u00b0": " Grad", "\u00b2": "2", "\u00b3": "3",
+        "\u2122": "TM", "\u00ae": "(R)", "\u00a9": "(C)",
+        "\u2022": "*", "\u25cf": "*",
+    }
+    for uni, asc in replacements.items():
+        text = text.replace(uni, asc)
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
 def _fmt_num(v, decimals=0) -> str:
     if v is None:
-        return "—"
+        return "-"
     try:
         if decimals:
             return f"{float(v):,.{decimals}f}"
@@ -129,25 +176,44 @@ def _fmt_num(v, decimals=0) -> str:
 
 def _fmt_pct(v) -> str:
     if v is None:
-        return "—"
+        return "-"
     return f"{float(v):.1f} %"
 
 
-def _fmt_cost(v, currency="€") -> str:
+def _fmt_cost(v, currency="EUR") -> str:
     if v is None:
-        return "—"
+        return "-"
     return f"{float(v):,.2f} {currency}"
 
 
 def _fmt_delta(v) -> str:
     if v is None:
-        return "—"
-    sign = "▲" if v > 0 else "▼"
-    css  = "delta-pos" if v > 0 else "delta-neg"
-    return f'<span class="{css}">{sign} {abs(v):.1f}%</span>'
+        return "-"
+    sign = "+" if v > 0 else ""
+    return f"{sign}{v:.1f}%"
 
 
 # ─── Report-Generatoren ───────────────────────────────────────────────────────
+
+def _build_chart(items, title, max_items=20):
+    """Horizontale CSS-Balkendiagramm-Datenstruktur. items: [{label, display, raw}]"""
+    items = [i for i in items if (i.get('raw') or 0) > 0]
+    if not items:
+        return {}
+    items = items[:max_items]
+    max_val = max(i.get('raw', 0) or 0 for i in items) or 1
+    return {
+        'title': title,
+        'bars': [
+            {
+                'label': str(i['label']),
+                'value': str(i['display']),
+                'pct': max(1, round((i.get('raw', 0) or 0) / max_val * 100)),
+            }
+            for i in items
+        ],
+    }
+
 
 def build_print_stats_report(
     rows: list[dict],
@@ -155,7 +221,6 @@ def build_print_stats_report(
     layout: Optional[dict] = None,
     group_by: str = "day",
 ) -> dict[str, Any]:
-    """Baut die Report-Datenstruktur für print_stats-Ergebnisse."""
     layout = layout or {}
     totals = {
         "total_jobs":   sum(r.get("total_jobs", 0) or 0 for r in rows),
@@ -169,14 +234,14 @@ def build_print_stats_report(
     duplex_pct = totals["duplex_pages"] / max(totals["total_pages"], 1) * 100
 
     kpis = [
-        {"label": "Seiten gesamt",    "value": _fmt_num(totals["total_pages"]),  "sub": f"{_fmt_num(totals['total_jobs'])} Aufträge"},
+        {"label": "Seiten gesamt",    "value": _fmt_num(totals["total_pages"]),  "sub": f"{_fmt_num(totals['total_jobs'])} Auftraege"},
         {"label": "Farbseiten",       "value": _fmt_num(totals["color_pages"]),  "sub": _fmt_pct(color_pct)},
         {"label": "S/W-Seiten",       "value": _fmt_num(totals["bw_pages"]),     "sub": _fmt_pct(100 - color_pct)},
-        {"label": "Duplex-Quote",     "value": _fmt_pct(duplex_pct),             "sub": f"{_fmt_num(totals['saved_sheets'])} Blätter gespart"},
+        {"label": "Duplex-Quote",     "value": _fmt_pct(duplex_pct),             "sub": f"{_fmt_num(totals['saved_sheets'])} Blaetter gespart"},
     ]
 
     col_label = {"day": "Datum", "week": "Woche", "month": "Monat", "user": "Benutzer", "printer": "Drucker", "site": "Standort"}.get(group_by, "Periode")
-    table_cols = [col_label, "Aufträge", "Seiten", "Farbe", "S/W", "Farb-%", "Duplex-%"]
+    table_cols = [col_label, "Auftraege", "Seiten", "Farbe", "S/W", "Farb-%", "Duplex-%"]
     table_rows = []
     for r in rows:
         table_rows.append([
@@ -189,9 +254,17 @@ def build_print_stats_report(
             _fmt_pct(r.get("duplex_pct")),
         ])
 
+    chart = _build_chart(
+        [{"label": str(r.get("period", "")).split("T")[0][:10],
+          "display": _fmt_num(r.get("total_pages")),
+          "raw": r.get("total_pages", 0) or 0}
+         for r in rows],
+        "Druckvolumen — Seiten pro Periode",
+    )
     return {
         "kpis": kpis,
-        "sections": [{"title": "Druckvolumen Detail", "columns": table_cols, "rows": table_rows}],
+        "sections": [{"title": "Druckvolumen Detail", "columns": table_cols, "rows": table_rows,
+                      "chart": chart}],
     }
 
 
@@ -199,18 +272,17 @@ def build_cost_report_report(
     rows: list[dict],
     period: str,
     layout: Optional[dict] = None,
-    currency: str = "€",
+    currency: str = "EUR",
 ) -> dict[str, Any]:
-    """Baut die Report-Datenstruktur für cost_report-Ergebnisse."""
     totals = {k: sum(r.get(k, 0) or 0 for r in rows)
               for k in ("total_pages", "color_pages", "bw_pages", "toner_cost_color",
                         "toner_cost_bw", "sheet_cost", "total_cost")}
 
     kpis = [
-        {"label": "Gesamtkosten",  "value": _fmt_cost(totals["total_cost"], currency),   "sub": None},
-        {"label": "Tonerkosten F", "value": _fmt_cost(totals["toner_cost_color"], currency), "sub": f"{_fmt_num(totals['color_pages'])} Farbseiten"},
-        {"label": "Tonerkosten SW","value": _fmt_cost(totals["toner_cost_bw"], currency), "sub": f"{_fmt_num(totals['bw_pages'])} S/W-Seiten"},
-        {"label": "Papierkosten",  "value": _fmt_cost(totals["sheet_cost"], currency),    "sub": f"{_fmt_num(totals['total_pages'])} Seiten"},
+        {"label": "Gesamtkosten",   "value": _fmt_cost(totals["total_cost"], currency),       "sub": None},
+        {"label": "Tonerkosten F",  "value": _fmt_cost(totals["toner_cost_color"], currency), "sub": f"{_fmt_num(totals['color_pages'])} Farbseiten"},
+        {"label": "Tonerkosten SW", "value": _fmt_cost(totals["toner_cost_bw"], currency),    "sub": f"{_fmt_num(totals['bw_pages'])} S/W-Seiten"},
+        {"label": "Papierkosten",   "value": _fmt_cost(totals["sheet_cost"], currency),       "sub": f"{_fmt_num(totals['total_pages'])} Seiten"},
     ]
 
     table_cols = ["Periode", "Seiten", "Farbe", "S/W", "Toner F", "Toner SW", "Papier", "Gesamt"]
@@ -227,21 +299,28 @@ def build_cost_report_report(
             _fmt_cost(r.get("total_cost"), currency),
         ])
 
+    chart = _build_chart(
+        [{"label": str(r.get("period", "")).split("T")[0][:10],
+          "display": _fmt_cost(r.get("total_cost"), currency),
+          "raw": float(r.get("total_cost", 0) or 0)}
+         for r in rows],
+        f"Kosten pro Periode ({currency})",
+    )
     return {
         "kpis": kpis,
-        "sections": [{"title": "Kostenaufstellung nach Periode", "columns": table_cols, "rows": table_rows}],
+        "sections": [{"title": "Kostenaufstellung nach Periode", "columns": table_cols, "rows": table_rows,
+                      "chart": chart}],
     }
 
 
-def build_top_users_report(rows: list[dict], period: str, currency: str = "€") -> dict[str, Any]:
-    """Baut die Report-Datenstruktur für top_users-Ergebnisse."""
-    table_cols = ["#", "Benutzer", "Abteilung", "Aufträge", "Seiten", "Farbe", "Farb-%", "Kosten"]
+def build_top_users_report(rows: list[dict], period: str, currency: str = "EUR") -> dict[str, Any]:
+    table_cols = ["#", "Benutzer", "Abteilung", "Auftraege", "Seiten", "Farbe", "Farb-%", "Kosten"]
     table_rows = []
     for i, r in enumerate(rows, 1):
         table_rows.append([
             str(i),
-            r.get("email", "—"),
-            r.get("department") or "—",
+            r.get("email", "-"),
+            r.get("department") or "-",
             _fmt_num(r.get("total_jobs")),
             _fmt_num(r.get("total_pages")),
             _fmt_num(r.get("color_pages")),
@@ -251,68 +330,77 @@ def build_top_users_report(rows: list[dict], period: str, currency: str = "€")
     kpis = []
     if rows:
         kpis = [
-            {"label": "Aktivste Nutzer", "value": str(len(rows)),                             "sub": None},
-            {"label": "Meiste Seiten",   "value": rows[0].get("email", "—"),                  "sub": _fmt_num(rows[0].get("total_pages"))},
+            {"label": "Aktivste Nutzer", "value": str(len(rows)),            "sub": None},
+            {"label": "Meiste Seiten",   "value": rows[0].get("email", "-"), "sub": _fmt_num(rows[0].get("total_pages"))},
         ]
+    chart = _build_chart(
+        [{"label": r.get("email", "—").split("@")[0][:20],
+          "display": _fmt_num(r.get("total_pages")),
+          "raw": r.get("total_pages", 0) or 0}
+         for r in rows],
+        "Top Nutzer — Seiten", max_items=15,
+    )
     return {
         "kpis": kpis,
-        "sections": [{"title": "Top Nutzer", "columns": table_cols, "rows": table_rows}],
+        "sections": [{"title": "Top Nutzer", "columns": table_cols, "rows": table_rows,
+                      "chart": chart}],
     }
 
 
-def build_top_printers_report(rows: list[dict], period: str, currency: str = "€") -> dict[str, Any]:
-    """Baut die Report-Datenstruktur für top_printers-Ergebnisse."""
-    table_cols = ["#", "Drucker", "Modell", "Standort", "Site", "Aufträge", "Seiten", "Farb-%", "Kosten"]
+def build_top_printers_report(rows: list[dict], period: str, currency: str = "EUR") -> dict[str, Any]:
+    table_cols = ["#", "Drucker", "Modell", "Standort", "Site", "Auftraege", "Seiten", "Farb-%", "Kosten"]
     table_rows = []
     for i, r in enumerate(rows, 1):
         table_rows.append([
             str(i),
-            r.get("printer_name", "—"),
-            r.get("model_name") or "—",
-            r.get("location") or "—",
-            r.get("site_name") or "—",
+            r.get("printer_name", "-"),
+            r.get("model_name") or "-",
+            r.get("location") or "-",
+            r.get("site_name") or "-",
             _fmt_num(r.get("total_jobs")),
             _fmt_num(r.get("total_pages")),
             _fmt_pct(r.get("color_pct")),
             _fmt_cost(r.get("total_cost"), currency),
         ])
+    chart = _build_chart(
+        [{"label": r.get("printer_name", "—")[:20],
+          "display": _fmt_num(r.get("total_pages")),
+          "raw": r.get("total_pages", 0) or 0}
+         for r in rows],
+        "Top Drucker — Seiten", max_items=15,
+    )
     return {
         "kpis": [],
-        "sections": [{"title": "Top Drucker", "columns": table_cols, "rows": table_rows}],
+        "sections": [{"title": "Top Drucker", "columns": table_cols, "rows": table_rows,
+                      "chart": chart}],
     }
 
 
-def build_trend_report(trend: dict, currency: str = "€") -> dict[str, Any]:
-    """Baut die Report-Datenstruktur für trend-Ergebnisse."""
+def build_trend_report(trend: dict, currency: str = "EUR") -> dict[str, Any]:
     p1, p2, delta = trend.get("period1", {}), trend.get("period2", {}), trend.get("delta", {})
 
-    table_cols = ["Kennzahl", "Periode 1", "Periode 2", "Veränderung"]
+    table_cols = ["Kennzahl", "Periode 1", "Periode 2", "Veraenderung"]
     metrics = [
         ("Seiten gesamt",    "total_pages",    _fmt_num),
         ("Farbseiten",       "color_pages",    _fmt_num),
         ("S/W-Seiten",       "bw_pages",       _fmt_num),
-        ("Aufträge",         "total_jobs",     _fmt_num),
+        ("Auftraege",        "total_jobs",     _fmt_num),
         ("Aktive Nutzer",    "active_users",   _fmt_num),
         ("Gesamtkosten",     "total_cost",     lambda v: _fmt_cost(v, currency)),
     ]
     table_rows = []
     for label, key, fmt in metrics:
-        table_rows.append([
-            label,
-            fmt(p1.get(key)),
-            fmt(p2.get(key)),
-            _fmt_delta(delta.get(key)),
-        ])
+        table_rows.append([label, fmt(p1.get(key)), fmt(p2.get(key)), _fmt_delta(delta.get(key))])
 
-    p1_range = f"{p1.get('start','?')} – {p1.get('end','?')}"
-    p2_range = f"{p2.get('start','?')} – {p2.get('end','?')}"
+    p1_range = f"{p1.get('start','?')} - {p1.get('end','?')}"
+    p2_range = f"{p2.get('start','?')} - {p2.get('end','?')}"
 
     return {
         "kpis": [
             {"label": "Seiten (Periode 1)", "value": _fmt_num(p1.get("total_pages")), "sub": p1_range},
             {"label": "Seiten (Periode 2)", "value": _fmt_num(p2.get("total_pages")), "sub": p2_range},
-            {"label": "Veränderung Seiten", "value": f"{delta.get('total_pages', '—')} %", "sub": None},
-            {"label": "Veränderung Kosten", "value": f"{delta.get('total_cost', '—')} %",  "sub": None},
+            {"label": "Veraenderung Seiten", "value": f"{delta.get('total_pages', '-')} %", "sub": None},
+            {"label": "Veraenderung Kosten", "value": f"{delta.get('total_cost', '-')} %",  "sub": None},
         ],
         "sections": [{"title": "Periodischer Vergleich", "columns": table_cols, "rows": table_rows}],
     }
@@ -326,9 +414,7 @@ def render_html(
     report_data: dict[str, Any],
     layout: Optional[dict] = None,
 ) -> str:
-    """Rendert den Report als vollständige HTML-Seite."""
     if not JINJA2_AVAILABLE:
-        # Fallback: einfaches HTML ohne Jinja2
         return _plain_html_fallback(title, period, report_data, layout)
 
     layout = layout or {}
@@ -340,6 +426,7 @@ def render_html(
         company_name=layout.get("company_name", ""),
         primary_color=layout.get("primary_color", "#0078D4"),
         footer_text=layout.get("footer_text", ""),
+        logo_url=layout.get("logo_url", ""),
         generated_at=datetime.now().strftime("%d.%m.%Y %H:%M"),
         kpis=report_data.get("kpis", []),
         sections=report_data.get("sections", []),
@@ -359,7 +446,6 @@ def _plain_html_fallback(title, period, report_data, layout) -> str:
 
 
 def render_csv(rows: list[dict]) -> str:
-    """Rendert rohe Query-Ergebnisse als CSV."""
     if not rows:
         return ""
     output = io.StringIO()
@@ -371,8 +457,188 @@ def render_csv(rows: list[dict]) -> str:
 
 
 def render_json(data: Any) -> str:
-    """Serialisiert Daten als formatiertes JSON."""
     return json.dumps(data, indent=2, ensure_ascii=False, default=str)
+
+
+def render_pdf(title: str, period: str, report_data: dict, layout: Optional[dict] = None) -> bytes:
+    """Erzeugt PDF via fpdf2. Sonderzeichen werden durch _pdf_safe() bereinigt."""
+    try:
+        from fpdf import FPDF
+    except ImportError:
+        logger.error("fpdf2 nicht installiert")
+        return b""
+
+    layout = layout or {}
+    primary_color = layout.get("primary_color", "#1a73e8")
+
+    def hex_to_rgb(h: str):
+        h = h.lstrip("#")
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+    try:
+        r, g, b = hex_to_rgb(primary_color)
+    except Exception:
+        r, g, b = 26, 115, 232
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    pdf.set_fill_color(r, g, b)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 12, _pdf_safe(title), ln=True, fill=True, align="L")
+    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(0, 7, _pdf_safe(f"Zeitraum: {period}  |  Erstellt: {datetime.now().strftime('%d.%m.%Y %H:%M')}"), ln=True, fill=True, align="L")
+    pdf.ln(4)
+
+    kpis = report_data.get("kpis", [])
+    if kpis:
+        pdf.set_fill_color(240, 244, 255)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 6, "Kennzahlen", ln=True)
+        pdf.ln(2)
+        for kpi in kpis:
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_text_color(r, g, b)
+            pdf.cell(0, 7, _pdf_safe(f"  {kpi.get('label','')}: {kpi.get('value','')}"), ln=True, fill=True)
+            if kpi.get("sub"):
+                pdf.set_font("Helvetica", "", 9)
+                pdf.set_text_color(120, 120, 120)
+                pdf.cell(0, 5, _pdf_safe(f"    {kpi['sub']}"), ln=True)
+        pdf.ln(4)
+
+    pdf.set_text_color(0, 0, 0)
+    for section in report_data.get("sections", []):
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.set_text_color(r, g, b)
+        pdf.cell(0, 8, _pdf_safe(section.get("title", "")), ln=True)
+        pdf.set_text_color(0, 0, 0)
+        pdf.ln(1)
+
+        columns = section.get("columns", [])
+        rows = section.get("rows", [])
+        if not rows:
+            pdf.set_font("Helvetica", "I", 9)
+            pdf.set_text_color(150, 150, 150)
+            pdf.cell(0, 6, "Keine Daten.", ln=True)
+            pdf.ln(3)
+            continue
+
+        page_w = pdf.w - 2 * pdf.l_margin
+        col_w = page_w / max(len(columns), 1)
+
+        pdf.set_fill_color(r, g, b)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Helvetica", "B", 8)
+        for col in columns:
+            pdf.cell(col_w, 7, _pdf_safe(str(col)), border=0, fill=True)
+        pdf.ln()
+
+        pdf.set_font("Helvetica", "", 8)
+        for i, row in enumerate(rows):
+            if i % 2 == 0:
+                pdf.set_fill_color(249, 249, 249)
+            else:
+                pdf.set_fill_color(255, 255, 255)
+            pdf.set_text_color(0, 0, 0)
+            for cell in row:
+                pdf.cell(col_w, 6, _pdf_safe(str(cell)), border=0, fill=True)
+            pdf.ln()
+        pdf.ln(4)
+
+    return bytes(pdf.output())
+
+
+def render_xlsx(title: str, period: str, report_data: dict, layout: Optional[dict] = None) -> bytes:
+    """Erzeugt XLSX via openpyxl."""
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    except ImportError:
+        logger.error("openpyxl nicht installiert")
+        return b""
+
+    layout = layout or {}
+    primary_hex = layout.get("primary_color", "#1a73e8").lstrip("#")
+    if len(primary_hex) == 3:
+        primary_hex = "".join(c * 2 for c in primary_hex)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Report"
+
+    header_fill = PatternFill("solid", fgColor=primary_hex)
+    header_font = Font(bold=True, color="FFFFFF", size=10)
+    kpi_font    = Font(bold=True, size=11)
+    thin_border = Border(bottom=Side(style="thin", color="DDDDDD"))
+
+    row_idx = 1
+    ws.cell(row_idx, 1, title)
+    ws.cell(row_idx, 1).font = Font(bold=True, size=14)
+    row_idx += 1
+    ws.cell(row_idx, 1, f"Zeitraum: {period}  |  Erstellt: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+    ws.cell(row_idx, 1).font = Font(italic=True, size=9, color="888888")
+    row_idx += 2
+
+    kpis = report_data.get("kpis", [])
+    if kpis:
+        ws.cell(row_idx, 1, "Kennzahlen")
+        ws.cell(row_idx, 1).font = Font(bold=True, size=11)
+        row_idx += 1
+        for kpi in kpis:
+            ws.cell(row_idx, 1, kpi.get("label", ""))
+            ws.cell(row_idx, 2, kpi.get("value", ""))
+            ws.cell(row_idx, 2).font = kpi_font
+            if kpi.get("sub"):
+                ws.cell(row_idx, 3, kpi["sub"])
+                ws.cell(row_idx, 3).font = Font(size=9, color="888888")
+            row_idx += 1
+        row_idx += 1
+
+    for section in report_data.get("sections", []):
+        ws.cell(row_idx, 1, section.get("title", ""))
+        ws.cell(row_idx, 1).font = Font(bold=True, size=12)
+        row_idx += 1
+
+        columns = section.get("columns", [])
+        rows    = section.get("rows", [])
+
+        if columns:
+            for col_idx, col in enumerate(columns, start=1):
+                cell = ws.cell(row_idx, col_idx, col)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="left")
+            row_idx += 1
+
+        alt_fill = PatternFill("solid", fgColor="F9F9F9")
+        for i, row in enumerate(rows):
+            for col_idx, cell_val in enumerate(row, start=1):
+                cell = ws.cell(row_idx, col_idx, cell_val)
+                cell.border = thin_border
+                if i % 2 == 0:
+                    cell.fill = alt_fill
+            row_idx += 1
+        row_idx += 2
+
+    for col in ws.columns:
+        max_len = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            try:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            except Exception:
+                pass
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def generate_report(
@@ -381,18 +647,17 @@ def generate_report(
     period: str,
     layout: Optional[dict] = None,
     output_formats: Optional[list[str]] = None,
-    currency: str = "€",
+    currency: str = "EUR",
 ) -> dict[str, str]:
     """
-    Erzeugt alle angeforderten Ausgabeformate für einen Report.
+    Erzeugt alle angeforderten Ausgabeformate.
 
     Returns:
-        Dict {format: content} — z.B. {"html": "<!DOCTYPE html>...", "csv": "col1,col2\n..."}
+        Dict {format: content}
     """
     output_formats = output_formats or ["html"]
     layout = layout or {}
 
-    # Report-Datenstruktur bauen
     if query_type == "print_stats":
         report_data = build_print_stats_report(data, period, layout)
         title = "Druckvolumen-Report"
@@ -412,15 +677,27 @@ def generate_report(
         report_data = {"kpis": [], "sections": [{"title": "Ergebnis", "columns": list(data[0].keys()) if data else [], "rows": [[str(v) for v in r.values()] for r in data] if data else []}]}
         title = query_type.replace("_", " ").title()
 
-    # Gewünschte Formate generieren
-    title_full = layout.get("company_name", "Printix") + " – " + title if layout.get("company_name") else title
+    title_full = layout.get("company_name", "Printix") + " - " + title if layout.get("company_name") else title
     results = {}
     if "html" in output_formats:
         results["html"] = render_html(title_full, period, report_data, layout)
     if "csv" in output_formats:
         raw = data if isinstance(data, list) else []
-        results["csv"] = render_csv(raw)
+        _csv = render_csv(raw)
+        results['csv'] = _csv if _csv else f'Zeitraum,Hinweis\r\n"{period}",Keine Daten im abgefragten Zeitraum\r\n'
     if "json" in output_formats:
         results["json"] = render_json(data)
+    if "pdf" in output_formats:
+        try:
+            results["pdf"] = render_pdf(title_full, period, report_data, layout)
+        except Exception as e:
+            logger.error("PDF-Generierung fehlgeschlagen: %s", e, exc_info=True)
+            results["pdf_error"] = str(e)
+    if "xlsx" in output_formats:
+        try:
+            results["xlsx"] = render_xlsx(title_full, period, report_data, layout)
+        except Exception as e:
+            logger.error("XLSX-Generierung fehlgeschlagen: %s", e, exc_info=True)
+            results["xlsx_error"] = str(e)
 
     return results

@@ -1,60 +1,98 @@
 {% extends "base.html" %}
-{% block title %}Registrierung abgeschlossen{% endblock %}
+{% block title %}{{ _('reg_title') }} — Printix MCP{% endblock %}
 {% block content %}
 <div class="container">
   <div class="card">
     <div style="text-align:center; margin-bottom:28px;">
       <div style="font-size:3em; margin-bottom:8px;">🎉</div>
-      <h1 style="font-size:1.5em; color:#166534; margin-bottom:8px;">Registrierung erfolgreich!</h1>
-      {% if is_admin %}
-      <div class="alert alert-success" style="text-align:left; margin-top:16px;">
-        Du bist der erste Benutzer und wurdest automatisch als <strong>Administrator</strong> eingetragen und freigeschaltet.
-      </div>
-      {% else %}
-      <div class="alert alert-warning" style="text-align:left; margin-top:16px;">
-        Dein Account wartet auf <strong>Admin-Genehmigung</strong>.
-      </div>
-      {% endif %}
+      <h1 style="font-size:1.5em; color:#166534; margin-bottom:8px;">
+        {% if is_admin %}{{ _('reg_success_admin') }}
+        {% else %}{{ _('reg_success') }}{% endif %}
+      </h1>
     </div>
 
-    <div class="alert alert-warning">
+    <div class="alert alert-warning" style="margin-bottom:24px;">
       <strong>⚠️ Wichtig: Zugangsdaten jetzt sichern!</strong><br>
       Bearer Token und OAuth-Secret werden nur einmal angezeigt.
+      Trage sie direkt in claude.ai und ChatGPT ein — danach sind sie unter
+      <a href="/settings">Einstellungen</a> neu abrufbar.
     </div>
 
+    <!-- Bearer Token -->
     <div style="margin-bottom:24px;">
-      <div class="section-title" style="margin-bottom:8px;">🔑 Bearer Token</div>
-      <div class="code-block" id="bearer-token">{{ bearer_token }}<button class="copy-btn" onclick="copyToClipboard('bearer-token')">⧉ Kopieren</button></div>
+      <div class="section-title" style="margin-bottom:8px;">🔑 {{ _('dash_bearer') }}</div>
+      <div class="code-block" id="bearer-block">
+        <button class="copy-btn" onclick="copyToClipboard('bearer-val', this)">⧉ {{ _('dash_copy') }}</button>
+        <span id="bearer-val">{{ bearer_token }}</span>
+      </div>
     </div>
 
+    <!-- OAuth -->
     <div style="margin-bottom:24px;">
-      <div class="section-title" style="margin-bottom:8px;">🔐 OAuth 2.0 Credentials</div>
+      <div class="section-title" style="margin-bottom:8px;">🔐 OAuth 2.0</div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
         <div>
-          <label style="font-size:.82em; font-weight:600; color:#6b7280; display:block; margin-bottom:4px;">Client-ID</label>
-          <div class="code-block" style="padding:10px 14px;" id="oauth-id">{{ oauth_client_id }}<button class="copy-btn" onclick="copyToClipboard('oauth-id')">⧉</button></div>
+          <label style="font-size:.82em; font-weight:600; color:#6b7280; display:block; margin-bottom:4px;">
+            {{ _('dash_oauth_id') }}
+          </label>
+          <div class="code-block">
+            <button class="copy-btn" onclick="copyToClipboard('oauth-id-val', this)">⧉</button>
+            <span id="oauth-id-val">{{ oauth_client_id }}</span>
+          </div>
         </div>
         <div>
-          <label style="font-size:.82em; font-weight:600; color:#6b7280; display:block; margin-bottom:4px;">Client-Secret</label>
-          <div class="code-block" style="padding:10px 14px;" id="oauth-secret">{{ oauth_client_secret }}<button class="copy-btn" onclick="copyToClipboard('oauth-secret')">⧉</button></div>
+          <label style="font-size:.82em; font-weight:600; color:#6b7280; display:block; margin-bottom:4px;">
+            {{ _('dash_oauth_secret') }}
+          </label>
+          <div class="code-block">
+            <button class="copy-btn" onclick="copyToClipboard('oauth-sec-val', this)">⧉</button>
+            <span id="oauth-sec-val">{{ oauth_client_secret }}</span>
+          </div>
         </div>
       </div>
     </div>
 
+    <!-- Verbindungs-URLs -->
     <div style="margin-bottom:24px;">
-      <div class="section-title" style="margin-bottom:12px;">🔗 Verbindungs-URLs</div>
+      <div class="section-title" style="margin-bottom:12px;">🔗 URLs</div>
       <table>
-        <tr><th style="width:180px;">claude.ai → /mcp</th><td><div class="code-block" style="padding:8px 12px; display:inline-flex; gap:8px;" id="mcp-url">{{ mcp_url }}<button class="copy-btn" style="position:static;" onclick="copyToClipboard('mcp-url')">⧉</button></div></td></tr>
-        <tr><th>ChatGPT → /sse</th><td><div class="code-block" style="padding:8px 12px; display:inline-flex; gap:8px;" id="sse-url">{{ sse_url }}<button class="copy-btn" style="position:static;" onclick="copyToClipboard('sse-url')">⧉</button></div></td></tr>
-        <tr><th>OAuth Auth-URL</th><td><div class="code-block" style="padding:8px 12px;" id="auth-url">{{ oauth_authorize_url }}</div></td></tr>
-        <tr><th>OAuth Token-URL</th><td><div class="code-block" style="padding:8px 12px;" id="token-url">{{ oauth_token_url }}</div></td></tr>
+        <tr>
+          <th style="width:180px;">claude.ai → /mcp</th>
+          <td>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyToClipboard('mcp-url-val', this)">⧉</button>
+              <span id="mcp-url-val">{{ mcp_url }}</span>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <th>ChatGPT → /sse</th>
+          <td>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyToClipboard('sse-url-val', this)">⧉</button>
+              <span id="sse-url-val">{{ sse_url }}</span>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <th>OAuth Auth-URL</th>
+          <td><code>{{ oauth_authorize_url }}</code></td>
+        </tr>
+        <tr>
+          <th>OAuth Token-URL</th>
+          <td><code>{{ oauth_token_url }}</code></td>
+        </tr>
       </table>
     </div>
 
+    <div style="margin-bottom:24px;">
+      <a href="/help" class="btn btn-secondary">📖 {{ _('help_title') }}</a>
+    </div>
+
     {% if is_admin %}
-    <a href="/admin" class="btn btn-primary">Admin-Übersicht öffnen →</a>
+    <a href="/admin" class="btn btn-primary">{{ _('admin_title') }} →</a>
     {% else %}
-    <a href="/pending" class="btn btn-secondary">Genehmigungsstatus prüfen</a>
+    <a href="/pending" class="btn btn-secondary">{{ _('admin_status_pending') }}</a>
     {% endif %}
   </div>
 </div>

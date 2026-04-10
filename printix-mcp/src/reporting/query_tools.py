@@ -28,13 +28,55 @@ from typing import Any, Optional
 from .sql_client import query_fetchall, get_tenant_id
 
 
+# ─── Reporting-View Fallback ──────────────────────────────────────────────────
+
+_view_cache: dict[tuple, bool] = {}
+
+
+def _V(table: str) -> str:
+    """
+    Gibt 'reporting.v_{table}' zurück wenn reporting-Views in der aktuellen DB
+    vorhanden sind, sonst 'dbo.{table}' als Fallback.
+    Gecacht pro (server, database) Kombination.
+    """
+    from .sql_client import get_current_db_key, query_fetchone
+    key = get_current_db_key()
+    if key not in _view_cache:
+        try:
+            r = query_fetchone(
+                "SELECT COUNT(*) AS cnt FROM sys.views "
+                "WHERE schema_id = SCHEMA_ID('reporting') AND name = 'v_tracking_data'"
+            )
+            _view_cache[key] = bool((r or {}).get("cnt", 0) > 0)
+        except Exception:
+            _view_cache[key] = False
+    return f"reporting.v_{table}" if _view_cache[key] else f"dbo.{table}"
+
+
+def invalidate_view_cache() -> None:
+    """Leert den View-Verfügbarkeits-Cache (nach setup_schema() aufrufen)."""
+    _view_cache.clear()
+
+
 # ─── Hilfsfunktionen ──────────────────────────────────────────────────────────
 
-def _fmt_date(d) -> str:
-    """Konvertiert date/datetime/str ins SQL-Format YYYY-MM-DD."""
-    if isinstance(d, (date, datetime)):
-        return d.strftime("%Y-%m-%d")
-    return str(d)
+def _fmt_date(d) -> date:
+    """
+    Konvertiert date/datetime/str in ein Python-date-Objekt.
+    pyodbc übergibt date-Objekte als native ODBC DATE — kein FreeTDS varchar-Cast-Problem.
+    """
+    if isinstance(d, datetime):
+        return d.date()
+    if isinstance(d, date):
+        return d
+    s = str(d).strip()
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        try:
+            return datetime.strptime(s, "%d.%m.%Y").date()
+        except ValueError:
+            raise ValueError(f"Ungültiges Datumsformat: {s!r} — erwartet YYYY-MM-DD")
 
 
 def _cost_columns(cost_per_sheet: float, cost_per_mono: float, cost_per_color: float) -> str:
@@ -67,7 +109,7 @@ def _cost_columns(cost_per_sheet: float, cost_per_mono: float, cost_per_color: f
               ELSE td.page_count * {cost_per_sheet}
          END)
         + (CASE WHEN td.color = 1 THEN td.page_count * {cost_per_color} ELSE 0 END)
-        + (CASE WHEN td.color = 0 THEN td.page_count * {cost_per_mono}  ELSE 0 END)
+        + (CASE WHEN td.color = 0 THEN td.page_count * {cost_per_mono} ELSE 0 END)
         AS total_cost
     """
 
@@ -141,11 +183,11 @@ def query_print_stats(
             SUM(CASE WHEN td.duplex = 1
                      THEN td.page_count - CEILING(CAST(td.page_count AS FLOAT)/2)
                      ELSE 0 END)                   AS saved_sheets_duplex
-        FROM dbo.tracking_data td
-        LEFT JOIN dbo.jobs      j ON j.id = td.job_id AND j.tenant_id = td.tenant_id
-        LEFT JOIN dbo.users     u ON u.id = j.tenant_user_id AND u.tenant_id = td.tenant_id
-        LEFT JOIN dbo.printers  p ON p.id = td.printer_id AND p.tenant_id = td.tenant_id
-        LEFT JOIN dbo.networks  n ON n.id = p.network_id AND n.tenant_id = td.tenant_id
+        FROM {_V('tracking_data')} td
+        LEFT JOIN {_V('jobs')}     j ON j.id = td.job_id AND j.tenant_id = td.tenant_id
+        LEFT JOIN {_V('users')}    u ON u.id = j.tenant_user_id AND u.tenant_id = td.tenant_id
+        LEFT JOIN {_V('printers')} p ON p.id = td.printer_id AND p.tenant_id = td.tenant_id
+        LEFT JOIN {_V('networks')} n ON n.id = p.network_id AND n.tenant_id = td.tenant_id
         WHERE td.tenant_id = ?
           AND td.print_time >= ?
           AND td.print_time <  DATEADD(day, 1, CAST(? AS DATE))
@@ -171,12 +213,6 @@ def query_cost_report(
 ) -> list[dict[str, Any]]:
     """
     Kostenaufstellung mit Farb-/S&W-Aufschlüsselung.
-
-    Kosten entsprechen den PowerBI DAX-Formeln:
-      - Sheet-Kosten (Papier)
-      - Tonerkosten Farbe
-      - Tonerkosten S/W
-      - Gesamtkosten
     """
     tenant_id = get_tenant_id()
 
@@ -206,22 +242,14 @@ def query_cost_report(
             SUM(td.page_count)                                            AS total_pages,
             SUM(CASE WHEN td.color = 1 THEN td.page_count ELSE 0 END)    AS color_pages,
             SUM(CASE WHEN td.color = 0 THEN td.page_count ELSE 0 END)    AS bw_pages,
-
-            -- Sheet count (Blätter, Duplex berücksichtigt)
             SUM(CASE WHEN td.duplex = 1
                      THEN CEILING(CAST(td.page_count AS FLOAT) / 2)
                      ELSE td.page_count END)                              AS total_sheets,
-
-            -- Tonerkosten
             SUM(CASE WHEN td.color = 1 THEN td.page_count * {cost_per_color} ELSE 0 END)   AS toner_cost_color,
             SUM(CASE WHEN td.color = 0 THEN td.page_count * {cost_per_mono}  ELSE 0 END)   AS toner_cost_bw,
-
-            -- Papierkosten
             SUM(CASE WHEN td.duplex = 1
                      THEN CEILING(CAST(td.page_count AS FLOAT) / 2) * {cost_per_sheet}
                      ELSE td.page_count * {cost_per_sheet} END)           AS sheet_cost,
-
-            -- Gesamtkosten
             SUM(
                 (CASE WHEN td.duplex = 1
                       THEN CEILING(CAST(td.page_count AS FLOAT) / 2) * {cost_per_sheet}
@@ -229,9 +257,9 @@ def query_cost_report(
                 + (CASE WHEN td.color = 1 THEN td.page_count * {cost_per_color} ELSE 0 END)
                 + (CASE WHEN td.color = 0 THEN td.page_count * {cost_per_mono}  ELSE 0 END)
             )                                                             AS total_cost
-        FROM dbo.tracking_data td
-        LEFT JOIN dbo.printers  p ON p.id = td.printer_id AND p.tenant_id = td.tenant_id
-        LEFT JOIN dbo.networks  n ON n.id = p.network_id  AND n.tenant_id = td.tenant_id
+        FROM {_V('tracking_data')} td
+        LEFT JOIN {_V('printers')} p ON p.id = td.printer_id AND p.tenant_id = td.tenant_id
+        LEFT JOIN {_V('networks')} n ON n.id = p.network_id  AND n.tenant_id = td.tenant_id
         WHERE td.tenant_id = ?
           AND td.print_time >= ?
           AND td.print_time <  DATEADD(day, 1, CAST(? AS DATE))
@@ -250,17 +278,13 @@ def query_top_users(
     start_date: str,
     end_date: str,
     top_n: int = 10,
-    metric: str = "pages",   # pages | cost | jobs | color_pages
+    metric: str = "pages",
     cost_per_sheet: float = 0.01,
     cost_per_mono: float  = 0.02,
     cost_per_color: float = 0.08,
     site_id: Optional[str] = None,
 ) -> list[dict[str, Any]]:
-    """
-    Ranking der aktivsten Nutzer nach Volumen oder Kosten.
-
-    metric-Optionen: pages | cost | jobs | color_pages
-    """
+    """Ranking der aktivsten Nutzer nach Volumen oder Kosten."""
     tenant_id = get_tenant_id()
 
     order_col = {
@@ -295,10 +319,10 @@ def query_top_users(
                 + (CASE WHEN td.color = 1 THEN td.page_count * {cost_per_color} ELSE 0 END)
                 + (CASE WHEN td.color = 0 THEN td.page_count * {cost_per_mono}  ELSE 0 END)
             )                                                                   AS total_cost
-        FROM dbo.tracking_data td
-        JOIN  dbo.jobs     j ON j.id = td.job_id       AND j.tenant_id = td.tenant_id
-        JOIN  dbo.users    u ON u.id = j.tenant_user_id AND u.tenant_id = td.tenant_id
-        LEFT JOIN dbo.printers p ON p.id = td.printer_id AND p.tenant_id = td.tenant_id
+        FROM {_V('tracking_data')} td
+        JOIN  {_V('jobs')}     j ON j.id = td.job_id       AND j.tenant_id = td.tenant_id
+        JOIN  {_V('users')}    u ON u.id = j.tenant_user_id AND u.tenant_id = td.tenant_id
+        LEFT JOIN {_V('printers')} p ON p.id = td.printer_id AND p.tenant_id = td.tenant_id
         WHERE td.tenant_id = ?
           AND td.print_time >= ?
           AND td.print_time <  DATEADD(day, 1, CAST(? AS DATE))
@@ -317,7 +341,7 @@ def query_top_printers(
     start_date: str,
     end_date: str,
     top_n: int = 10,
-    metric: str = "pages",   # pages | cost | jobs | color_pages
+    metric: str = "pages",
     cost_per_sheet: float = 0.01,
     cost_per_mono: float  = 0.02,
     cost_per_color: float = 0.08,
@@ -359,9 +383,9 @@ def query_top_printers(
                 + (CASE WHEN td.color = 1 THEN td.page_count * {cost_per_color} ELSE 0 END)
                 + (CASE WHEN td.color = 0 THEN td.page_count * {cost_per_mono}  ELSE 0 END)
             )                                                                   AS total_cost
-        FROM dbo.tracking_data td
-        LEFT JOIN dbo.printers p ON p.id = td.printer_id AND p.tenant_id = td.tenant_id
-        LEFT JOIN dbo.networks n ON n.id = p.network_id  AND n.tenant_id = td.tenant_id
+        FROM {_V('tracking_data')} td
+        LEFT JOIN {_V('printers')} p ON p.id = td.printer_id AND p.tenant_id = td.tenant_id
+        LEFT JOIN {_V('networks')} n ON n.id = p.network_id  AND n.tenant_id = td.tenant_id
         WHERE td.tenant_id = ?
           AND td.print_time >= ?
           AND td.print_time <  DATEADD(day, 1, CAST(? AS DATE))
@@ -381,10 +405,7 @@ def query_anomalies(
     end_date: str,
     threshold_multiplier: float = 2.5,
 ) -> list[dict[str, Any]]:
-    """
-    Erkennt Ausreißer: Tage mit ungewöhnlich hohem Druckvolumen.
-    Vergleicht tägliches Volumen mit Mittelwert ± threshold_multiplier × Standardabweichung.
-    """
+    """Erkennt Ausreißer: Tage mit ungewöhnlich hohem Druckvolumen."""
     tenant_id = get_tenant_id()
 
     sql = f"""
@@ -393,7 +414,7 @@ def query_anomalies(
                 CAST(print_time AS DATE)   AS print_day,
                 SUM(page_count)            AS daily_pages,
                 COUNT(DISTINCT job_id)     AS daily_jobs
-            FROM dbo.tracking_data
+            FROM {_V('tracking_data')}
             WHERE tenant_id = ?
               AND print_time >= ?
               AND print_time <  DATEADD(day, 1, CAST(? AS DATE))
@@ -441,10 +462,7 @@ def query_trend(
     cost_per_mono: float  = 0.02,
     cost_per_color: float = 0.08,
 ) -> dict[str, Any]:
-    """
-    Vergleich zweier Zeiträume (z.B. aktueller Monat vs. Vormonat).
-    Gibt für beide Perioden Summen und berechnete Deltas zurück.
-    """
+    """Vergleich zweier Zeiträume."""
     tenant_id = get_tenant_id()
 
     def _period_sql(start: str, end: str) -> tuple[str, tuple]:
@@ -464,8 +482,8 @@ def query_trend(
                     + (CASE WHEN td.color = 1 THEN td.page_count * {cost_per_color} ELSE 0 END)
                     + (CASE WHEN td.color = 0 THEN td.page_count * {cost_per_mono}  ELSE 0 END)
                 )                                                               AS total_cost
-            FROM dbo.tracking_data td
-            JOIN dbo.jobs j ON j.id = td.job_id AND j.tenant_id = td.tenant_id
+            FROM {_V('tracking_data')} td
+            JOIN {_V('jobs')} j ON j.id = td.job_id AND j.tenant_id = td.tenant_id
             WHERE td.tenant_id = ?
               AND td.print_time >= ?
               AND td.print_time <  DATEADD(day, 1, CAST(? AS DATE))

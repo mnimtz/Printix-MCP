@@ -15,6 +15,7 @@ Template-Schema:
   schedule       — Dict mit frequency, day, time (oder None wenn kein Schedule)
   recipients     — Liste von E-Mail-Adressen
   mail_subject   — Betreffzeile
+  owner_user_id  — User-ID des Tenant-Besitzers (für Scheduler-Credential-Lookup)
   created_at     — ISO-Timestamp der Erstellung
   updated_at     — ISO-Timestamp der letzten Änderung
 """
@@ -65,6 +66,7 @@ def save_template(
     schedule: Optional[dict[str, Any]] = None,
     created_prompt: str = "",
     report_id: Optional[str] = None,
+    owner_user_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     Speichert ein neues Template oder überschreibt ein bestehendes (bei report_id).
@@ -91,6 +93,9 @@ def save_template(
         })
         if created_prompt:
             template["created_prompt"] = created_prompt
+        # owner_user_id nur setzen wenn übergeben (nicht überschreiben wenn leer)
+        if owner_user_id:
+            template["owner_user_id"] = owner_user_id
     else:
         # Neu anlegen
         rid = report_id or str(uuid.uuid4())
@@ -110,6 +115,7 @@ def save_template(
             "schedule":       schedule,
             "recipients":     recipients,
             "mail_subject":   mail_subject,
+            "owner_user_id":  owner_user_id or "",
             "created_at":     now,
             "updated_at":     now,
         }
@@ -158,3 +164,11 @@ def delete_template(report_id: str) -> bool:
 def get_scheduled_templates() -> list[dict[str, Any]]:
     """Gibt alle Templates mit aktivem Schedule zurück."""
     return [t for t in _load().values() if t.get("schedule")]
+
+
+def list_templates_by_user(user_id: str) -> list[dict[str, Any]]:
+    """Gibt alle Templates eines bestimmten Owners zurück (ohne layout.logo_base64)."""
+    all_templates = list_templates()
+    if not user_id:
+        return all_templates
+    return [t for t in all_templates if t.get("owner_user_id", "") == user_id]

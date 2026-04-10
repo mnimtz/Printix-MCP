@@ -1,5 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Audit-Log — Printix MCP{% endblock %}
+{% block extra_head %}
+<style>
+  /* Admin-Seiten: breiter Container */
+  .container { max-width: 1140px; }
+  .card { padding: 28px 28px; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container">
   <div class="card">
@@ -12,6 +20,7 @@
     </div>
 
     {% if entries %}
+    <div style="overflow-x:auto">
     <table>
       <thead>
         <tr>
@@ -36,6 +45,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <div class="alert alert-info">Noch keine Einträge im Audit-Log.</div>
     {% endif %}
