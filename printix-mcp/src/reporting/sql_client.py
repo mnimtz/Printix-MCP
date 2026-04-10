@@ -154,6 +154,29 @@ def get_current_db_key() -> tuple:
     return ("", "")
 
 
+def set_config_from_tenant(tenant: dict) -> None:
+    """Setzt die SQL-Konfiguration aus einem Tenant-Dict direkt in die ContextVar.
+
+    Wird von Web-Routen verwendet, die keine Bearer-Auth haben (Session-Login),
+    um denselben SQL-Kontext zu setzen wie BearerAuthMiddleware.
+
+    Args:
+        tenant: Tenant-Dict aus db.get_tenant_full_by_user_id() — Passwort
+                bereits entschlüsselt.
+    """
+    if not _CONTEXTVAR_AVAILABLE or _current_sql_config is None:
+        raise RuntimeError(
+            "current_sql_config ContextVar nicht verfügbar — auth.py fehlt?"
+        )
+    _current_sql_config.set({
+        "server":    tenant.get("sql_server", ""),
+        "database":  tenant.get("sql_database", ""),
+        "username":  tenant.get("sql_username", ""),
+        "password":  tenant.get("sql_password", ""),
+        "tenant_id": tenant.get("printix_tenant_id", ""),
+    })
+
+
 def is_configured() -> bool:
     """Prüft ob alle SQL-Konfigurationsparameter im aktuellen Kontext gesetzt sind."""
     if not _CONTEXTVAR_AVAILABLE or _current_sql_config is None:

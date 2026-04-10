@@ -31,7 +31,7 @@ WORKDIR /app
 COPY src/requirements.txt /app/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /app/requirements.txt
 
-# Cache-bust: 2026-04-10T14:00 — Jinja2-Fix tenant_demo.html confirm-Syntax (v3.5.1)
+# Cache-bust: 2026-04-10T15:00 — set_config_from_tenant in sql_client.py (v3.5.1)
 COPY src/ /app/
 
 # Copy run script
