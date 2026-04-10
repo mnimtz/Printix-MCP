@@ -1,6 +1,6 @@
 # Printix MCP Server — Home Assistant Add-on
 
-**Version 3.5.0** · Multi-Tenant MCP Server for the Printix Cloud Print API
+**Version 3.5.1** · Multi-Tenant MCP Server for the Printix Cloud Print API
 
 A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix Cloud Print API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Manage printers, users, print jobs, and generate detailed reports — all through natural language in your AI chat.
 
@@ -264,6 +264,7 @@ For advanced scenarios, the following environment variables can be set via the H
 
 See [CHANGELOG.md](CHANGELOG.md) for a full version history.
 
+**v3.5.1** — Schema fix (demo.* vs dbo.*), rollback-all button, batch_size 2000  
 **v3.5.0** — Demo Data Generator, reporting SQL views, full i18n for all demo UI  
 **v3.2.0** — Logo URL in reports, extended date presets, full i18n for reports  
 **v3.1.0** — PDF/XLSX output, FreeTDS fix, email attachments  

@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.5.1 (2026-04-10)
+
+### Bugfixes & Demo-UI Verbesserungen
+
+- **Kritischer Fix**: Demo-Daten-Generierung funktioniert jetzt korrekt mit bestehenden Printix Azure SQL-Datenbanken. Alle Custom-Tabellen liegen im `demo.*`-Schema (nicht `dbo.*`), um Konflikte mit nativen Printix-Tabellen (Liquibase-Migrations) zu vermeiden.
+- **reporting.* Views**: UNION ALL-Pattern — echte `dbo.*`-Daten und Demo-`demo.*`-Daten werden korrekt zusammengeführt. Demo-Daten erscheinen nur wenn aktive Sessions für den Tenant existieren.
+- **Batch-Size**: Insert-Batch-Größe von 500 auf 2000 erhöht (~4× schnellere Generierung).
+- **Button „Alle Demo-Daten löschen"**: Neuer globaler Löschen-Button in der Demo-UI — funktioniert auch ohne bestehende Sessions (z.B. nach fehlgeschlagener Generierung oder für sauberes Neu-Deployment).
+- **Rollback-All API**: Neues `rollback_demo_all(tenant_id)` — löscht alle Demo-Daten des Tenants über alle Tags/Sessions hinweg.
+- **i18n**: `demo_btn_rollback_all` + `demo_confirm_rollback_all` in allen 12 Sprachen ergänzt.
+
 ## 3.5.0 (2026-04-10)
 
 ### Demo-Daten Web-UI & Reporting-Views

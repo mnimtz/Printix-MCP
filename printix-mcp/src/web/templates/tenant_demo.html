@@ -363,8 +363,14 @@
     <p style="color:#9ca3af;font-size:.9em;">{{ _('demo_no_sessions') }}</p>
     {% endif %}
 
-    <div style="margin-top:24px;">
+    <div style="margin-top:24px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
       <a href="/dashboard" class="btn btn-secondary">← {{ _('nav_dashboard') }}</a>
+      <form method="post" action="/tenant/demo/rollback-all" style="margin:0;"
+            onsubmit="return confirm('{{ _(\'demo_confirm_rollback_all\') }}')">
+        <button type="submit" class="btn btn-danger btn-sm" style="padding:6px 14px;">
+          🗑️ {{ _('demo_btn_rollback_all') }}
+        </button>
+      </form>
     </div>
   </div>
 </div>

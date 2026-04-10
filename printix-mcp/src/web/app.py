@@ -1446,6 +1446,31 @@ def create_app(session_secret: str) -> FastAPI:
             return RedirectResponse(f"/tenant/demo?flash=error&errmsg={str(e)[:100]}", status_code=302)
 
 
+    @app.post("/tenant/demo/rollback-all", response_class=HTMLResponse)
+    async def tenant_demo_rollback_all(request: Request):
+        """Löscht ALLE Demo-Daten des Tenants – auch ohne bestehende Sessions."""
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if not tenant or not tenant.get("sql_server"):
+                return RedirectResponse("/tenant/demo?flash=error&flash_msg=no_sql", status_code=302)
+            import sys as _sys, os as _os
+            src_dir = _os.path.dirname(_os.path.dirname(__file__))
+            if src_dir not in _sys.path:
+                _sys.path.insert(0, src_dir)
+            from reporting.sql_client import set_config_from_tenant
+            set_config_from_tenant(tenant)
+            from reporting.demo_generator import rollback_demo_all
+            result = rollback_demo_all(tenant["printix_tenant_id"])
+            logger.info("Demo-Rollback-All: %d Zeilen gelöscht", result.get("total_deleted", 0))
+            return RedirectResponse("/tenant/demo?flash=rollback_ok", status_code=302)
+        except Exception as e:
+            logger.error("tenant_demo_rollback_all error: %s", e)
+            return RedirectResponse(f"/tenant/demo?flash=error&flash_msg={str(e)[:120]}", status_code=302)
+
     # ── Reports-Register (v3.0.0) ─────────────────────────────────────────────
     try:
         from web.reports_routes import register_reports_routes

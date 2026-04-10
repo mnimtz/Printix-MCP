@@ -178,10 +178,15 @@ CAPTURE_WORKFLOWS = [
 # ── Azure SQL Schema ───────────────────────────────────────────────────────────
 
 SCHEMA_STATEMENTS: list[str] = [
+    # demo schema
+    """
+    IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'demo')
+        EXEC('CREATE SCHEMA demo')
+    """,
     # networks
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='networks' AND schema_id=SCHEMA_ID('dbo'))
-    CREATE TABLE dbo.networks (
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='networks' AND schema_id=SCHEMA_ID('demo'))
+    CREATE TABLE demo.networks (
         id              NVARCHAR(100) NOT NULL,
         tenant_id       NVARCHAR(100) NOT NULL,
         name            NVARCHAR(255) NOT NULL,
@@ -191,8 +196,8 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     # users
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='users' AND schema_id=SCHEMA_ID('dbo'))
-    CREATE TABLE dbo.users (
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='users' AND schema_id=SCHEMA_ID('demo'))
+    CREATE TABLE demo.users (
         id              NVARCHAR(100) NOT NULL,
         tenant_id       NVARCHAR(100) NOT NULL,
         email           NVARCHAR(255) NOT NULL,
@@ -204,8 +209,8 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     # printers
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='printers' AND schema_id=SCHEMA_ID('dbo'))
-    CREATE TABLE dbo.printers (
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='printers' AND schema_id=SCHEMA_ID('demo'))
+    CREATE TABLE demo.printers (
         id              NVARCHAR(100) NOT NULL,
         tenant_id       NVARCHAR(100) NOT NULL,
         name            NVARCHAR(255) NOT NULL,
@@ -219,8 +224,8 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     # jobs
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='jobs' AND schema_id=SCHEMA_ID('dbo'))
-    CREATE TABLE dbo.jobs (
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='jobs' AND schema_id=SCHEMA_ID('demo'))
+    CREATE TABLE demo.jobs (
         id              NVARCHAR(100) NOT NULL,
         tenant_id       NVARCHAR(100) NOT NULL,
         color           BIT          NOT NULL DEFAULT 0,
@@ -237,8 +242,8 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     # tracking_data  (IDENTITY — kein id im INSERT)
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='tracking_data' AND schema_id=SCHEMA_ID('dbo'))
-    CREATE TABLE dbo.tracking_data (
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='tracking_data' AND schema_id=SCHEMA_ID('demo'))
+    CREATE TABLE demo.tracking_data (
         id               BIGINT IDENTITY(1,1) NOT NULL,
         job_id           NVARCHAR(100) NOT NULL,
         tenant_id        NVARCHAR(100) NOT NULL,
@@ -254,8 +259,8 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     # jobs_scan
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='jobs_scan' AND schema_id=SCHEMA_ID('dbo'))
-    CREATE TABLE dbo.jobs_scan (
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='jobs_scan' AND schema_id=SCHEMA_ID('demo'))
+    CREATE TABLE demo.jobs_scan (
         id              NVARCHAR(100) NOT NULL,
         tenant_id       NVARCHAR(100) NOT NULL,
         printer_id      NVARCHAR(100) NULL,
@@ -270,8 +275,8 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     # jobs_copy
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='jobs_copy' AND schema_id=SCHEMA_ID('dbo'))
-    CREATE TABLE dbo.jobs_copy (
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='jobs_copy' AND schema_id=SCHEMA_ID('demo'))
+    CREATE TABLE demo.jobs_copy (
         id              NVARCHAR(100) NOT NULL,
         tenant_id       NVARCHAR(100) NOT NULL,
         printer_id      NVARCHAR(100) NULL,
@@ -283,8 +288,8 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     # jobs_copy_details
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='jobs_copy_details' AND schema_id=SCHEMA_ID('dbo'))
-    CREATE TABLE dbo.jobs_copy_details (
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='jobs_copy_details' AND schema_id=SCHEMA_ID('demo'))
+    CREATE TABLE demo.jobs_copy_details (
         id              NVARCHAR(100) NOT NULL,
         job_id          NVARCHAR(100) NOT NULL,
         page_count      INT          NOT NULL DEFAULT 1,
@@ -297,8 +302,8 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     # demo_sessions  (Rollback-Tracking)
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='demo_sessions' AND schema_id=SCHEMA_ID('dbo'))
-    CREATE TABLE dbo.demo_sessions (
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='demo_sessions' AND schema_id=SCHEMA_ID('demo'))
+    CREATE TABLE demo.demo_sessions (
         session_id      NVARCHAR(100) NOT NULL,
         tenant_id       NVARCHAR(100) NOT NULL,
         demo_tag        NVARCHAR(100) NOT NULL,
@@ -316,32 +321,32 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     # Indexes
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_td_tenant_time' AND object_id=OBJECT_ID('dbo.tracking_data'))
-        CREATE INDEX IX_td_tenant_time ON dbo.tracking_data (tenant_id, print_time)
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_td_tenant_time' AND object_id=OBJECT_ID('demo.tracking_data'))
+        CREATE INDEX IX_td_tenant_time ON demo.tracking_data (tenant_id, print_time)
     """,
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_td_demo' AND object_id=OBJECT_ID('dbo.tracking_data'))
-        CREATE INDEX IX_td_demo ON dbo.tracking_data (demo_session_id)
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_td_demo' AND object_id=OBJECT_ID('demo.tracking_data'))
+        CREATE INDEX IX_td_demo ON demo.tracking_data (demo_session_id)
     """,
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_jobs_tenant' AND object_id=OBJECT_ID('dbo.jobs'))
-        CREATE INDEX IX_jobs_tenant ON dbo.jobs (tenant_id, submit_time)
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_jobs_tenant' AND object_id=OBJECT_ID('demo.jobs'))
+        CREATE INDEX IX_jobs_tenant ON demo.jobs (tenant_id, submit_time)
     """,
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_users_tenant' AND object_id=OBJECT_ID('dbo.users'))
-        CREATE INDEX IX_users_tenant ON dbo.users (tenant_id, email)
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_users_tenant' AND object_id=OBJECT_ID('demo.users'))
+        CREATE INDEX IX_users_tenant ON demo.users (tenant_id, email)
     """,
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_printers_network' AND object_id=OBJECT_ID('dbo.printers'))
-        CREATE INDEX IX_printers_network ON dbo.printers (tenant_id, network_id)
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_printers_network' AND object_id=OBJECT_ID('demo.printers'))
+        CREATE INDEX IX_printers_network ON demo.printers (tenant_id, network_id)
     """,
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_scan_tenant' AND object_id=OBJECT_ID('dbo.jobs_scan'))
-        CREATE INDEX IX_scan_tenant ON dbo.jobs_scan (tenant_id, scan_time)
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_scan_tenant' AND object_id=OBJECT_ID('demo.jobs_scan'))
+        CREATE INDEX IX_scan_tenant ON demo.jobs_scan (tenant_id, scan_time)
     """,
     """
-    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_copy_tenant' AND object_id=OBJECT_ID('dbo.jobs_copy'))
-        CREATE INDEX IX_copy_tenant ON dbo.jobs_copy (tenant_id, copy_time)
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_copy_tenant' AND object_id=OBJECT_ID('demo.jobs_copy'))
+        CREATE INDEX IX_copy_tenant ON demo.jobs_copy (tenant_id, copy_time)
     """,
     # ── Reporting Schema & Views ───────────────────────────────────────────────
     # Erstellt reporting-Schema mit VIEWs die echte + Demo-Daten kombinieren.
@@ -355,78 +360,103 @@ SCHEMA_STATEMENTS: list[str] = [
     SELECT id, job_id, tenant_id, page_count, color, duplex,
            print_time, printer_id, print_job_status
     FROM dbo.tracking_data
-    WHERE demo_session_id IS NULL
-       OR tenant_id IN (
-           SELECT DISTINCT tenant_id FROM dbo.demo_sessions WHERE status = 'active'
-       )
+    UNION ALL
+    SELECT id, job_id, tenant_id, page_count, color, duplex,
+           print_time, printer_id, print_job_status
+    FROM demo.tracking_data
+    WHERE EXISTS (
+        SELECT 1 FROM demo.demo_sessions ds
+        WHERE ds.tenant_id = demo.tracking_data.tenant_id AND ds.status = 'active'
+    )
     """,
     """
     CREATE OR ALTER VIEW reporting.v_jobs AS
     SELECT id, tenant_id, color, duplex, page_count, paper_size,
            printer_id, submit_time, tenant_user_id, filename
     FROM dbo.jobs
-    WHERE demo_session_id IS NULL
-       OR tenant_id IN (
-           SELECT DISTINCT tenant_id FROM dbo.demo_sessions WHERE status = 'active'
-       )
+    UNION ALL
+    SELECT id, tenant_id, color, duplex, page_count, paper_size,
+           printer_id, submit_time, tenant_user_id, filename
+    FROM demo.jobs
+    WHERE EXISTS (
+        SELECT 1 FROM demo.demo_sessions ds
+        WHERE ds.tenant_id = demo.jobs.tenant_id AND ds.status = 'active'
+    )
     """,
     """
     CREATE OR ALTER VIEW reporting.v_users AS
     SELECT id, tenant_id, email, name, department
     FROM dbo.users
-    WHERE demo_session_id IS NULL
-       OR tenant_id IN (
-           SELECT DISTINCT tenant_id FROM dbo.demo_sessions WHERE status = 'active'
-       )
+    UNION ALL
+    SELECT id, tenant_id, email, name, department
+    FROM demo.users
+    WHERE EXISTS (
+        SELECT 1 FROM demo.demo_sessions ds
+        WHERE ds.tenant_id = demo.users.tenant_id AND ds.status = 'active'
+    )
     """,
     """
     CREATE OR ALTER VIEW reporting.v_printers AS
     SELECT id, tenant_id, name, model_name, vendor_name, network_id, location
     FROM dbo.printers
-    WHERE demo_session_id IS NULL
-       OR tenant_id IN (
-           SELECT DISTINCT tenant_id FROM dbo.demo_sessions WHERE status = 'active'
-       )
+    UNION ALL
+    SELECT id, tenant_id, name, model_name, vendor_name, network_id, location
+    FROM demo.printers
+    WHERE EXISTS (
+        SELECT 1 FROM demo.demo_sessions ds
+        WHERE ds.tenant_id = demo.printers.tenant_id AND ds.status = 'active'
+    )
     """,
     """
     CREATE OR ALTER VIEW reporting.v_networks AS
     SELECT id, tenant_id, name
     FROM dbo.networks
-    WHERE demo_session_id IS NULL
-       OR tenant_id IN (
-           SELECT DISTINCT tenant_id FROM dbo.demo_sessions WHERE status = 'active'
-       )
+    UNION ALL
+    SELECT id, tenant_id, name
+    FROM demo.networks
+    WHERE EXISTS (
+        SELECT 1 FROM demo.demo_sessions ds
+        WHERE ds.tenant_id = demo.networks.tenant_id AND ds.status = 'active'
+    )
     """,
     """
     CREATE OR ALTER VIEW reporting.v_jobs_scan AS
     SELECT id, tenant_id, printer_id, tenant_user_id, scan_time,
            page_count, color, workflow_name
     FROM dbo.jobs_scan
-    WHERE demo_session_id IS NULL
-       OR tenant_id IN (
-           SELECT DISTINCT tenant_id FROM dbo.demo_sessions WHERE status = 'active'
-       )
+    UNION ALL
+    SELECT id, tenant_id, printer_id, tenant_user_id, scan_time,
+           page_count, color, workflow_name
+    FROM demo.jobs_scan
+    WHERE EXISTS (
+        SELECT 1 FROM demo.demo_sessions ds
+        WHERE ds.tenant_id = demo.jobs_scan.tenant_id AND ds.status = 'active'
+    )
     """,
     """
     CREATE OR ALTER VIEW reporting.v_jobs_copy AS
     SELECT id, tenant_id, printer_id, tenant_user_id, copy_time
     FROM dbo.jobs_copy
-    WHERE demo_session_id IS NULL
-       OR tenant_id IN (
-           SELECT DISTINCT tenant_id FROM dbo.demo_sessions WHERE status = 'active'
-       )
+    UNION ALL
+    SELECT id, tenant_id, printer_id, tenant_user_id, copy_time
+    FROM demo.jobs_copy
+    WHERE EXISTS (
+        SELECT 1 FROM demo.demo_sessions ds
+        WHERE ds.tenant_id = demo.jobs_copy.tenant_id AND ds.status = 'active'
+    )
     """,
     """
     CREATE OR ALTER VIEW reporting.v_jobs_copy_details AS
     SELECT d.id, d.job_id, d.page_count, d.paper_size, d.duplex, d.color
     FROM dbo.jobs_copy_details d
-    WHERE d.demo_session_id IS NULL
-       OR d.job_id IN (
-           SELECT id FROM dbo.jobs_copy
-           WHERE tenant_id IN (
-               SELECT DISTINCT tenant_id FROM dbo.demo_sessions WHERE status = 'active'
-           )
-       )
+    UNION ALL
+    SELECT d.id, d.job_id, d.page_count, d.paper_size, d.duplex, d.color
+    FROM demo.jobs_copy_details d
+    WHERE EXISTS (
+        SELECT 1 FROM demo.jobs_copy jc
+        JOIN demo.demo_sessions ds ON ds.tenant_id = jc.tenant_id AND ds.status = 'active'
+        WHERE jc.id = d.job_id
+    )
     """,
 ]
 
@@ -505,7 +535,6 @@ def _random_time(day: datetime, rng: random.Random) -> datetime:
     Zufällige Uhrzeit mit realistischer Verteilung:
     Spitzen 9-11 Uhr (35 %) und 13-15 Uhr (30 %).
     """
-    # Zeitsegmente: (start_min, end_min, gewicht)
     segments = [(570, 660, 35), (780, 900, 30), (450, 570, 10),
                 (660, 780, 10), (900, 1110, 15)]
     total = sum(w for _, _, w in segments)
@@ -517,7 +546,7 @@ def _random_time(day: datetime, rng: random.Random) -> datetime:
             minute = rng.randint(s_min, e_min - 1)
             break
     else:
-        minute = 540  # fallback 9:00
+        minute = 540
     return day.replace(hour=minute // 60, minute=minute % 60,
                        second=rng.randint(0, 59), microsecond=0)
 
@@ -615,19 +644,14 @@ def _gen_print_jobs(
     working_days: list[datetime], jobs_per_user_day: float,
     session_id: str, rng: random.Random,
 ) -> tuple[list[tuple], list[tuple]]:
-    """
-    Gibt (jobs_params, tracking_params) als Listen von Tuples für executemany zurück.
-    """
     jobs_rows: list[tuple] = []
     tracking_rows: list[tuple] = []
 
-    # User-Gewichte: einige Vieldrucker, die meisten normal
     user_weights = [rng.uniform(0.3, 2.5) for _ in users]
 
     for day in working_days:
         month_factor = MONTH_FACTORS.get(day.month, 1.0)
         for user, weight in zip(users, user_weights):
-            # Poisson-approximiert: rng.gauss(mu, sigma) ≥ 0
             n_jobs = max(0, int(rng.gauss(jobs_per_user_day * weight * month_factor, 1.0)))
             for _ in range(n_jobs):
                 ts      = _random_time(day, rng)
@@ -659,7 +683,6 @@ def _gen_scan_jobs(
     for day in working_days:
         month_factor = MONTH_FACTORS.get(day.month, 1.0)
         for user in users:
-            # ca. 1 Scan pro User alle 3 Tage
             if rng.random() > (0.33 * month_factor):
                 continue
             ts    = _random_time(day, rng)
@@ -704,7 +727,7 @@ def _gen_copy_jobs(
 
 # ── Bulk-Insert Helfer ────────────────────────────────────────────────────────
 
-def _bulk_insert(sql: str, rows: list, batch_size: int = 500) -> int:
+def _bulk_insert(sql: str, rows: list, batch_size: int = 2000) -> int:
     from .sql_client import execute_many
     total = 0
     for i in range(0, len(rows), batch_size):
@@ -719,6 +742,7 @@ def generate_demo_dataset(
     tenant_id: str,
     user_count: int = 15,
     printer_count: int = 6,
+    queue_count: int = 2,
     months: int = 12,
     languages: Optional[list[str]] = None,
     sites: Optional[list[str]] = None,
@@ -728,24 +752,9 @@ def generate_demo_dataset(
 ) -> dict:
     """
     Generiert ein vollständiges Demo-Dataset und schreibt es in die konfigurierte Azure SQL.
-
-    Args:
-        tenant_id:         Printix Tenant-ID
-        user_count:        Anzahl Demo-User (1–200)
-        printer_count:     Anzahl Demo-Drucker (1–50)
-        months:            Anzahl Monate rückwirkend ab heute (1–36)
-        languages:         Sprachliste für Namen, z.B. ["de","en","fr"]
-        sites:             Standortnamen, z.B. ["Hauptsitz","München","Wien"]
-        demo_tag:          Optionaler Name für diese Session (für Rollback)
-        jobs_per_user_day: Durchschnittliche Druckjobs pro User pro Tag (default 3.0)
-        seed:              Zufallsseed für reproduzierbare Daten (optional)
-
-    Returns:
-        Dict mit session_id, Statistiken und Status.
     """
     from .sql_client import execute_write
 
-    # Parameter normalisieren
     user_count       = max(1, min(200, user_count))
     printer_count    = max(1, min(50, printer_count))
     months           = max(1, min(36, months))
@@ -764,7 +773,6 @@ def generate_demo_dataset(
     logger.info("Demo-Generator gestartet: session=%s tenant=%s user=%d printer=%d months=%d",
                 session_id, tenant_id, user_count, printer_count, months)
 
-    # ── Stammdaten generieren ────────────────────────────────────────────────
     users    = _gen_users(tenant_id, user_count, languages, session_id, rng, email_domain)
     networks = _gen_networks(tenant_id, sites, session_id)
     printers = _gen_printers(tenant_id, printer_count, networks, session_id, rng)
@@ -772,7 +780,6 @@ def generate_demo_dataset(
 
     logger.info("Werktage im Zeitraum: %d", len(wdays))
 
-    # ── Bewegungsdaten generieren ────────────────────────────────────────────
     jobs_rows, tracking_rows = _gen_print_jobs(
         tenant_id, users, printers, wdays, jobs_per_user_day, session_id, rng)
     scan_rows = _gen_scan_jobs(tenant_id, users, printers, wdays, session_id, rng)
@@ -782,60 +789,45 @@ def generate_demo_dataset(
     logger.info("Datenmenge: %d Druckjobs | %d Scans | %d Kopien",
                 len(jobs_rows), len(scan_rows), len(copy_rows))
 
-    # ── Schreiben in Azure SQL ────────────────────────────────────────────────
     errors = []
 
-    # networks
     _bulk_insert(
-        "INSERT INTO dbo.networks (id,tenant_id,name,demo_session_id) VALUES (?,?,?,?)",
+        "INSERT INTO demo.networks (id,tenant_id,name,demo_session_id) VALUES (?,?,?,?)",
         [(n["id"], n["tenant_id"], n["name"], n["demo_session_id"]) for n in networks],
     )
-
-    # users
     _bulk_insert(
-        "INSERT INTO dbo.users (id,tenant_id,email,name,department,demo_session_id) VALUES (?,?,?,?,?,?)",
+        "INSERT INTO demo.users (id,tenant_id,email,name,department,demo_session_id) VALUES (?,?,?,?,?,?)",
         [(u["id"], u["tenant_id"], u["email"], u["name"], u["department"], u["demo_session_id"])
          for u in users],
     )
-
-    # printers
     _bulk_insert(
-        "INSERT INTO dbo.printers (id,tenant_id,name,model_name,vendor_name,network_id,location,demo_session_id) VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO demo.printers (id,tenant_id,name,model_name,vendor_name,network_id,location,demo_session_id) VALUES (?,?,?,?,?,?,?,?)",
         [(p["id"], p["tenant_id"], p["name"], p["model_name"], p["vendor_name"],
           p["network_id"], p["location"], p["demo_session_id"]) for p in printers],
     )
-
-    # jobs
     _bulk_insert(
-        "INSERT INTO dbo.jobs (id,tenant_id,color,duplex,page_count,paper_size,printer_id,submit_time,tenant_user_id,filename,demo_session_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO demo.jobs (id,tenant_id,color,duplex,page_count,paper_size,printer_id,submit_time,tenant_user_id,filename,demo_session_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         jobs_rows,
     )
-
-    # tracking_data (kein id — IDENTITY)
     _bulk_insert(
-        "INSERT INTO dbo.tracking_data (job_id,tenant_id,page_count,color,duplex,print_time,printer_id,print_job_status,demo_session_id) VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO demo.tracking_data (job_id,tenant_id,page_count,color,duplex,print_time,printer_id,print_job_status,demo_session_id) VALUES (?,?,?,?,?,?,?,?,?)",
         tracking_rows,
     )
-
-    # jobs_scan
     if scan_rows:
         _bulk_insert(
-            "INSERT INTO dbo.jobs_scan (id,tenant_id,printer_id,tenant_user_id,scan_time,page_count,color,workflow_name,filename,demo_session_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO demo.jobs_scan (id,tenant_id,printer_id,tenant_user_id,scan_time,page_count,color,workflow_name,filename,demo_session_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
             scan_rows,
         )
-
-    # jobs_copy + details
     if copy_rows:
         _bulk_insert(
-            "INSERT INTO dbo.jobs_copy (id,tenant_id,printer_id,tenant_user_id,copy_time,demo_session_id) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO demo.jobs_copy (id,tenant_id,printer_id,tenant_user_id,copy_time,demo_session_id) VALUES (?,?,?,?,?,?)",
             copy_rows,
         )
         _bulk_insert(
-            "INSERT INTO dbo.jobs_copy_details (id,job_id,page_count,paper_size,duplex,color,demo_session_id) VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO demo.jobs_copy_details (id,job_id,page_count,paper_size,duplex,color,demo_session_id) VALUES (?,?,?,?,?,?,?)",
             copy_detail_rows,
         )
 
-    # demo_sessions Eintrag
     params_json = json.dumps({
         "user_count": user_count, "printer_count": printer_count,
         "months": months, "languages": languages, "sites": sites,
@@ -843,7 +835,7 @@ def generate_demo_dataset(
         "start": start_dt.isoformat(), "end": end_dt.isoformat(),
     })
     execute_write(
-        "INSERT INTO dbo.demo_sessions "
+        "INSERT INTO demo.demo_sessions "
         "(session_id,tenant_id,demo_tag,created_at,params_json,status,"
         "user_count,printer_count,network_count,print_job_count,scan_job_count,copy_job_count) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -874,20 +866,11 @@ def generate_demo_dataset(
 def rollback_demo(tenant_id: str, demo_tag: str) -> dict:
     """
     Löscht alle Demo-Daten mit dem angegebenen demo_tag.
-    Löscht in der richtigen Reihenfolge (FK-Abhängigkeiten beachten).
-
-    Args:
-        tenant_id: Printix Tenant-ID
-        demo_tag:  Tag der zu löschenden Demo-Session(s)
-
-    Returns:
-        Dict mit Anzahl gelöschter Zeilen pro Tabelle.
     """
     from .sql_client import execute_write, query_fetchall
 
-    # Alle session_ids für diesen Tag ermitteln
     sessions = query_fetchall(
-        "SELECT session_id FROM dbo.demo_sessions WHERE tenant_id=? AND demo_tag=?",
+        "SELECT session_id FROM demo.demo_sessions WHERE tenant_id=? AND demo_tag=?",
         (tenant_id, demo_tag),
     )
     session_ids = [s["session_id"] for s in sessions]
@@ -895,21 +878,20 @@ def rollback_demo(tenant_id: str, demo_tag: str) -> dict:
         return {"deleted": {}, "sessions_found": 0, "message": f"Keine Sessions für Tag '{demo_tag}' gefunden."}
 
     deleted: dict[str, int] = {}
-    # Reihenfolge: erst Details, dann Haupttabellen
     tables_ordered = [
-        "dbo.jobs_copy_details",
-        "dbo.jobs_copy",
-        "dbo.jobs_scan",
-        "dbo.tracking_data",
-        "dbo.jobs",
-        "dbo.printers",
-        "dbo.users",
-        "dbo.networks",
-        "dbo.demo_sessions",
+        "demo.jobs_copy_details",
+        "demo.jobs_copy",
+        "demo.jobs_scan",
+        "demo.tracking_data",
+        "demo.jobs",
+        "demo.printers",
+        "demo.users",
+        "demo.networks",
+        "demo.demo_sessions",
     ]
     for sid in session_ids:
         for tbl in tables_ordered:
-            col = "session_id" if tbl == "dbo.demo_sessions" else "demo_session_id"
+            col = "session_id" if tbl == "demo.demo_sessions" else "demo_session_id"
             try:
                 n = execute_write(f"DELETE FROM {tbl} WHERE {col}=?", (sid,))
                 deleted[tbl] = deleted.get(tbl, 0) + n
@@ -927,12 +909,67 @@ def rollback_demo(tenant_id: str, demo_tag: str) -> dict:
     }
 
 
+def rollback_demo_all(tenant_id: str) -> dict:
+    """
+    Löscht ALLE Demo-Daten für den Tenant (alle Tags/Sessions).
+    Nützlich wenn man ohne bestehende Sessions alles bereinigen möchte.
+    """
+    from .sql_client import execute_write, query_fetchall
+
+    try:
+        sessions = query_fetchall(
+            "SELECT session_id, demo_tag FROM demo.demo_sessions WHERE tenant_id=?",
+            (tenant_id,),
+        )
+    except Exception as e:
+        return {"deleted": {}, "sessions_found": 0, "total_deleted": 0, "status": "ok",
+                "message": f"Keine Demo-Tabellen gefunden ({e})"}
+
+    tables_ordered = [
+        "demo.jobs_copy_details",
+        "demo.jobs_copy",
+        "demo.jobs_scan",
+        "demo.tracking_data",
+        "demo.jobs",
+        "demo.printers",
+        "demo.users",
+        "demo.networks",
+        "demo.demo_sessions",
+    ]
+    deleted: dict = {}
+    for tbl in tables_ordered:
+        if tbl == "demo.demo_sessions":
+            try:
+                n = execute_write("DELETE FROM demo.demo_sessions WHERE tenant_id=?", (tenant_id,))
+                deleted[tbl] = deleted.get(tbl, 0) + n
+            except Exception as e:
+                import logging; logging.getLogger(__name__).warning("Rollback-All %s: %s", tbl, e)
+        else:
+            col = "demo_session_id"
+            try:
+                n = execute_write(
+                    f"DELETE FROM {tbl} WHERE {col} IN "
+                    "(SELECT session_id FROM demo.demo_sessions WHERE tenant_id=?)",
+                    (tenant_id,),
+                )
+                deleted[tbl] = deleted.get(tbl, 0) + n
+            except Exception as e:
+                import logging; logging.getLogger(__name__).warning("Rollback-All %s: %s", tbl, e)
+
+    total = sum(deleted.values())
+    import logging; logging.getLogger(__name__).info(
+        "Rollback-All: %d Zeilen gelöscht für tenant_id=%s", total, tenant_id)
+    return {
+        "deleted":        deleted,
+        "sessions_found": len(sessions),
+        "total_deleted":  total,
+        "status":         "ok",
+    }
+
+
 def get_demo_status(tenant_id: str) -> dict:
     """
     Gibt eine Übersicht aller aktiven Demo-Sessions für den Tenant zurück.
-
-    Returns:
-        Dict mit Liste der Sessions und Gesamtstatistiken.
     """
     from .sql_client import query_fetchall
     try:
@@ -940,11 +977,11 @@ def get_demo_status(tenant_id: str) -> dict:
             "SELECT session_id,demo_tag,created_at,status,"
             "user_count,printer_count,network_count,"
             "print_job_count,scan_job_count,copy_job_count,params_json "
-            "FROM dbo.demo_sessions WHERE tenant_id=? ORDER BY created_at DESC",
+            "FROM demo.demo_sessions WHERE tenant_id=? ORDER BY created_at DESC",
             (tenant_id,),
         )
     except Exception as e:
-        return {"error": f"demo_sessions Tabelle nicht gefunden — bitte zuerst printix_demo_setup_schema ausführen. ({e})"}
+        return {"error": f"demo.demo_sessions Tabelle nicht gefunden — bitte zuerst printix_demo_setup_schema ausführen. ({e})"}
 
     total_jobs = sum((s.get("print_job_count") or 0) for s in sessions)
     total_rows = sum(
