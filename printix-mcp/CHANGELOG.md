@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.6.3 (2026-04-10)
+
+### Fixed
+- Demo-Generator: `preset`-Parameter aus functools.partial entfernt (TypeError verhinderte Daten-Generierung)
+- Demo-Polling-JS: Absolute URL-Pfade auf `window.location.pathname`-relativ umgestellt (HA Ingress-Proxy-Kompatibilität)
+
 ## 3.4.0 (2026-04-10)
 
 ### Neu — Demo-Daten Generator (UI)

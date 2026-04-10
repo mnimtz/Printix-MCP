@@ -527,5 +527,30 @@ function startProgress() {
   }
   next();
 }
+
+// ── Polling wenn job_id gesetzt (Background-Task läuft) ──────────────────
+{% if job_id %}
+(function() {
+  const jobId = "{{ job_id | e }}";
+  // Ingress-kompatibler Basispfad (unterstützt HA Ingress-Proxy)
+  const demoPath = window.location.pathname.split("?")[0];
+  startProgress();  // Animation sofort starten
+  function poll() {
+    fetch(demoPath + "/status?job_id=" + jobId)
+      .then(r => r.json())
+      .then(function(d) {
+        if (d.status === "done") {
+          window.location.href = demoPath + "?flash=generate_ok";
+        } else if (d.status === "error") {
+          window.location.href = demoPath + "?flash=error&flash_msg=" + encodeURIComponent(d.error || "Unbekannter Fehler");
+        } else {
+          setTimeout(poll, 3000);
+        }
+      })
+      .catch(function() { setTimeout(poll, 5000); });
+  }
+  setTimeout(poll, 3000);
+})();
+{% endif %}
 </script>
 {% endblock %}
