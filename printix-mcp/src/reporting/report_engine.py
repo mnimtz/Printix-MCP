@@ -1,16 +1,19 @@
 """
-Report Engine — HTML/CSV/JSON Ausgabe
-======================================
+Report Engine — HTML/CSV/JSON/PDF/XLSX Ausgabe
+===============================================
 Generiert Reports aus Query-Ergebnissen.
 
-Unterstützte Formate (v1.0):
-  html  — Vollständige HTML-Mail mit Branding
+Unterstützte Formate (v1.1):
+  html  — Vollständige HTML-Mail mit Branding + CSS-Balkendiagramme (email-kompatibel)
   csv   — Kommagetrennte Werte
   json  — Rohdaten als JSON
+  pdf   — fpdf2 (pip install fpdf2)
+  xlsx  — openpyxl (pip install openpyxl)
 
-v1.1 (geplant):
-  pdf   — WeasyPrint
-  xlsx  — openpyxl
+Neu in v1.1:
+  - CSS-Balkendiagramme im HTML-Output (kein JS, email-client-kompatibel)
+  - build_*_report() liefert jetzt "chart"-Daten pro Section
+  - _build_chart() Hilfsfunktion für horizontale Bar-Charts
 """
 
 import csv
@@ -65,6 +68,15 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   .badge-ok   { background: #e8f5e9; color: #2e7d32; }
   .badge-warn { background: #fff3e0; color: #e65100; }
   .footer     { background: #f5f5f5; padding: 14px 32px; font-size: 11px; color: #888; border-top: 1px solid #ddd; }
+  /* ── CSS Bar Charts (email-kompatibel, kein JS) ─────────────────────── */
+  .chart-wrap  { margin: 0 0 24px; }
+  .chart-title { font-size: 12px; font-weight: 600; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .4px; }
+  .chart-tbl   { width: 100%; border-collapse: collapse; }
+  .chart-tbl .cl { width: 130px; font-size: 11px; color: #555; padding: 3px 10px 3px 0; white-space: nowrap; vertical-align: middle; max-width: 130px; overflow: hidden; }
+  .chart-tbl .cb { padding: 3px 6px; vertical-align: middle; }
+  .bar-bg      { width: 100%; height: 16px; background: #eee; border-radius: 3px; }
+  .bar         { height: 16px; border-radius: 3px; min-width: 3px; display: block; }
+  .chart-tbl .cv { width: 80px; font-size: 11px; color: #333; font-weight: 600; padding: 3px 0 3px 8px; text-align: right; white-space: nowrap; vertical-align: middle; }
 </style>
 </head>
 <body>
@@ -92,6 +104,20 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
   {%- for section in sections %}
   <h2>{{ section.title }}</h2>
+  {%- if section.chart %}
+  <div class="chart-wrap">
+    <div class="chart-title">{{ section.chart.title }}</div>
+    <table class="chart-tbl">
+      {%- for item in section.chart.bars %}
+      <tr>
+        <td class="cl" title="{{ item.label }}">{{ item.label | truncate(20, True, '…', 0) }}</td>
+        <td class="cb"><div class="bar-bg"><div class="bar" style="width:{{ item.pct }}%;background:{{ primary_color }}"></div></div></td>
+        <td class="cv">{{ item.value }}</td>
+      </tr>
+      {%- endfor %}
+    </table>
+  </div>
+  {%- endif %}
   {%- if section.rows %}
   <table>
     <thead><tr>
@@ -173,6 +199,39 @@ def _fmt_delta(v) -> str:
     return f'<span class="{css}">{sign} {abs(v):.1f}%</span>'
 
 
+# ─── Chart-Hilfsfunktion ─────────────────────────────────────────────────────
+
+def _build_chart(items: list[dict], title: str, max_items: int = 20) -> dict:
+    """
+    Baut die Chart-Datenstruktur für horizontale CSS-Balkendiagramme.
+
+    Args:
+        items:     Liste mit {"label": str, "display": str, "raw": float}
+        title:     Diagrammtitel
+        max_items: Maximale Anzahl Einträge (für E-Mail-Lesbarkeit)
+
+    Returns:
+        {"title": str, "items": [{"label", "value", "pct"}]}
+        oder {} wenn keine Daten
+    """
+    items = [i for i in items if (i.get("raw") or 0) > 0]
+    if not items:
+        return {}
+    items = items[:max_items]
+    max_val = max(i.get("raw", 0) or 0 for i in items) or 1
+    return {
+        "title": title,
+        "bars": [
+            {
+                "label": str(i["label"]),
+                "value": str(i["display"]),
+                "pct":   max(1, round((i.get("raw", 0) or 0) / max_val * 100)),
+            }
+            for i in items
+        ],
+    }
+
+
 # ─── Report-Generatoren ───────────────────────────────────────────────────────
 
 def build_print_stats_report(
@@ -215,9 +274,18 @@ def build_print_stats_report(
             _fmt_pct(r.get("duplex_pct")),
         ])
 
+    # Chart: Seiten pro Periode als Balkendiagramm
+    chart = _build_chart(
+        [{"label": str(r.get("period", "")).split("T")[0][:10],
+          "display": _fmt_num(r.get("total_pages")),
+          "raw": r.get("total_pages", 0) or 0}
+         for r in rows],
+        "Druckvolumen — Seiten pro Periode",
+    )
     return {
         "kpis": kpis,
-        "sections": [{"title": "Druckvolumen Detail", "columns": table_cols, "rows": table_rows}],
+        "sections": [{"title": "Druckvolumen Detail", "columns": table_cols, "rows": table_rows,
+                      "chart": chart}],
     }
 
 
@@ -253,9 +321,18 @@ def build_cost_report_report(
             _fmt_cost(r.get("total_cost"), currency),
         ])
 
+    # Chart: Gesamtkosten pro Periode
+    chart = _build_chart(
+        [{"label": str(r.get("period", "")).split("T")[0][:10],
+          "display": _fmt_cost(r.get("total_cost"), currency),
+          "raw": float(r.get("total_cost", 0) or 0)}
+         for r in rows],
+        f"Kosten pro Periode ({currency})",
+    )
     return {
         "kpis": kpis,
-        "sections": [{"title": "Kostenaufstellung nach Periode", "columns": table_cols, "rows": table_rows}],
+        "sections": [{"title": "Kostenaufstellung nach Periode", "columns": table_cols, "rows": table_rows,
+                      "chart": chart}],
     }
 
 
@@ -280,9 +357,19 @@ def build_top_users_report(rows: list[dict], period: str, currency: str = "€")
             {"label": "Aktivste Nutzer", "value": str(len(rows)),                             "sub": None},
             {"label": "Meiste Seiten",   "value": rows[0].get("email", "—"),                  "sub": _fmt_num(rows[0].get("total_pages"))},
         ]
+    # Chart: Seiten pro Nutzer
+    chart = _build_chart(
+        [{"label": r.get("email", "—").split("@")[0][:20],
+          "display": _fmt_num(r.get("total_pages")),
+          "raw": r.get("total_pages", 0) or 0}
+         for r in rows],
+        "Top Nutzer — Seiten",
+        max_items=15,
+    )
     return {
         "kpis": kpis,
-        "sections": [{"title": "Top Nutzer", "columns": table_cols, "rows": table_rows}],
+        "sections": [{"title": "Top Nutzer", "columns": table_cols, "rows": table_rows,
+                      "chart": chart}],
     }
 
 
@@ -302,9 +389,19 @@ def build_top_printers_report(rows: list[dict], period: str, currency: str = "�
             _fmt_pct(r.get("color_pct")),
             _fmt_cost(r.get("total_cost"), currency),
         ])
+    # Chart: Seiten pro Drucker
+    chart = _build_chart(
+        [{"label": r.get("printer_name", "—")[:20],
+          "display": _fmt_num(r.get("total_pages")),
+          "raw": r.get("total_pages", 0) or 0}
+         for r in rows],
+        "Top Drucker — Seiten",
+        max_items=15,
+    )
     return {
         "kpis": [],
-        "sections": [{"title": "Top Drucker", "columns": table_cols, "rows": table_rows}],
+        "sections": [{"title": "Top Drucker", "columns": table_cols, "rows": table_rows,
+                      "chart": chart}],
     }
 
 

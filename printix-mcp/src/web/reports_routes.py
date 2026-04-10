@@ -463,6 +463,85 @@ def register_reports_routes(
 
         return RedirectResponse("/reports", status_code=302)
 
+    # ── GET /reports/{id}/preview — Report-Vorschau (HTML, kein Mail-Versand) ──
+
+    @app.get("/reports/{report_id}/preview", response_class=HTMLResponse)
+    async def reports_preview_get(report_id: str, request: Request):
+        """
+        Zeigt den generierten HTML-Report direkt im Browser ohne E-Mail-Versand.
+        Nützlich zur Kontrolle vor dem ersten geplanten Versand.
+        """
+        user = require_login(request)
+        if not user:
+            return _redirect_login()
+
+        from reporting.template_store import get_template
+        report = get_template(report_id)
+        if not report or report.get("owner_user_id", "") != user["id"]:
+            return HTMLResponse("<h2>Report nicht gefunden.</h2>", status_code=404)
+
+        tenant = _get_tenant(user)
+        try:
+            from reporting.sql_client import set_config_from_tenant, is_configured
+            set_config_from_tenant(tenant)
+        except Exception as e:
+            return HTMLResponse(
+                f"<h2>SQL nicht konfiguriert</h2><p>{e}</p>"
+                "<p><a href='/reports'>← Zurück</a></p>",
+                status_code=503,
+            )
+
+        if not _reporting_available():
+            return HTMLResponse(
+                "<h2>Kein SQL-Server konfiguriert</h2>"
+                "<p>Bitte SQL-Credentials in den <a href='/settings'>Einstellungen</a> eintragen.</p>",
+                status_code=503,
+            )
+
+        try:
+            import sys as _sys, os as _os
+            src_dir = _os.path.dirname(_os.path.dirname(__file__))
+            if src_dir not in _sys.path:
+                _sys.path.insert(0, src_dir)
+            from reporting.query_tools import run_query
+            from reporting.report_engine import generate_report
+            from reporting.sql_client import get_tenant_id
+
+            qp = report.get("query_params", {})
+            data = await __import__("asyncio").to_thread(
+                run_query,
+                query_type=report["query_type"],
+                tenant_id=get_tenant_id(),
+                **qp,
+            )
+            layout = report.get("layout", {})
+            html = generate_report(
+                query_type=report["query_type"],
+                data=data,
+                period=f'{qp.get("start_date","?")} – {qp.get("end_date","?")}',
+                layout=layout,
+                output_formats=["html"],
+            ).get("html", "<p>Keine Daten.</p>")
+
+            # Vorschau-Banner oben anhängen
+            banner = (
+                f'<div style="background:#1a73e8;color:#fff;padding:10px 20px;font-family:sans-serif;'
+                f'font-size:13px;display:flex;justify-content:space-between;align-items:center;">'
+                f'<span>👁 <strong>Vorschau</strong> — {report.get("name","Report")} '
+                f'(kein Mail-Versand)</span>'
+                f'<a href="/reports" style="color:#fff;text-decoration:underline">← Zurück zu Reports</a>'
+                f'</div>'
+            )
+            return HTMLResponse(banner + html)
+
+        except Exception as e:
+            logger.error("Preview-Fehler für Report %s: %s", report_id, e, exc_info=True)
+            return HTMLResponse(
+                f"<h2>Vorschau fehlgeschlagen</h2><pre>{e}</pre>"
+                "<p><a href='/reports'>← Zurück</a></p>",
+                status_code=500,
+            )
+
     # ── POST /reports/{id}/delete — Template löschen ──────────────────────────
 
     @app.post("/reports/{report_id}/delete", response_class=RedirectResponse)

@@ -101,6 +101,10 @@
                       title="{{ _('rpt_run_now') }}"
                       {% if not reporting_ok %}disabled{% endif %}>▶</button>
             </form>
+            <!-- Preview -->
+            <a href="/reports/{{ t.report_id }}/preview" class="btn btn-secondary btn-sm"
+               title="{{ _('rpt_preview_title') }}" target="_blank"
+               {% if not reporting_ok %}style="pointer-events:none;opacity:.5"{% endif %}>👁</a>
             <!-- Edit -->
             <a href="/reports/{{ t.report_id }}/edit" class="btn btn-secondary btn-sm" title="{{ _('rpt_edit_title') }}">✏</a>
             <!-- Delete -->

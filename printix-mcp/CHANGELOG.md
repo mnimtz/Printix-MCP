@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.6.0 (2026-04-10)
+
+### Report Designer Stufe 1 — Visuelle Reports + XLSX/PDF + Vorschau
+
+- **CSS-Balkendiagramme**: Horizontale Balkendiagramme im HTML-Report-Output — email-client-kompatibel (kein JS), erscheinen vor jeder Datentabelle. Unterstützt: print_stats, cost_report, top_users, top_printers.
+- **XLSX-Output**: Excel-Export mit Branding (openpyxl) — farbige Kopfzeilen, abwechselnde Zeilenfarben, automatische Spaltenbreite. `openpyxl>=3.1.0` in requirements.txt.
+- **PDF-Output**: fpdf2-basiertes PDF (Helvetica, Latin-1-kompatibel). `fpdf2>=2.7.0` in requirements.txt.
+- **Report-Vorschau** (`/reports/{id}/preview`): Zeigt den generierten HTML-Report direkt im Browser — ohne Mail-Versand. Öffnet in neuem Tab mit blauem Vorschau-Banner.
+- **👁 Vorschau-Button** in der Reports-Liste (neben ▶ und ✏).
+- **i18n**: `rpt_preview_title` in allen 12 Sprachen ergänzt.
+
 ## 3.5.2 (2026-04-10)
 
 ### Demo-Daten UI: Performance & UX

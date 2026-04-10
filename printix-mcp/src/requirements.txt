@@ -16,3 +16,7 @@ bcrypt>=4.1.0
 # Reporting — SQL, Scheduling, Mail
 pyodbc>=5.1.0
 APScheduler>=3.10.0
+
+# Report-Ausgabeformate (Stufe 1)
+openpyxl>=3.1.0        # XLSX-Export
+fpdf2>=2.7.0           # PDF-Export
