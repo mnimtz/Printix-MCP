@@ -1,5 +1,206 @@
 # Changelog
 
+## 3.4.0 (2026-04-10)
+
+### Neu — Demo-Daten Generator (UI)
+
+- **Demo-Daten Tab**: Neues Register "Demo-Daten" in der Printix Web-UI (neben Drucker/Queues/Benutzer)
+- **3 Unternehmens-Presets**: Kleinunternehmen (15 MA/3 Drucker), Mittelstand (50 MA/10 Drucker), Großunternehmen (120 MA/30 Drucker) — je mit vorausgefüllten Werten für Volumen, Sprachen und Standorte
+- **Print-Queues**: Demo-Schema enthält jetzt `demo.queues` mit konfigurierbarer Anzahl Queues pro Drucker (1–5); Jobs werden Queues zugeordnet
+- **Internationales Namensset**: 11 Sprachen (neu: Portugiesisch/Brasilianisch, Polnisch, Japanisch); insgesamt 200+ Vornamen/Nachnamen
+- **Abteilungs-Druckgewichtung**: FIN, VTR, PRD, LOG drucken mehr als HR oder IT — für realistische Verteilung in Reports
+- **Quartalsend-Boost**: Letzter Monat jedes Quartals hat +20% Druckvolumen — saisonal realistisch
+- **Migration-Guards**: Schema-Setup fügt fehlende Spalten (`queue_id`, `preset`, `queue_count`) automatisch nach, falls alte Tabellen existieren
+- **Verbesserter Batch-Insert**: Chunk-Größe auf 300 reduziert, mit Progress-Logging — vermeidet Timeouts bei großen Datasets
+- **Azure SQL Hinweis-Banner**: Klar sichtbarer Warnhinweis, dass die Funktion eine eigene Azure SQL (mit Schreibrechten) erfordert
+- **i18n**: Alle neuen Felder (Preset, Queues, Preset-Namen) in allen 12 Sprachen übersetzt
+- **`set_config_from_tenant()`**: Neue Hilfsfunktion in sql_client.py für Web-Routen ohne Bearer-Middleware
+
+## 3.1.1 (2026-04-09)
+
+### Bugfixes
+- **Anhänge fehlten bei on-demand Reports**: run_report_now() sendete E-Mails ohne Anhänge (PDF/XLSX/CSV) — Attachment-Logik fehlte im run_report_now-Pfad (war nur in _run_report_job vorhanden). Behoben.
+- **FreeTDS Date Error 241**: _fmt_date() gibt jetzt echte Python date-Objekte zurück statt Strings — FreeTDS/SQL Server Konvertierungsfehler behoben.
+- **Unbekannte Magic-Keywords**: last_year_start, last_year_end, last_quarter_start/end, last_week_start/end, this_year_start in _resolve_dynamic_dates ergänzt.
+- **MCP-Tool Docstring**: printix_save_report_template zeigt jetzt alle gültigen Magic-Keywords und query_types explizit an.
+
+## 3.1.0 (2026-04-09)
+
+### Neu — PDF/XLSX Ausgabe & alle Report-Presets verfügbar
+
+- **PDF-Export**: Alle Reports können jetzt als PDF generiert und per E-Mail versendet werden (fpdf2-basiert). Farbiger Header, KPI-Karten als farbige Rechtecke, Tabellen mit alternierenden Zeilenfarben, automatischer Seitenumbruch.
+- **XLSX-Export**: Alle Reports können jetzt als Excel-Datei (.xlsx) generiert und per E-Mail versendet werden (openpyxl-basiert). Auto-Spaltenbreiten, numerische Erkennung, farbiger Header.
+- **Alle 18 Presets verfügbar**: Alle 11 bisher als "Bald verfügbar" markierten Report-Presets sind jetzt vollständig implementiert:
+  - Drucker-Verlauf (printer_history)
+  - Drucker-Servicestatus (device_readings — graceful fail bei fehlendem BI-Zugang)
+  - Job-Historie (job_history)
+  - Druckregeln-Übersicht (queue_stats — graceful fail)
+  - Benutzer-Druckdetails (user_detail)
+  - Benutzer-Kopierdetails (user_copy_detail)
+  - Benutzer-Scandetails (user_scan_detail)
+  - Workstation-Übersicht (workstation_overview — graceful fail)
+  - Workstation-Details (workstation_overview — graceful fail)
+  - Tree-O-Meter (tree_meter: Bäume + CO₂-Berechnung, konfigurierbare Blätter/Baum)
+  - Service-Desk-Report (service_desk: alle nicht-OK Druckjobs)
+- **E-Mail-Anhänge**: Scheduler und Run-Now senden CSV/JSON/PDF/XLSX als base64-kodierte Anhänge; HTML bleibt E-Mail-Body.
+- **Graceful Fail**: BI-Tabellen (Workstations, Print-Queues, Device-Readings) geben strukturierte Fehlermeldung zurück wenn SQL-Zugang nicht verfügbar — kein Absturz.
+
+### Technisch
+- requirements.txt: fpdf2>=2.7.0, openpyxl>=3.1.0
+- reporting/query_tools.py: 10 neue Query-Funktionen (query_job_history, query_printer_history, query_user_detail, query_user_copy_detail, query_user_scan_detail, query_tree_meter, query_service_desk, query_workstation_overview, query_queue_stats, query_device_readings)
+- reporting/report_engine.py: render_pdf(), render_xlsx(), 8 neue Report-Builder, zentrales _REPORT_BUILDERS-Dict (16 Einträge), _hex_to_rgb() Hilfsfunktion
+- reporting/preset_templates.py: ALL_FORMATS pdf/xlsx auf available:True; alle 11 Presets mit query_type + query_params befüllt
+- reporting/scheduler.py: alle 16 Query-Typen registriert, base64-Attachment-Verarbeitung für alle Formate
+- web/templates/reports_form.html: Format-Hinweis aktualisiert (HTML = Body, andere = Anhang)
+
+
+## 3.0.0 (2026-04-09)
+
+### Neu — Reports & Automatisierungen (Major Feature)
+
+- **Reports-Register (Web-UI)**: Neuer Tab "Reports" in der Navigation — vollständige CRUD-Verwaltung für Report-Templates direkt im Browser. Kein KI-Chat mehr notwendig um Reports anzulegen oder zu verwalten.
+- **Preset-Bibliothek**: 18 vordefinierte Report-Vorlagen basierend auf allen 17 Seiten des offiziellen Printix PowerBI-Templates (v2025.4). 7 Presets sofort ausführbar, 11 weitere für v3.1 geplant.
+- **4-Schritte-Formular**: Intuitives Formular mit Abschnitten für Grunddaten, Abfrage-Parameter (dynamisch je nach Report-Typ), Ausgabe & Empfänger, sowie Automatisierung (Schedule).
+- **Ausgabeformate im UI**: Checkboxen für HTML (E-Mail-Body), CSV (Anhang), JSON (Anhang) — Mehrfachauswahl möglich. PDF/XLSX folgen in v3.1.
+- **Schedule-Verwaltung**: Zeitplan direkt im Formular konfigurieren (täglich / wöchentlich / monatlich) mit Wochentag- und Uhrzeitauswahl.
+- **Run-Now-Button**: Templates aus der Liste heraus sofort ausführen (▶) — Flash-Meldung zeigt Ergebnis (versendet / generiert / Fehler).
+- **Per-Tenant-Filterung**: Jeder Benutzer sieht nur seine eigenen Report-Templates (owner_user_id-basiert).
+- **MCP-Tool-Verbesserungen**: printix_run_report_now() akzeptiert jetzt auch Template-Namen (case-insensitiv) statt ausschließlich UUIDs; listet verfügbare Templates wenn kein Parameter angegeben.
+- **i18n**: 8 neue Übersetzungsschlüssel in allen 12 Sprachen/Dialekten.
+
+### Technisch
+- reporting/preset_templates.py (NEU): 18 Preset-Definitionen mit Metadaten
+- reporting/template_store.py: list_templates_by_user(user_id) ergänzt
+- web/reports_routes.py (NEU): register_reports_routes() — 7 Routen
+- web/templates/reports_list.html (NEU): Template-Tabelle + Preset-Bibliothek
+- web/templates/reports_form.html (NEU): 4-Abschnitte-Formular
+- web/templates/base.html: Reports-Link in Navigation eingefügt
+- web/app.py: register_reports_routes() am Ende von create_app() eingebunden
+
+## 2.13.0 (2026-04-09)
+
+### Neu — Mail Delivery Event-Benachrichtigungen
+- **E-Mail Benachrichtigungen Checkboxen**: Neue Sektion in den Einstellungen — Benutzer wählen pro Ereignis-Typ ob eine E-Mail versandt werden soll
+  - 🚨 Kritische Log-Fehler (ERROR/CRITICAL)
+  - 🖨️ Neuer Drucker in Printix erkannt
+  - 📋 Neue Drucker-Queue erkannt
+  - 👤 Neuer Gast-Benutzer erkannt
+  - 📊 Report erfolgreich versendet
+  - 🔔 Neuer MCP-Benutzer registriert (Admin-Benachrichtigung)
+- **Event Poller**: Hintergrund-Job läuft alle 30 Minuten, ruft Printix API ab und erkennt neue Drucker/Queues/Gast-Benutzer; Zustand wird per Tenant in DB gespeichert (überlebt Neustarts)
+- **Notify Helper**: Zentrale Hilfsfunktionen für Ereignis-Benachrichtigungen mit HTML-E-Mail-Templates pro Ereignistyp
+- **User-Registrierung**: Admin erhält E-Mail-Benachrichtigung wenn neuer Benutzer sich registriert (wenn `user_registered` aktiviert)
+- **Report versendet**: Bestätigungs-E-Mail nach erfolgreichem automatischem Report (wenn `report_sent` aktiviert)
+
+### Technisch
+- `db.py`: Migration fügt `notify_events` (JSON-Array) und `poller_state` (JSON-Objekt) zu `tenants` hinzu; neue `update_poller_state()` Funktion
+- `reporting/notify_helper.py`: Neu — `send_event_notification()`, `get_enabled_events()`, HTML-Templates pro Ereignistyp
+- `reporting/event_poller.py`: Neu — `PrintixEventPoller` mit APScheduler-Integration; `register_event_poller()` idempotent
+- `reporting/log_alert_handler.py`: Prüft jetzt ob `log_error` in `notify_events` aktiv ist
+- `reporting/scheduler.py`: `report_sent` Benachrichtigung nach erfolgreichem Mail-Versand
+- `web/templates/settings.html`: 6 Checkboxen in neuer Sektion „E-Mail Benachrichtigungen"
+- `web/app.py`: Jinja2-Filter `from_json`; `notify_*` Form-Parameter; `update_tenant_credentials()` mit `notify_events`; `user_registered`-Hook bei Registrierung
+- `server.py`: `register_event_poller()` beim Server-Start
+
+## 2.10.0 (2026-04-09)
+
+### Neu
+- **Karten-Anzahl in User-Übersicht**: Beim Laden der Benutzerliste werden die Karten-Counts jetzt parallel (max. 10 gleichzeitige Requests, 5s Timeout) von der Printix API abgerufen — zeigt echte Zahlen statt „–"
+- Falls die Karten-API nicht erreichbar ist oder timeout: zeigt weiterhin „🃏 –" als Fallback
+
+### Technisch
+- `app.py`: `tenant_users` Route nutzt `ThreadPoolExecutor(max_workers=10)` + `as_completed(timeout=5)` für parallele Card-Count-Fetches
+- `tenant_users.html`: Zeigt `_card_count` aus Server-Daten; fällt zurück auf „–" wenn `None`
+
+## 2.9.0 (2026-04-09)
+
+### Bugfixes
+- **Karten-Löschen korrigiert**: Printix API gibt 405 zurück auf `DELETE /users/{uid}/cards/{cid}` — verwendet jetzt den globalen Card-API-Endpoint `DELETE /cards/{card_id}` (war vorher 404 wegen leerer ID, jetzt korrekte UUID + korrekter Endpoint)
+- **Kartenzählung in User-Liste**: `list_users` API liefert kein `cards`-Feld → zeigt jetzt „🃏 –" statt irreführender „0" an; Klick auf Benutzer öffnet Detailseite mit echter Karten-Anzahl
+- **Rolle in User-Liste**: verwendet jetzt `roles[0]` (Array) statt `role` (String) — konsistent mit User-Detail-Ansicht
+
+### Technisch
+- `printix_client.py`: `delete_card()` verwendet nur noch `DELETE /cards/{card_id}` (user_id-Parameter bleibt aus Kompatibilitätsgründen, wird ignoriert)
+- `tenant_users.html`: Template-Fix für Kartenzählung + Rollenanzeige aus `roles`-Array
+
+## 2.8.0 (2026-04-09)
+
+### Neu
+- **2 neue Dialekt-Sprachen**: Österreichisch (`oesterreichisch`) und Schwiizerdütsch (`schwiizerdütsch`) — vollständige Übersetzungen aller UI-Texte mit authentischen Dialektausdrücken
+  - Österreichisch: Grüß Gott, Servus, Leiwand, Bittschön, Na sicher, Geh bitte!, …
+  - Schwiizerdütsch: Grüezi, Sali, Merci vielmal, Charte statt Karten, Spicherä, …
+- **SUPPORTED_LANGUAGES** und **LANGUAGE_NAMES** um beide Dialekte erweitert
+- Sprachauswahl in der UI zeigt jetzt 12 Sprachen/Dialekte
+
+## 2.7.0 (2026-04-09)
+
+### Bugfixes
+- **Benutzer-Detailansicht korrigiert**: Printix API gibt `{"user": {...}}` zurück — vorher wurde die äußere Hülle nicht entpackt, sodass Name, E-Mail und Rolle als leer/falsch angezeigt wurden. Jetzt wird korrekt `user.name`, `user.email` und `user.roles[0]` ausgelesen.
+- **Karten-ID-Extraktion**: Printix API-Karten haben kein `id`-Feld — die UUID wird jetzt aus `_links.self.href` extrahiert (letztes URL-Segment)
+- **Karten-Löschung korrigiert**: Verwendet jetzt den user-scoped Endpoint `DELETE /users/{uid}/cards/{card_id}` statt dem fehlerhaften `DELETE /cards/{card_id}` (der ohne card_id einen 404 lieferte)
+- **Rollen-Badge**: `roles` ist ein Array in der API-Antwort — `roles[0]` wird jetzt korrekt für den Badge verwendet (GUEST USER lila, USER gelb)
+
+### Technisch
+- `printix_client.py`: `delete_card()` unterstützt jetzt optionalen `user_id`-Parameter für user-scoped Löschung
+- `app.py`: User-Detail-Route entpackt nested API-Response; Card-IDs werden aus `_links` extrahiert
+
+## 2.6.0 (2026-04-09)
+
+### Neu
+- **5 neue UI-Sprachen**: Niederländisch (nl), Norwegisch (no), Schwedisch (sv), Boarisch (bar) und Hessisch (hessisch) — vollständige Übersetzungen aller UI-Texte inkl. Printix-Verwaltung
+- **Benutzer-Detailansicht**: Klick auf einen Benutzer öffnet Detailseite mit Karten-Verwaltung (hinzufügen/löschen), ID-Code-Generierung und Benutzer-Löschung (nur GUEST_USER)
+- **Gastbenutzer anlegen**: Neuer "➕ Neuer Benutzer"-Button öffnet Formular zum Erstellen von GUEST_USER via Printix API
+- **Felder Name & Firma**: Benutzer-Registrierung und Admin-Benutzerverwaltung um die Felder "Name" (full_name) und "Firma" (company) erweitert — inkl. DB-Migration für bestehende Installationen
+- **🔄 Aktualisieren-Button**: Auf allen 3 Printix-Unterseiten (Drucker, Queues, Benutzer) — lädt die Liste direkt aus der Printix API neu
+
+### Geändert
+- Benutzer-Liste (Printix-Tab): Zeilen sind jetzt anklickbar → leitet zur Detailseite weiter
+- GUEST_USER-Badge in lila, USER-Badge in gelb zur optischen Unterscheidung
+
+### Technisch
+- DB-Migration: `ALTER TABLE users ADD COLUMN full_name/company` bei bestehenden Instanzen (sicher, idempotent)
+- FastAPI-Routen: `/tenant/users/create` vor `/tenant/users/{id}` registriert (Reihenfolge wichtig)
+- Flash-Messages für Aktionen via Query-Parameter (Post-Redirect-Get)
+
+## 2.5.0 (2026-04-09)
+
+### Behoben
+- **Log-Zeitstempel**: Uhrzeiten in der Web-UI-Logseite werden jetzt in Lokalzeit (CEST/Europe/Berlin) angezeigt statt UTC — keine 2-Stunden-Abweichung mehr.
+- **Printix API Kategorie im Log war immer leer**: `printix_client.py` hat Python `logging` nicht genutzt. Jetzt wird jeder API-Aufruf (Token-Anfragen, GET/POST/Fehler/Rate-Limit) über den Logger `printix_client` geschrieben → erscheint korrekt als Kategorie „Printix API" im Log-Filter.
+
+## 2.4.0 (2026-04-09)
+
+### Behoben
+- **Printers-Tab**: Zeigt jetzt 10 deduplizierte physische Drucker (nach `printer_id` gruppiert), statt 19 redundante Einträge. Queues desselben Druckers erscheinen als Chips in der Queue-Spalte.
+- **Queues-Tab**: Alle 19 Queues korrekt mit Queue-Name, Drucker-Modell (vendor + model), Standort und Status-Dot (grün/orange/rot/grau für ONLINE/WARNING/OFFLINE/UNKNOWN).
+- Template `tenant_printers.html`: Spalte "Site" → "Location" (API liefert `location`-String, kein site-Objekt); WARNING-Status (orange); Sign-Badge für `printerSignId`.
+- Template `tenant_queues.html`: Status-Spalte hinzugefügt.
+
+### Verbessert
+- **MCP-Tool `printix_list_printers`**: Docstring erklärt die API-Datenstruktur explizit — Printer-Queue-Paare, Deduplizierung für Drucker-Übersicht vs. alle Queues direkt ausgeben.
+
+## 2.3.0 (2026-04-09)
+
+### Neu
+- **Printix-Tab** (Web-UI): Neues Register „Printix" in der Navigation mit 3 Unterseiten:
+  - **Drucker**: listet alle Drucker-/Queue-Einträge des Tenants mit Status und Standort
+  - **Queues**: zeigt dieselben Einträge als Queue-Übersicht (Bugfix: Daten erscheinen jetzt korrekt)
+  - **Benutzer & Karten**: Übersicht aller USER/GUEST_USER mit Karten-Zähler und Rolle
+- **Logs-Kategorie-Filter**: Filterzeile nach Kategorie (All / Printix API / SQL / Auth / System)
+  kombinierbar mit dem Level-Filter
+
+### Geändert
+- **Nav-Tab „Printix"**: ehemals „Printers/Drucker/Imprimantes/…" — jetzt sprachübergreifend
+  „Printix" (generischer Name, da Tab Drucker, Queues und Benutzer enthält)
+- **Sprach-Dropdown** (Nav): Umstieg von CSS-Hover auf JS-Click-Toggle — kein versehentliches
+  Schließen beim Maus-Übergang zwischen Button und Dropdown mehr
+- **Nav-Reihenfolge**: Logs vor Hilfe; Printix-Tab zwischen Einstellungen und Logs
+
+### Behoben
+- **Queues-Seite zeigte 0 Einträge**: Printix-API gibt `GET /printers` als flache Liste von
+  Printer-Queue-Paaren zurück (kein verschachteltes `queues`-Array). Queue-IDs werden jetzt
+  korrekt aus `_links.self.href` (`/printers/{id}/queues/{id}`) extrahiert.
+
 ## 1.15.0 (2026-04-08)
 
 ### Behoben

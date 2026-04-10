@@ -1,14 +1,14 @@
 # Home Assistant Add-on: Printix MCP Server
-# https://github.com/YOUR_USER/printix-mcp-addon
+# https://github.com/mnimtz/Printix-MCP
 name: Printix MCP Server
-version: "2.0.0"
+version: "3.5.2"
 slug: printix-mcp
 description: >-
   Multi-Tenant MCP Server für die Printix Cloud Print API.
   Konfiguration über Web-Oberfläche (Port 8080) — jeder Benutzer verwaltet
   seine eigenen Printix-Zugangsdaten. AI-Assistenten (claude.ai, ChatGPT)
   verbinden sich über den MCP-Endpunkt (Port 8765).
-url: "https://github.com/YOUR_USER/printix-mcp-addon"
+url: "https://github.com/mnimtz/Printix-MCP"
 arch:
   - amd64
   - aarch64
@@ -30,9 +30,17 @@ ports_description:
 
 # Minimale Konfiguration — alle Zugangsdaten werden über die Web-UI verwaltet
 options:
+  # MCP-Server Port (Standard: 8765)
   mcp_port: 8765
+
+  # Web-Verwaltungsoberfläche Port (Standard: 8080)
   web_port: 8080
+
+  # Öffentliche URL des Servers (z.B. via Cloudflare Tunnel)
+  # Wird in der Web-UI und im Log als Verbindungsinfo angezeigt
   public_url: ""
+
+  # Log Level
   log_level: "info"
 
 # Schema-Validierung
@@ -45,3 +53,7 @@ schema:
 # Datenpersistenz: SQLite-Datenbank + Secrets bleiben über Updates erhalten
 map:
   - config:rw
+
+# Kein 'image:' hier = HA baut lokal aus dem Dockerfile (für lokales Testen)
+# Für Production mit GitHub Actions:
+# image: "ghcr.io/{arch}-addon-printix-mcp"
