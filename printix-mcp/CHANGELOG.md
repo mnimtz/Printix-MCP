@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.6.5 (2026-04-10)
+
+### Bugfixes: Demo-Generierung, Report-Vorschau, SQL-ContextVar
+
+- **Demo-Generierung — Hintergrund-Task**: `tenant_demo_generate` blockiert den HTTP-Request nicht mehr (`asyncio.create_task`). Browser-Redirect erfolgt sofort, JS pollt `/tenant/demo/status?job_id=…`. Kein Proxy-Timeout mehr (war: `await asyncio.to_thread(...)` = 20–60s Request blockiert).
+- **Demo-Status-Endpoint**: Neuer `GET /tenant/demo/status` — gibt `{status, error, session_id}` zurück. Polling-JS in `tenant_demo.html` mit HA-Ingress-kompatiblem Basispfad (`window.location.pathname` statt hartkodiertem `/tenant/demo/…`). Behandelt Zustand `"unknown"` (Server-Neustart während Generierung).
+- **Report-Vorschau — Datumsformat**: `_resolve_dynamic_dates()` wird jetzt in der Preview-Route aufgerufen. Symbolische Datumswerte wie `last_year_start` / `last_year_end` werden vor dem SQL-Query in `YYYY-MM-DD` aufgelöst (Fehler: `"Ungültiges Datumsformat: 'last_year_end'"`).
+- **Report-Vorschau — run_query**: `run_query`-Dispatcher in `reporting/query_tools.py` hinzugefügt (fehlte → ImportError → 500-Fehler in Vorschau).
+- **Report sofort ausführen — SQL-ContextVar**: `set_config_from_tenant(tenant)` wird jetzt vor `run_report_now()` aufgerufen. Behebt `"SQL nicht konfiguriert"`-Fehler beim manuellen Report-Versand.
+
 ## 3.6.0 (2026-04-10)
 
 ### Report Designer Stufe 1 — Visuelle Reports + XLSX/PDF + Vorschau

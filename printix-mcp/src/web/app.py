@@ -1313,6 +1313,26 @@ def create_app(session_secret: str) -> FastAPI:
 
 
     # ── Demo-Daten-Register (v3.5.0) ─────────────────────────────────────────
+    import uuid as _uuid
+    import time as _time
+    import asyncio as _asyncio
+    import functools as _functools
+    _demo_jobs: dict = {}  # job_id → {status, error, session_id, started}
+
+    @app.get("/tenant/demo/status")
+    async def tenant_demo_status(request: Request, job_id: str = ""):
+        user = require_login(request)
+        if user is None:
+            return JSONResponse({"status": "error", "error": "not_logged_in"})
+        job = _demo_jobs.get(job_id)
+        if not job:
+            return JSONResponse({"status": "unknown"})
+        return JSONResponse({
+            "status": job.get("status"),
+            "error": job.get("error", ""),
+            "session_id": job.get("session_id", ""),
+        })
+
     @app.get("/tenant/demo", response_class=HTMLResponse)
     async def tenant_demo(request: Request):
         user = require_login(request)
@@ -1321,7 +1341,8 @@ def create_app(session_secret: str) -> FastAPI:
         sessions = []
         has_sql  = False
         flash     = request.query_params.get("flash")
-        flash_msg = request.query_params.get("errmsg", "")
+        flash_msg = request.query_params.get("errmsg", request.query_params.get("flash_msg", ""))
+        job_id    = request.query_params.get("job_id", "")
         try:
             from db import get_tenant_full_by_user_id
             from reporting.sql_client import set_config_from_tenant, is_configured
@@ -1346,6 +1367,7 @@ def create_app(session_secret: str) -> FastAPI:
             "request": request, "user": user,
             "has_sql": has_sql, "sessions": sessions,
             "flash": flash, "flash_msg": flash_msg,
+            "job_id": job_id,
             "form_defaults": {}, "active_tab": "demo", **tc,
         })
 
@@ -1392,29 +1414,35 @@ def create_app(session_secret: str) -> FastAPI:
             sites_raw     = form_data.get("sites", "")
             sites         = [s.strip() for s in sites_raw.split(",") if s.strip()] or ["Hauptsitz"]
             demo_tag      = (form_data.get("demo_tag") or "").strip()[:80]
-            preset        = (form_data.get("preset") or "custom").strip()
             tid = get_tenant_id()
-            import asyncio as _asyncio
-            import functools as _functools
-            result = await _asyncio.to_thread(
-                _functools.partial(
-                    generate_demo_dataset,
-                    tenant_id=tid,
-                    preset=preset,
-                    user_count=user_count,
-                    printer_count=printer_count,
-                    queue_count=queue_count,
-                    months=months,
-                    jobs_per_user_day=jobs_per_day,
-                    languages=languages,
-                    sites=sites,
-                    demo_tag=demo_tag or f"Demo {__import__('datetime').date.today()}",
-                )
-            )
-            if result.get("error"):
-                errmsg = str(result["error"])[:100]
-                return RedirectResponse(f"/tenant/demo?flash=error&errmsg={errmsg}", status_code=302)
-            return RedirectResponse("/tenant/demo?flash=generated", status_code=302)
+            # Hintergrund-Task: sofort Redirect, Browser pollt /tenant/demo/status
+            job_id = _uuid.uuid4().hex[:10]
+            _demo_jobs[job_id] = {"status": "running", "started": _time.time()}
+            async def _bg_generate():
+                try:
+                    result = await _asyncio.to_thread(
+                        _functools.partial(
+                            generate_demo_dataset,
+                            tenant_id=tid,
+                            user_count=user_count,
+                            printer_count=printer_count,
+                            queue_count=queue_count,
+                            months=months,
+                            jobs_per_user_day=jobs_per_day,
+                            languages=languages,
+                            sites=sites,
+                            demo_tag=demo_tag or f"Demo {__import__('datetime').date.today()}",
+                        )
+                    )
+                    if result.get("error"):
+                        _demo_jobs[job_id] = {"status": "error", "error": str(result["error"])[:200]}
+                    else:
+                        _demo_jobs[job_id] = {"status": "done", "session_id": result.get("session_id", "")}
+                except Exception as exc:
+                    logger.error("bg_generate error: %s", exc)
+                    _demo_jobs[job_id] = {"status": "error", "error": str(exc)[:200]}
+            _asyncio.create_task(_bg_generate())
+            return RedirectResponse(f"/tenant/demo?job_id={job_id}", status_code=302)
         except Exception as e:
             logger.error("tenant_demo_generate error: %s", e)
             return RedirectResponse(f"/tenant/demo?flash=error&errmsg={str(e)[:100]}", status_code=302)

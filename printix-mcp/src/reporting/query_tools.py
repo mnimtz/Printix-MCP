@@ -513,4 +513,25 @@ def query_trend(
             "active_users":   _delta_pct(p2.get("active_users", 0), p1.get("active_users", 0)),
             "total_jobs":     _delta_pct(p2.get("total_jobs", 0),  p1.get("total_jobs", 0)),
         },
+
+
+# ── Universeller Dispatcher (v3.6.4) ─────────────────────────────────────────
+def run_query(query_type: str, tenant_id: str = "", **kwargs) -> list:
+    """Dispatcher für alle Report-Query-Typen.
+    tenant_id wird ignoriert — der Caller ruft set_config_from_tenant() vorher.
+    """
+    if query_type == "print_stats":
+        return query_print_stats(**kwargs)
+    elif query_type == "cost_report":
+        return query_cost_report(**kwargs)
+    elif query_type == "top_users":
+        return query_top_users(**kwargs)
+    elif query_type == "top_printers":
+        return query_top_printers(**kwargs)
+    elif query_type == "trend":
+        return query_trend(**kwargs)
+    elif query_type == "anomalies":
+        return query_anomalies(**kwargs)
+    else:
+        raise ValueError(f"Unbekannter query_type: {query_type!r}")
     }

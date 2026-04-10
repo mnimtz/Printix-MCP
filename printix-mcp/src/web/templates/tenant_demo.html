@@ -496,7 +496,7 @@ function startProgress() {
   btn.disabled = true;
   section.style.display = 'block';
 
-  const users = parseInt(document.getElementById('user_count_range').value);
+  const users = parseInt((document.getElementById('user_count_range') || {value:'10'}).value);
   const _PM = {
     users:    "{{ _('demo_progress_users') | e }}",
     printers: "{{ _('demo_progress_printers') | e }}",
@@ -513,7 +513,7 @@ function startProgress() {
     [55, '📄 ' + (_PM.print || 'Distributing print jobs') + '…'],
     [70, '📷 ' + (_PM.scan || 'Generating scan jobs') + '…'],
     [82, '📋 ' + (_PM.copy || 'Generating copy jobs') + '…'],
-    [94, '💾 ' + (_PM.write || 'Writing to database') + '…'],
+    [90, '💾 ' + (_PM.write || 'Writing to database') + '…'],
   ];
 
   let i = 0;
@@ -527,5 +527,31 @@ function startProgress() {
   }
   next();
 }
+
+// ── Hintergrund-Job-Polling (nach Redirect von /tenant/demo/generate) ──
+(function() {
+  const jobId = "{{ job_id | e }}";
+  if (!jobId) return;
+  // Ingress-kompatibler Basispfad (funktioniert mit HA Ingress und direktem Zugriff)
+  const demoPath = window.location.pathname.split("?")[0];
+  startProgress();
+  function poll() {
+    fetch(demoPath + "/status?job_id=" + encodeURIComponent(jobId))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.status === "done") {
+          window.location.href = demoPath + "?flash=generated";
+        } else if (d.status === "error") {
+          window.location.href = demoPath + "?flash=error&flash_msg=" + encodeURIComponent(d.error || "Unbekannter Fehler");
+        } else if (d.status === "unknown") {
+          window.location.href = demoPath + "?flash=error&flash_msg=" + encodeURIComponent("Verbindung unterbrochen. Bitte erneut starten.");
+        } else {
+          setTimeout(poll, 3000);
+        }
+      })
+      .catch(function() { setTimeout(poll, 5000); });
+  }
+  setTimeout(poll, 3000);
+})();
 </script>
 {% endblock %}

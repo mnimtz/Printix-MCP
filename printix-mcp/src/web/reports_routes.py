@@ -444,6 +444,8 @@ def register_reports_routes(
 
         tenant = _get_tenant(user)
         try:
+            from reporting.sql_client import set_config_from_tenant
+            set_config_from_tenant(tenant)
             from reporting.scheduler import run_report_now
             result = run_report_now(
                 report_id,
@@ -506,8 +508,9 @@ def register_reports_routes(
             from reporting.query_tools import run_query
             from reporting.report_engine import generate_report
             from reporting.sql_client import get_tenant_id
+            from reporting.scheduler import _resolve_dynamic_dates
 
-            qp = report.get("query_params", {})
+            qp = _resolve_dynamic_dates(report.get("query_params", {}))
             data = await __import__("asyncio").to_thread(
                 run_query,
                 query_type=report["query_type"],
