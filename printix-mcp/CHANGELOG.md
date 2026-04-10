@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.6.6 (2026-04-10)
+
+### Bugfix: Azure SQL Auto-Pause / Transient Fault
+
+- **Automatischer Retry bei Azure SQL Serverless Auto-Pause**: `get_connection()` versucht bis zu 3× mit 5s Pause bei transientem Fehler 40613 `"Database is not currently available"` (Serverless-Tier wacht nach Inaktivität auf). Kein manuelles Doppelklicken mehr nötig.
+- **URL-Encoding für Fehlermeldungen**: Setup-Fehler werden jetzt korrekt mit `quote_plus()` in der Redirect-URL kodiert — Sonderzeichen wie `[`, `]`, `(`, `)` im FreeTDS-Fehlerstring brechen die Anzeige nicht mehr ab.
+
 ## 3.6.5 (2026-04-10)
 
 ### Bugfixes: Demo-Generierung, Report-Vorschau, SQL-ContextVar

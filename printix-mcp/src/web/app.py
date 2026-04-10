@@ -1386,11 +1386,13 @@ def create_app(session_secret: str) -> FastAPI:
             result = setup_schema()
             if result.get("success"):
                 return RedirectResponse("/tenant/demo?flash=setup_ok", status_code=302)
-            errmsg = "; ".join(e.get("error","") for e in result.get("errors", []))[:120]
-            return RedirectResponse(f"/tenant/demo?flash=error&errmsg={errmsg}", status_code=302)
+            errmsg = "; ".join(e.get("error","") for e in result.get("errors", []))[:200]
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(f"/tenant/demo?flash=error&errmsg={_qp(errmsg)}", status_code=302)
         except Exception as e:
             logger.error("tenant_demo_setup error: %s", e)
-            return RedirectResponse(f"/tenant/demo?flash=error&errmsg={str(e)[:100]}", status_code=302)
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(f"/tenant/demo?flash=error&errmsg={_qp(str(e)[:200])}", status_code=302)
 
     @app.post("/tenant/demo/generate", response_class=HTMLResponse)
     async def tenant_demo_generate(request: Request):

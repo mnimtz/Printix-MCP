@@ -14,10 +14,35 @@ Die ContextVar enthält nach Authentifizierung:
 """
 
 import logging
+import time as _time
 from typing import Any, Optional
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
+
+# Azure SQL Serverless transient-fault Fehlercodes (Auto-Pause / Skalierung)
+_AZURE_SQL_TRANSIENT_STATES = {
+    "40613",  # Database not currently available
+    "40501",  # Service is currently busy
+    "40540",  # Service has encountered an error
+    "49918",  # Cannot process request — insufficient resources
+    "49919",  # Cannot process create/update request
+    "49920",  # Too many operations in progress
+    "4060",   # Cannot open database
+    "233",    # No process is on the other end of the pipe
+    "10053",  # Transport-level error
+    "10054",  # Existing connection was forcibly closed
+    "10060",  # No connection could be made
+}
+
+def _is_transient_azure_sql_error(exc: Exception) -> bool:
+    """Gibt True zurück wenn es sich um einen Azure SQL Transient Fault handelt."""
+    msg = str(exc)
+    for code in _AZURE_SQL_TRANSIENT_STATES:
+        if code in msg:
+            return True
+    # FreeTDS "not currently available" / "on server"
+    return "not currently available" in msg or "retry the connection" in msg.lower()
 
 try:
     import pyodbc
@@ -215,13 +240,29 @@ def get_connection():
     cfg = _get_sql_config()
     conn_str = _build_connection_string()
     conn = None
+    # Azure SQL Serverless: Auto-Pause führt zu transientem Fehler beim ersten Verbindungsversuch.
+    # Automatisch bis zu 3 Versuche mit 5s Pause dazwischen.
+    max_attempts = 3
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            logger.debug("Öffne Azure SQL Verbindung zu %s (Versuch %d/%d)",
+                         cfg.get("server", ""), attempt, max_attempts)
+            conn = pyodbc.connect(conn_str, timeout=30)
+            break
+        except pyodbc.Error as e:
+            last_exc = e
+            if attempt < max_attempts and _is_transient_azure_sql_error(e):
+                logger.warning(
+                    "Azure SQL transient fault (Versuch %d/%d) — warte 5s: %s",
+                    attempt, max_attempts, str(e)[:120]
+                )
+                _time.sleep(5)
+            else:
+                logger.error("SQL-Verbindungsfehler: %s", e)
+                raise RuntimeError(f"Datenbankverbindung fehlgeschlagen: {e}") from e
     try:
-        logger.debug("Öffne Azure SQL Verbindung zu %s", cfg.get("server", ""))
-        conn = pyodbc.connect(conn_str, timeout=30)
         yield conn
-    except pyodbc.Error as e:
-        logger.error("SQL-Verbindungsfehler: %s", e)
-        raise RuntimeError(f"Datenbankverbindung fehlgeschlagen: {e}") from e
     finally:
         if conn:
             conn.close()
