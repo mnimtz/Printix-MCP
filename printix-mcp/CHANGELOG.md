@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.5.2 (2026-04-10)
+
+### Demo-Daten UI: Performance & UX
+
+- **asyncio.to_thread()**: Demo-Generierung läuft jetzt im Thread-Pool — uvicorn Event-Loop bleibt während der Generierung responsive (kein Browser-Timeout mehr).
+- **Kleinere Defaults**: Schieberegler-Defaults reduziert (User 20→10, Drucker 6→4, Jobs/Tag 3.0→2.0); Preset-Obergrenze ebenfalls reduziert (max. 200 User / 50 Drucker).
+- **Warnung bei großen Datenmengen**: JS-Schätzung zeigt vorhergesagte Job-Anzahl in Echtzeit; ab >20.000 Jobs orangefarbene Warnung.
+- **i18n**: `demo_hint_large_data` in allen 12 Sprachen ergänzt (Hinweis auf lange Laufzeit bei großen Datenmengen).
+
 ## 3.5.1 (2026-04-10)
 
 ### Bugfixes & Demo-UI Verbesserungen

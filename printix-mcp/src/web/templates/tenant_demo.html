@@ -181,9 +181,9 @@
         <div class="form-group">
           <label>👤 {{ _('demo_field_user_count') }}</label>
           <div class="slider-wrap">
-            <input type="range" id="user_count_range" name="user_count" min="1" max="200" value="{{ form.user_count | default(20) }}"
+            <input type="range" id="user_count_range" name="user_count" min="1" max="200" value="{{ form.user_count | default(10) }}"
                    oninput="document.getElementById('user_count_val').textContent=this.value">
-            <span class="slider-val" id="user_count_val">{{ form.user_count | default(20) }}</span>
+            <span class="slider-val" id="user_count_val">{{ form.user_count | default(10) }}</span>
           </div>
           <small class="hint">{{ _('demo_hint_user_count') }}</small>
         </div>
@@ -192,9 +192,9 @@
         <div class="form-group">
           <label>🖨️ {{ _('demo_field_printer_count') }}</label>
           <div class="slider-wrap">
-            <input type="range" id="printer_count_range" name="printer_count" min="1" max="50" value="{{ form.printer_count | default(6) }}"
+            <input type="range" id="printer_count_range" name="printer_count" min="1" max="50" value="{{ form.printer_count | default(4) }}"
                    oninput="document.getElementById('printer_count_val').textContent=this.value">
-            <span class="slider-val" id="printer_count_val">{{ form.printer_count | default(6) }}</span>
+            <span class="slider-val" id="printer_count_val">{{ form.printer_count | default(4) }}</span>
           </div>
           <small class="hint">{{ _('demo_hint_printer_count') }}</small>
         </div>
@@ -298,11 +298,16 @@
         {% endif %}
       </div>
 
+      <!-- Datenmenge-Schätzung + Warnhinweis -->
+      <div id="dataEstimate" style="margin-top:10px;padding:8px 12px;border-radius:6px;font-size:.85em;background:#f3f4f6;color:#374151;display:none;">
+        📊 <span id="estimateText"></span>
+      </div>
+
       <!-- Progress Indikator -->
       <div class="progress-section" id="progressSection" style="margin-top:16px;">
         <p style="font-size:.88em;color:#374151;" id="progressMsg">⏳ {{ _('demo_btn_generate') }}…</p>
         <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
-        <small class="hint" id="progressHint"></small>
+        <small class="hint" id="progressHint">{{ _('demo_hint_large_data') }}</small>
       </div>
 
     </form>
@@ -381,11 +386,11 @@
 <script>
 // Preset-Definitionen (synchron mit Python COMPANY_PRESETS)
 const PRESETS = {
-  small:  { user_count:15,  printer_count:3,  queue_count:1, months:12, jobs_per_day:1.5,
+  small:  { user_count:5,   printer_count:2,  queue_count:1, months:6,  jobs_per_day:1.5,
              sites:"{{ _('demo_sites_preset_small') | e }}", langs:["de","en"] },
-  medium: { user_count:50,  printer_count:10, queue_count:2, months:12, jobs_per_day:3.0,
+  medium: { user_count:15,  printer_count:5,  queue_count:2, months:12, jobs_per_day:2.0,
              sites:"{{ _('demo_sites_preset_medium') | e }}", langs:["de","en","fr"] },
-  large:  { user_count:120, printer_count:30, queue_count:3, months:24, jobs_per_day:5.0,
+  large:  { user_count:30,  printer_count:10, queue_count:3, months:12, jobs_per_day:3.0,
              sites:"{{ _('demo_sites_preset_large') | e }}",
              langs:["de","en","fr","it","es","nl"] },
   custom: null,
@@ -449,11 +454,36 @@ document.addEventListener('DOMContentLoaded', function() {
     if (r && v) { v.textContent = r.value; r.addEventListener('input', updatePreview); }
   });
   const jpd = document.getElementById('jpd_range');
-  if (jpd) { jpd.addEventListener('input', updatePreview); }
+  if (jpd) { jpd.addEventListener('input', updatePreview); jpd.addEventListener('input', updateEstimate); }
   const mo = document.getElementById('months_select');
-  if (mo) { mo.addEventListener('change', updatePreview); }
+  if (mo) { mo.addEventListener('change', updatePreview); mo.addEventListener('change', updateEstimate); }
+  const uc = document.getElementById('user_count_range');
+  if (uc) { uc.addEventListener('input', updateEstimate); }
   updatePreview();
+  updateEstimate();
 });
+
+// Datenmenge schätzen und Warnhinweis anzeigen
+function updateEstimate() {
+  const users   = parseInt(document.getElementById('user_count_range')?.value  || 10);
+  const months  = parseInt(document.getElementById('months_select')?.value     || 12);
+  const jpd     = parseFloat(document.getElementById('jpd_range')?.value       || 2.0);
+  const estJobs = Math.round(users * jpd * 22 * months);
+  const estBox  = document.getElementById('dataEstimate');
+  const estTxt  = document.getElementById('estimateText');
+  if (!estBox || !estTxt) return;
+  const hintText = "{{ _('demo_hint_large_data') | e }}";
+  if (estJobs > 20000) {
+    estTxt.innerHTML = '~' + estJobs.toLocaleString() + ' Jobs &nbsp;—&nbsp; <strong style="color:#b45309;">' + hintText + '</strong>';
+    estBox.style.background = '#fef3c7';
+    estBox.style.color = '#92400e';
+  } else {
+    estTxt.innerHTML = '~' + estJobs.toLocaleString() + ' Jobs &nbsp;—&nbsp; <span style="color:#065f46;">✓ schnelle Generierung</span>';
+    estBox.style.background = '#d1fae5';
+    estBox.style.color = '#065f46';
+  }
+  estBox.style.display = 'block';
+}
 
 // Progress-Animation beim Generieren
 function startProgress() {

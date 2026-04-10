@@ -1383,19 +1383,33 @@ def create_app(session_secret: str) -> FastAPI:
                 return RedirectResponse("/tenant/demo?flash=error&errmsg=SQL+nicht+konfiguriert", status_code=302)
             set_config_from_tenant(tenant)
             form_data = await request.form()
-            user_count    = max(5, min(200, int(form_data.get("user_count", 20))))
-            printer_count = max(1, min(50,  int(form_data.get("printer_count", 6))))
-            months        = max(1, min(36,  int(form_data.get("months", 12))))
-            demo_tag      = (form_data.get("demo_tag") or "").strip()[:80]
+            user_count    = max(1, min(200, int(form_data.get("user_count",    10))))
+            printer_count = max(1, min(50,  int(form_data.get("printer_count",  4))))
+            queue_count   = max(1, min(5,   int(form_data.get("queue_count",    2))))
+            months        = max(1, min(36,  int(form_data.get("months",        12))))
+            jobs_per_day  = max(0.5, min(15.0, float(form_data.get("jobs_per_day", 2.0))))
             languages     = form_data.getlist("languages") or ["de", "en"]
+            sites_raw     = form_data.get("sites", "")
+            sites         = [s.strip() for s in sites_raw.split(",") if s.strip()] or ["Hauptsitz"]
+            demo_tag      = (form_data.get("demo_tag") or "").strip()[:80]
+            preset        = (form_data.get("preset") or "custom").strip()
             tid = get_tenant_id()
-            result = generate_demo_dataset(
-                tenant_id=tid,
-                user_count=user_count,
-                printer_count=printer_count,
-                months=months,
-                languages=languages,
-                demo_tag=demo_tag or f"Demo {__import__('datetime').date.today()}",
+            import asyncio as _asyncio
+            import functools as _functools
+            result = await _asyncio.to_thread(
+                _functools.partial(
+                    generate_demo_dataset,
+                    tenant_id=tid,
+                    preset=preset,
+                    user_count=user_count,
+                    printer_count=printer_count,
+                    queue_count=queue_count,
+                    months=months,
+                    jobs_per_user_day=jobs_per_day,
+                    languages=languages,
+                    sites=sites,
+                    demo_tag=demo_tag or f"Demo {__import__('datetime').date.today()}",
+                )
             )
             if result.get("error"):
                 errmsg = str(result["error"])[:100]
