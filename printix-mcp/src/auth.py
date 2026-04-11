@@ -15,6 +15,7 @@ Erlaubt ohne Auth:
   - /robots.txt
 """
 
+import json
 import logging
 from contextvars import ContextVar
 from typing import Optional
@@ -119,7 +120,9 @@ class BearerAuthMiddleware:
     # ── HTTP-Antworten ─────────────────────────────────────────────────────────
 
     async def _unauthorized(self, send, message: str):
-        body = f'{{"error":"unauthorized","message":"{message}"}}'.encode()
+        # json.dumps statt f-string: verhindert, dass Sonderzeichen im
+        # Message-Text die JSON-Struktur zerlegen (defensiv für künftige Caller).
+        body = json.dumps({"error": "unauthorized", "message": message}).encode()
         await send({"type": "http.response.start", "status": 401,
                     "headers": [[b"content-type", b"application/json"],
                                  [b"www-authenticate", b"Bearer"],

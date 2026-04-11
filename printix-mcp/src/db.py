@@ -14,6 +14,7 @@ verschlüsselt gespeichert. Der Schlüssel liegt in /data/fernet.key und wird
 beim ersten Start generiert.
 """
 
+import hashlib
 import logging
 import os
 import secrets
@@ -143,6 +144,51 @@ def init_db() -> None:
             conn.execute("ALTER TABLE tenants ADD COLUMN alert_min_level TEXT NOT NULL DEFAULT 'ERROR'")
         if "mail_from_name" not in existing_t:
             conn.execute("ALTER TABLE tenants ADD COLUMN mail_from_name TEXT NOT NULL DEFAULT ''")
+
+    # v3.9.1: bearer_token_hash — indexierter SHA-256-Lookup (O(1) statt
+    # Full-Table-Scan über alle Tenants bei jedem authenticated Request).
+    # Der Hash ist nicht sensitiv: der Bearer-Token hat 48 Bytes Zufall (>384 Bit),
+    # ein Brute-Force des SHA-256-Preimage ist praktisch ausgeschlossen.
+    with _conn() as conn:
+        existing_t = {r[1] for r in conn.execute("PRAGMA table_info(tenants)").fetchall()}
+        if "bearer_token_hash" not in existing_t:
+            conn.execute("ALTER TABLE tenants ADD COLUMN bearer_token_hash TEXT NOT NULL DEFAULT ''")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tenants_bearer_hash "
+            "ON tenants (bearer_token_hash)"
+        )
+    # Backfill: alle Tenants ohne bearer_token_hash einmal dekodieren und
+    # den Hash nachtragen. Läuft nur beim ersten Start nach dem Upgrade.
+    with _conn() as conn:
+        missing = conn.execute(
+            "SELECT id, bearer_token FROM tenants "
+            "WHERE bearer_token_hash = '' OR bearer_token_hash IS NULL"
+        ).fetchall()
+        if missing:
+            filled = 0
+            for row in missing:
+                try:
+                    plain = _dec(row["bearer_token"])
+                    if not plain:
+                        logger.warning(
+                            "Migration bearer_token_hash: leerer/ungültiger Token "
+                            "für Tenant %s — überspringe", row["id"]
+                        )
+                        continue
+                    conn.execute(
+                        "UPDATE tenants SET bearer_token_hash = ? WHERE id = ?",
+                        (_bearer_hash(plain), row["id"]),
+                    )
+                    filled += 1
+                except Exception as e:
+                    logger.error(
+                        "Migration bearer_token_hash: Fehler bei Tenant %s: %s",
+                        row["id"], e,
+                    )
+            if filled:
+                logger.info(
+                    "Migration bearer_token_hash: %d Tenant(s) nachgetragen", filled
+                )
     # Sichere Migration für audit_log (v3.9.0): Objekttyp + Objekt-ID für strukturierten Audit-Trail
     with _conn() as conn:
         existing_a = {r[1] for r in conn.execute("PRAGMA table_info(audit_log)").fetchall()}
@@ -200,6 +246,20 @@ def _dec(value: str) -> str:
         return decrypt(value)
     except Exception:
         return value
+
+
+def _bearer_hash(plain_token: str) -> str:
+    """
+    Deterministischer SHA-256-Hash eines Bearer-Tokens für den indexierten
+    Lookup in der tenants-Tabelle (siehe `get_tenant_by_bearer_token`).
+
+    Der Hash wird zusätzlich zum Fernet-verschlüsselten Token gespeichert.
+    Da der Bearer-Token mit `secrets.token_urlsafe(48)` generiert wird (>384
+    Bit Zufall), ist der SHA-256-Preimage praktisch nicht brute-force-bar.
+    """
+    if not plain_token:
+        return ""
+    return hashlib.sha256(plain_token.encode("utf-8")).hexdigest()
 
 
 # ─── Settings ────────────────────────────────────────────────────────────────
@@ -368,16 +428,16 @@ def _create_empty_tenant(user_id: str, name: str = "") -> dict:
               ws_client_id,    ws_client_secret,
               shared_client_id, shared_client_secret,
               oauth_client_id, oauth_client_secret,
-              bearer_token,
+              bearer_token, bearer_token_hash,
               sql_server, sql_database, sql_username, sql_password,
               mail_api_key, mail_from,
               created_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             tid, user_id, name,
             "", "", "", "", "", "", "", "", "",
             oauth_id, _enc(oauth_secret_plain),
-            _enc(bearer_plain),
+            _enc(bearer_plain), _bearer_hash(bearer_plain),
             "", "printix_bi_data_2_1", "", "",
             "", "",
             now,
@@ -537,11 +597,11 @@ def create_tenant(
               ws_client_id,    ws_client_secret,
               shared_client_id, shared_client_secret,
               oauth_client_id, oauth_client_secret,
-              bearer_token,
+              bearer_token, bearer_token_hash,
               sql_server, sql_database, sql_username, sql_password,
               mail_api_key, mail_from,
               created_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             tid, user_id, name or printix_tenant_id,
             printix_tenant_id,
@@ -550,7 +610,7 @@ def create_tenant(
             ws_client_id,    _enc(ws_client_secret),
             shared_client_id, _enc(shared_client_secret),
             oauth_id, _enc(oauth_secret_plain),
-            _enc(bearer_plain),
+            _enc(bearer_plain), _bearer_hash(bearer_plain),
             sql_server, sql_database, sql_username, _enc(sql_password),
             _enc(mail_api_key), mail_from,
             now,
@@ -709,17 +769,63 @@ def regenerate_oauth_secret(user_id: str) -> Optional[str]:
 def get_tenant_by_bearer_token(bearer_token: str) -> Optional[dict]:
     """
     Sucht Tenant anhand des Bearer Tokens.
-    Alle verschlüsselten Felder werden entschlüsselt zurückgegeben.
+
+    Fast Path (v3.9.1+): Indexierter Lookup über bearer_token_hash (O(1)).
+    Wird bei jedem authentifizierten MCP-Request aufgerufen; der vorherige
+    Full-Table-Scan mit Fernet-Decrypt pro Zeile war ein harter Bottleneck.
+
+    Fallback: Falls der Hash (noch) nicht gesetzt ist — z.B. während eines
+    halb-abgeschlossenen Upgrades oder nach externer DB-Manipulation —
+    iterieren wir einmalig über die betroffenen Zeilen und tragen den Hash
+    direkt nach. Der Decryption-Fehler wird protokolliert (vorher wurde er
+    stumm verschluckt).
     """
+    if not bearer_token:
+        return None
+
+    token_hash = _bearer_hash(bearer_token)
+
+    # Fast Path: indexierter Lookup
     with _conn() as conn:
-        rows = conn.execute("SELECT * FROM tenants").fetchall()
-    for row in rows:
+        row = conn.execute(
+            "SELECT * FROM tenants WHERE bearer_token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+    if row:
+        return _tenant_decrypted(dict(row))
+
+    # Legacy Fallback: Zeilen ohne Hash (Backfill verpasst?) scannen + nachtragen
+    with _conn() as conn:
+        legacy_rows = conn.execute(
+            "SELECT * FROM tenants "
+            "WHERE bearer_token_hash = '' OR bearer_token_hash IS NULL"
+        ).fetchall()
+    for row in legacy_rows:
         d = dict(row)
         try:
-            if _dec(d.get("bearer_token", "")) == bearer_token:
-                return _tenant_decrypted(d)
-        except Exception:
+            plain = _dec(d.get("bearer_token", ""))
+        except Exception as e:
+            logger.warning(
+                "Bearer-Token-Lookup: Entschlüsselung für Tenant %s fehlgeschlagen: %s",
+                d.get("id", "?"), e,
+            )
             continue
+        if not plain:
+            continue
+        # Hash für diese Zeile nachtragen (einmaliger Kosten, danach fast path)
+        try:
+            with _conn() as conn:
+                conn.execute(
+                    "UPDATE tenants SET bearer_token_hash = ? WHERE id = ?",
+                    (_bearer_hash(plain), d["id"]),
+                )
+        except Exception as e:
+            logger.warning(
+                "Bearer-Token-Lookup: Hash-Backfill für Tenant %s fehlgeschlagen: %s",
+                d.get("id", "?"), e,
+            )
+        if plain == bearer_token:
+            return _tenant_decrypted(d)
     return None
 
 
