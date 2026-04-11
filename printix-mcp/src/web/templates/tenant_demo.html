@@ -59,6 +59,7 @@
   .progress-section { display:none; }
   .progress-bar-wrap { background:#e5e7eb; border-radius:99px; height:8px; margin:10px 0; overflow:hidden; }
   .progress-bar { background:#2563eb; height:100%; width:0; border-radius:99px; transition:width .4s ease; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.55; } }
 
   .slider-wrap { display:flex; gap:10px; align-items:center; }
   .slider-wrap input[type=range] { flex:1; }
@@ -115,7 +116,7 @@
 
     {% if flash == "schema_ok" %}
     <div class="alert alert-success">✅ {{ _('demo_schema_ok') }}</div>
-    {% elif flash == "generate_ok" %}
+    {% elif flash == "generate_ok" or flash == "generated" %}
     <div class="alert alert-success">✅ {{ _('demo_generate_ok') }}</div>
     {% elif flash == "rollback_ok" %}
     <div class="alert alert-success">✅ {{ _('demo_rollback_ok') }}</div>
@@ -287,7 +288,7 @@
 
       <!-- Generate Button -->
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:16px;">
-        <button type="submit" class="btn btn-success" id="generateBtn"
+        <button type="button" class="btn btn-success" id="generateBtn"
                 {% if not schema_ready %}disabled title="{{ _('demo_schema_info') }}"{% endif %}
                 onclick="startProgress()">
           <span class="spinner">⏳</span>
@@ -308,6 +309,10 @@
         <p style="font-size:.88em;color:#374151;" id="progressMsg">⏳ {{ _('demo_btn_generate') }}…</p>
         <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
         <small class="hint" id="progressHint">{{ _('demo_hint_large_data') }}</small>
+        <div id="bgJobNotice" style="display:none;margin-top:12px;padding:12px 14px;background:#fef3c7;border-left:4px solid #f59e0b;border-radius:6px;font-size:.88em;color:#78350f;line-height:1.5;">
+          ⏳ <strong>{{ _('demo_bg_running_title') }}</strong><br>
+          {{ _('demo_bg_running_body') }}
+        </div>
       </div>
 
     </form>
@@ -486,7 +491,8 @@ function updateEstimate() {
 }
 
 // Progress-Animation beim Generieren
-function startProgress() {
+// doSubmit=true: Formular absenden (Button-Klick), false: nur Animation (Polling-Seite)
+function startProgress(doSubmit) {
   const btn = document.getElementById('generateBtn');
   const section = document.getElementById('progressSection');
   const bar = document.getElementById('progressBar');
@@ -495,8 +501,12 @@ function startProgress() {
   btn.classList.add('btn-loading');
   btn.disabled = true;
   section.style.display = 'block';
+  // Nur beim echten Button-Klick absenden, nicht beim Polling-Autostart
+  if (doSubmit !== false) {
+    document.getElementById('demoForm').submit();
+  }
 
-  const users = parseInt(document.getElementById('user_count_range').value);
+  const users = parseInt((document.getElementById('user_count_range') || {value:'10'}).value);
   const _PM = {
     users:    "{{ _('demo_progress_users') | e }}",
     printers: "{{ _('demo_progress_printers') | e }}",
@@ -513,8 +523,12 @@ function startProgress() {
     [55, '📄 ' + (_PM.print || 'Distributing print jobs') + '…'],
     [70, '📷 ' + (_PM.scan || 'Generating scan jobs') + '…'],
     [82, '📋 ' + (_PM.copy || 'Generating copy jobs') + '…'],
-    [94, '💾 ' + (_PM.write || 'Writing to database') + '…'],
+    [90, '💾 ' + (_PM.write || 'Writing to database') + '…'],
   ];
+
+  // Hintergrund-Job-Hinweis sofort einblenden (User soll wissen: dauert länger)
+  const bgNotice = document.getElementById('bgJobNotice');
+  if (bgNotice) bgNotice.style.display = 'block';
 
   let i = 0;
   function next() {
@@ -523,28 +537,33 @@ function startProgress() {
       bar.style.width = pct + '%';
       hint.textContent = msg;
       setTimeout(next, 900 + Math.random() * 700);
+    } else {
+      // Animation fertig — Balken pulsieren lassen und "läuft noch..." anzeigen
+      bar.style.width = '92%';
+      bar.style.animation = 'pulse 1.8s ease-in-out infinite';
+      hint.textContent = "{{ _('demo_bg_still_running') | e }}";
     }
   }
   next();
 }
 
-// ── Polling wenn job_id gesetzt (Background-Task läuft) ──────────────────
-{% if job_id %}
+// ── Hintergrund-Job-Polling (nach Redirect von /tenant/demo/generate) ──
 (function() {
   const jobId = "{{ job_id | e }}";
-  // Ingress-kompatibler Basispfad (unterstützt HA Ingress-Proxy)
+  if (!jobId) return;
+  // Ingress-kompatibler Basispfad (funktioniert mit HA Ingress und direktem Zugriff)
   const demoPath = window.location.pathname.split("?")[0];
-  startProgress();  // Animation sofort starten
+  startProgress(false);  // Nur Animation, kein Form-Submit
   function poll() {
-    fetch(demoPath + "/status?job_id=" + jobId)
-      .then(r => r.json())
+    fetch(demoPath + "/status?job_id=" + encodeURIComponent(jobId))
+      .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.status === "done") {
-          window.location.href = demoPath + "?flash=generate_ok";
+          window.location.href = demoPath + "?flash=generated";
         } else if (d.status === "error") {
           window.location.href = demoPath + "?flash=error&flash_msg=" + encodeURIComponent(d.error || "Unbekannter Fehler");
-        } else if (d.status === 'unknown') {
-          window.location.href = demoPath + '?flash=error&flash_msg=' + encodeURIComponent('Verbindung unterbrochen. Bitte erneut starten.');
+        } else if (d.status === "unknown") {
+          window.location.href = demoPath + "?flash=error&flash_msg=" + encodeURIComponent("Verbindung unterbrochen. Bitte erneut starten.");
         } else {
           setTimeout(poll, 3000);
         }
@@ -553,6 +572,5 @@ function startProgress() {
   }
   setTimeout(poll, 3000);
 })();
-{% endif %}
 </script>
 {% endblock %}

@@ -31,7 +31,7 @@ WORKDIR /app
 COPY src/requirements.txt /app/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /app/requirements.txt
 
-# 2026-04-10T12:00 — Schema-Fix demo./* + rollback-all Button (v3.5.1)
+# 2026-04-10 — v3.7.2: reporting.v_tracking_data/v_jobs/v_jobs_scan Views gefixt
 COPY src/ /app/
 
 # Copy run script

@@ -1,13 +1,5 @@
 {% extends "base.html" %}
 {% block title %}{{ _('admin_users') }} — Printix MCP{% endblock %}
-{% block extra_head %}
-<style>
-  /* Admin-Seiten: breiter Container */
-  .container { max-width: 1140px; }
-  .card { padding: 28px 28px; }
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="container">
   <div class="card">
@@ -23,7 +15,6 @@
     </div>
 
     {% if users %}
-    <div style="overflow-x:auto">
     <table>
       <thead>
         <tr>
@@ -60,11 +51,13 @@
             {{ u.created_at[:10] if u.created_at else '—' }}
           </td>
           <td style="white-space:nowrap;">
+            <!-- Bearbeiten -->
             <a href="/admin/users/{{ u.id }}/edit"
                class="btn btn-secondary btn-sm" style="margin-right:4px;">
               ✏️ {{ _('admin_edit') }}
             </a>
             {% if u.id != user.id %}
+              <!-- Genehmigen / Sperren -->
               {% if u.status != 'approved' %}
               <form method="post" action="/admin/users/{{ u.id }}/approve" style="display:inline;">
                 <button type="submit" class="btn btn-success btn-sm">
@@ -75,7 +68,7 @@
               {% if u.status == 'approved' %}
               <form method="post" action="/admin/users/{{ u.id }}/disable" style="display:inline; margin-left:4px;">
                 <button type="submit" class="btn btn-danger btn-sm"
-                  onclick="return confirm('{{ u.username }} sperren?')">
+                  onclick="return confirm('{{ u.username }} {{ _('admin_status_suspended') | lower }}?')">
                   ✗ {{ _('admin_suspend') }}
                 </button>
               </form>
@@ -88,7 +81,6 @@
         {% endfor %}
       </tbody>
     </table>
-    </div>
     {% else %}
     <div class="alert alert-info">Noch keine Benutzer registriert.</div>
     {% endif %}

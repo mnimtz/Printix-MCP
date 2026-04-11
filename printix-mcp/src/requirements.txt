@@ -15,6 +15,7 @@ bcrypt>=4.1.0
 
 # Reporting — SQL, Scheduling, Mail
 pyodbc>=5.1.0
+pymssql>=2.3.0
 APScheduler>=3.10.0
 
 # Reporting — Ausgabeformate (v3.1)

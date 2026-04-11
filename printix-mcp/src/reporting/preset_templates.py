@@ -39,8 +39,8 @@ ALL_FORMATS = [
     {"key": "html",  "label": "📧 HTML (E-Mail-Body)",  "available": True},
     {"key": "csv",   "label": "📊 CSV (Tabelle)",        "available": True},
     {"key": "json",  "label": "{} JSON (Rohdaten)",     "available": True},
-    {"key": "pdf",   "label": "📄 PDF",                  "available": True},
-    {"key": "xlsx",  "label": "📗 Excel (XLSX)",         "available": True},
+    {"key": "pdf",   "label": "📄 PDF",   "available": True},
+    {"key": "xlsx",  "label": "📗 Excel (XLSX)", "available": True},
 ]
 
 # ── Preset-Definitionen ──────────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "query_params": {
             "start_date": "last_month_start",
             "end_date":   "last_month_end",
-            "top_n":      20,
+            "limit":      20,
         },
         "output_formats": ["html"],
         "mail_subject": "Printix Drucker-Übersicht {month}",
@@ -109,17 +109,18 @@ PRESETS: dict[str, dict[str, Any]] = {
 
     # ── 4. Drucker-Verlauf (→ Printer - History) ──────────────────────────────
     "printer_history": {
-        "name": "Drucker-Verlauf",
-        "description": "Zeitlicher Verlauf aller Drucker: Jobs, Seiten, Farb-/S&W-Anteil je Drucker und Periode.",
+        "name": "Drucker-Verlauf (einzeln)",
+        "description": "Jobverlauf und Seitenvolumen eines Druckers über Zeit. "
+                       "Filterbar nach Drucker-ID und Standort.",
         "icon": "📅",
         "pbi_page": "Printer - History",
         "query_type": "printer_history",
         "query_params": {
             "start_date": "last_month_start",
             "end_date":   "last_month_end",
-            "group_by":   "day",
+            "group_by":   "month",
         },
-        "output_formats": ["html", "csv"],
+        "output_formats": ["html"],
         "mail_subject": "Printix Drucker-Verlauf {month}",
         "schedule_suggestion": {"frequency": "monthly", "day": 1, "time": "09:00"},
         "tag": "Drucker",
@@ -129,12 +130,16 @@ PRESETS: dict[str, dict[str, Any]] = {
     # ── 5. Drucker Service Status (→ Printers - Service Status) ───────────────
     "printer_service_status": {
         "name": "Drucker Service-Status",
-        "description": "Toner-Level und Gerätestatus aller Drucker (erfordert device_readings-Tabelle in der BI-DB).",
+        "description": "Auslastung und letzte Aktivität aller Drucker. "
+                       "Hinweis: Toner-Füllstände sind nicht in SQL — werden über Printix API abgerufen.",
         "icon": "🔧",
         "pbi_page": "Printers - Service Status",
         "query_type": "device_readings",
-        "query_params": {"top_n": 50},
-        "output_formats": ["html", "csv"],
+        "query_params": {
+            "start_date": "last_month_start",
+            "end_date":   "last_month_end",
+        },
+        "output_formats": ["html"],
         "mail_subject": "Printix Drucker Service-Status",
         "schedule_suggestion": {"frequency": "weekly", "day": 0, "time": "07:00"},
         "tag": "Service",
@@ -144,14 +149,17 @@ PRESETS: dict[str, dict[str, Any]] = {
     # ── 6. Job-Verlauf (→ Job - History) ──────────────────────────────────────
     "job_history": {
         "name": "Job-Verlauf",
-        "description": "Vollständige Druckjob-Liste mit Benutzer, Drucker, Seitenanzahl, Farbe, Duplex und Status.",
+        "description": "Vollständige Druckjob-Liste mit Benutzer, Drucker, "
+                       "Seitenanzahl, Farbe, Duplex und Zeitstempel. Paginiert, filterbar.",
         "icon": "📄",
         "pbi_page": "Job - History",
         "query_type": "job_history",
         "query_params": {
-            "start_date": "last_month_start",
-            "end_date":   "last_month_end",
-            "limit":      500,
+            "start_date":    "last_month_start",
+            "end_date":      "last_month_end",
+            "page":          0,
+            "page_size":     100,
+            "status_filter": "ok",
         },
         "output_formats": ["html", "csv", "xlsx"],
         "mail_subject": "Printix Job-Verlauf {month}",
@@ -163,12 +171,16 @@ PRESETS: dict[str, dict[str, Any]] = {
     # ── 7. Druckregeln (→ Print Rules - Overview) ─────────────────────────────
     "print_rules_overview": {
         "name": "Druckregeln-Übersicht",
-        "description": "Auswertung der aktiven Print Queues (erfordert print_queues-Tabelle in der BI-DB).",
+        "description": "Verteilung nach Papierformat, Farbe und Duplex — "
+                       "zeigt den Druckmix (A4/A3, S/W-Anteil, Duplex-Quote).",
         "icon": "📐",
         "pbi_page": "Print Rules - Overview",
         "query_type": "queue_stats",
-        "query_params": {"top_n": 50},
-        "output_formats": ["html", "csv"],
+        "query_params": {
+            "start_date": "last_month_start",
+            "end_date":   "last_month_end",
+        },
+        "output_formats": ["html"],
         "mail_subject": "Printix Druckregeln-Übersicht",
         "schedule_suggestion": {"frequency": "monthly", "day": 1, "time": "09:00"},
         "tag": "Verwaltung",
@@ -206,7 +218,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "query_params": {
             "start_date": "last_month_start",
             "end_date":   "last_month_end",
-            "top_n":      20,
+            "limit":      20,
         },
         "output_formats": ["html"],
         "mail_subject": "Printix Benutzer-Übersicht {month}",
@@ -218,18 +230,19 @@ PRESETS: dict[str, dict[str, Any]] = {
     # ── 10. Benutzer Druckdetails (→ User - Print Details) ────────────────────
     "user_print_details": {
         "name": "Benutzer Druckdetails",
-        "description": "Detaillierte Druckstatistik pro Benutzer: bevorzugte Drucker, Farb-/S/W-Anteil, Duplexquote.",
+        "description": "Detaillierter Druckverlauf eines Benutzers: Zeitverlauf, "
+                       "Farb-/S/W-Anteil und Duplexquote.",
         "icon": "🔍",
         "pbi_page": "User - Print Details",
         "query_type": "user_detail",
         "query_params": {
             "start_date": "last_month_start",
             "end_date":   "last_month_end",
-            "top_n":      20,
+            "group_by":   "month",
         },
-        "output_formats": ["html", "csv", "xlsx"],
-        "mail_subject": "Printix Benutzer Druckdetails {month}",
-        "schedule_suggestion": {"frequency": "monthly", "day": 1, "time": "08:30"},
+        "output_formats": ["html"],
+        "mail_subject": "Printix Druckdetails {month}",
+        "schedule_suggestion": None,
         "tag": "Benutzer",
         "available": True,
     },
@@ -237,18 +250,19 @@ PRESETS: dict[str, dict[str, Any]] = {
     # ── 11. Benutzer Kopierdetails (→ User - Copy Details) ────────────────────
     "user_copy_details": {
         "name": "Benutzer Kopier-Details",
-        "description": "Kopiervolumen pro Benutzer aus jobs_copy/jobs_copy_details: Seiten, Farbe, Duplex.",
+        "description": "Kopiervolumen pro Benutzer aus jobs_copy/jobs_copy_details: "
+                       "Seiten, Farbe, Duplex, zeitlicher Verlauf.",
         "icon": "📑",
         "pbi_page": "User - Copy Details",
         "query_type": "user_copy_detail",
         "query_params": {
             "start_date": "last_month_start",
             "end_date":   "last_month_end",
-            "top_n":      20,
+            "group_by":   "month",
         },
-        "output_formats": ["html", "csv"],
+        "output_formats": ["html"],
         "mail_subject": "Printix Kopier-Details {month}",
-        "schedule_suggestion": {"frequency": "monthly", "day": 1, "time": "08:30"},
+        "schedule_suggestion": None,
         "tag": "Benutzer",
         "available": True,
     },
@@ -256,18 +270,19 @@ PRESETS: dict[str, dict[str, Any]] = {
     # ── 12. Benutzer Scan-Details (→ User - Scan Details) ─────────────────────
     "user_scan_details": {
         "name": "Benutzer Scan-Details",
-        "description": "Scan-Aktivitäten pro Benutzer aus jobs_scan: Workflows, Seitenanzahl, Farbe.",
+        "description": "Scan-Aktivitäten pro Benutzer aus jobs_scan: "
+                       "Scan-Jobs, Seitenanzahl, Farbe, zeitlicher Verlauf.",
         "icon": "🔎",
         "pbi_page": "User - Scan Details",
         "query_type": "user_scan_detail",
         "query_params": {
             "start_date": "last_month_start",
             "end_date":   "last_month_end",
-            "top_n":      20,
+            "group_by":   "month",
         },
-        "output_formats": ["html", "csv"],
+        "output_formats": ["html"],
         "mail_subject": "Printix Scan-Details {month}",
-        "schedule_suggestion": {"frequency": "monthly", "day": 1, "time": "08:30"},
+        "schedule_suggestion": None,
         "tag": "Benutzer",
         "available": True,
     },
@@ -275,12 +290,16 @@ PRESETS: dict[str, dict[str, Any]] = {
     # ── 13. Workstation-Übersicht (→ Workstations - Overview) ─────────────────
     "workstations_overview": {
         "name": "Workstation-Übersicht",
-        "description": "Alle registrierten Workstations: OS, Client-Version, Warteschlangen (erfordert workstations-Tabelle).",
+        "description": "Alle registrierten Workstations mit Druckvolumen und letzter Aktivität. "
+                       "Gibt Hinweis falls workstations-Tabelle im Schema fehlt.",
         "icon": "💻",
         "pbi_page": "Workstations - Overview",
         "query_type": "workstation_overview",
-        "query_params": {"top_n": 100},
-        "output_formats": ["html", "csv"],
+        "query_params": {
+            "start_date": "last_month_start",
+            "end_date":   "last_month_end",
+        },
+        "output_formats": ["html"],
         "mail_subject": "Printix Workstation-Übersicht",
         "schedule_suggestion": {"frequency": "monthly", "day": 1, "time": "09:00"},
         "tag": "Infrastruktur",
@@ -289,15 +308,21 @@ PRESETS: dict[str, dict[str, Any]] = {
 
     # ── 14. Workstation-Details (→ Workstation - Details) ─────────────────────
     "workstation_details": {
-        "name": "Workstation-Übersicht (Details)",
-        "description": "Alle Workstations mit OS, Client-Version und Warteschlangen-Anzahl.",
+        "name": "Workstation-Details (einzeln)",
+        "description": "Druckverlauf einer einzelnen Workstation über Zeit. "
+                       "Benötigt Workstation-ID als Parameter.",
         "icon": "🖥️",
         "pbi_page": "Workstation - Details",
-        "query_type": "workstation_overview",
-        "query_params": {"top_n": 100},
-        "output_formats": ["html", "csv"],
+        "query_type": "workstation_detail",
+        "query_params": {
+            "start_date":     "last_month_start",
+            "end_date":       "last_month_end",
+            "workstation_id": "",
+            "group_by":       "month",
+        },
+        "output_formats": ["html"],
         "mail_subject": "Printix Workstation-Details",
-        "schedule_suggestion": {"frequency": "monthly", "day": 1, "time": "09:00"},
+        "schedule_suggestion": None,
         "tag": "Infrastruktur",
         "available": True,
     },
@@ -305,15 +330,15 @@ PRESETS: dict[str, dict[str, Any]] = {
     # ── 15. Tree-O-Meter / Nachhaltigkeit (→ Tree-O-Meter) ────────────────────
     "tree_o_meter": {
         "name": "Nachhaltigkeits-Report (Tree-O-Meter)",
-        "description": "Umweltwirkung des Druckens: Baumverbrauch, CO₂-Äquivalent und Einsparpotenziale durch Duplex.",
+        "description": "Eingesparte Blätter durch Duplex-Druck, umgerechnet in Bäume "
+                       "(1 Baum = 8333 Blätter A4). Duplex-Quote und Einsparpotenzial.",
         "icon": "🌳",
         "pbi_page": "Tree-O-Meter",
         "query_type": "tree_meter",
         "query_params": {
-            "start_date": "last_month_start",
-            "end_date":   "last_month_end",
+            "start_date":      "last_month_start",
+            "end_date":        "last_month_end",
             "sheets_per_tree": 8333,
-            "group_by": "month",
         },
         "output_formats": ["html"],
         "mail_subject": "Printix Nachhaltigkeits-Report {month}",
@@ -348,19 +373,113 @@ PRESETS: dict[str, dict[str, Any]] = {
     # ── 17. Service Desk (→ Service Desk) ─────────────────────────────────────
     "service_desk": {
         "name": "Service Desk Report",
-        "description": "Fehlerhafte, gelöschte und abgebrochene Druckjobs für den IT-Service-Desk.",
+        "description": "Fehlgeschlagene und abgebrochene Druckjobs für den IT-Service-Desk. "
+                       "Gruppierbar nach Fehlertyp, Drucker oder Benutzer.",
         "icon": "🛎️",
         "pbi_page": "Service Desk",
         "query_type": "service_desk",
         "query_params": {
             "start_date": "last_month_start",
             "end_date":   "last_month_end",
-            "limit":      500,
+            "group_by":   "status",
         },
-        "output_formats": ["html", "csv"],
+        "output_formats": ["html", "csv", "xlsx"],
         "mail_subject": "Printix Service Desk Report {month}",
         "schedule_suggestion": {"frequency": "weekly", "day": 0, "time": "07:00"},
         "tag": "Service",
+        "available": True,
+    },
+
+    # ── 18. Sensible Dokumente (v3.8.0, Compliance) ───────────────────────────
+    "sensitive_documents": {
+        "name": "Sensible Dokumente",
+        "description": "Scannt Druck- und Scan-Jobs nach sensiblen Dateinamen "
+                       "(Personal, Finanzen, Vertraulich, Gesundheit, Recht, "
+                       "Ausweisdokumente). Keyword-Sets und Freitext "
+                       "individuell kombinierbar.",
+        "icon": "🛡️",
+        "pbi_page": None,
+        "query_type": "sensitive_documents",
+        "query_params": {
+            "start_date":      "last_month_start",
+            "end_date":        "last_month_end",
+            # Default: alle sechs Preset-Sets aktiv (entspricht
+            # SENSITIVE_KEYWORD_SETS in query_tools.py)
+            "keyword_sets":    ["hr", "finance", "confidential",
+                                "health", "legal", "pii"],
+            "custom_keywords": [],
+            "include_scans":   True,
+            "page":            0,
+            "page_size":       500,
+        },
+        "output_formats": ["html", "csv", "xlsx"],
+        "mail_subject": "Printix Sensible Dokumente {month}",
+        "schedule_suggestion": {"frequency": "monthly", "day": 1, "time": "08:00"},
+        "tag": "Compliance",
+        "available": True,
+    },
+
+    # ── 19. Nutzung Stunde × Wochentag (v3.8.1, visuelle Heatmap) ─────────────
+    "hour_dow_heatmap": {
+        "name": "Nutzung Stunde × Wochentag",
+        "description": "Visuelle Heatmap der Druckaktivität pro Stunde und "
+                       "Wochentag. Zeigt Spitzenzeiten, Off-Hours-Nutzung "
+                       "und typische Lastprofile auf einen Blick.",
+        "icon": "🗓️",
+        "pbi_page": None,
+        "query_type": "hour_dow_heatmap",
+        "query_params": {
+            "start_date": "last_month_start",
+            "end_date":   "last_month_end",
+        },
+        "output_formats": ["html", "pdf"],
+        "mail_subject": "Printix Nutzungs-Heatmap {month}",
+        "schedule_suggestion": {"frequency": "monthly", "day": 1, "time": "08:00"},
+        "tag": "Analyse",
+        "available": True,
+    },
+
+    # ── v3.9.0: Admin-Audit-Trail (Governance) ────────────────────────────────
+    "audit_log": {
+        "name": "Admin-Audit-Trail",
+        "description": "Protokolliert alle administrativen Änderungen (Benutzer, Gruppen, "
+                       "Sites, Netzwerke, SNMP, Karten, Reports). Zeigt wer, wann, was "
+                       "geändert hat — wichtig für Compliance und Governance.",
+        "icon": "🛡️",
+        "pbi_page": None,
+        "query_type": "audit_log",
+        "query_params": {
+            "start_date": "last_month_start",
+            "end_date":   "last_month_end",
+            "limit":      1000,
+        },
+        "output_formats": ["html", "pdf", "xlsx", "csv"],
+        "mail_subject": "Printix Admin-Audit-Trail {month}",
+        "schedule_suggestion": {"frequency": "monthly", "day": 1, "time": "08:30"},
+        "tag": "Governance",
+        "available": True,
+    },
+
+    # ── v3.9.0: Druck außerhalb der Geschäftszeiten ───────────────────────────
+    "off_hours_print": {
+        "name": "Off-Hours-Druck",
+        "description": "Zeigt Druckaktivität außerhalb der regulären Arbeitszeit "
+                       "(standardmäßig 18:00–07:00 und Wochenende). Dient der "
+                       "Compliance- und Sicherheitsüberwachung.",
+        "icon": "🌙",
+        "pbi_page": None,
+        "query_type": "off_hours_print",
+        "query_params": {
+            "start_date":            "last_month_start",
+            "end_date":              "last_month_end",
+            "business_start_hour":   7,
+            "business_end_hour":     18,
+            "include_weekends_as_off_hours": True,
+        },
+        "output_formats": ["html", "pdf"],
+        "mail_subject": "Printix Off-Hours-Druck {month}",
+        "schedule_suggestion": {"frequency": "monthly", "day": 1, "time": "08:45"},
+        "tag": "Compliance",
         "available": True,
     },
 

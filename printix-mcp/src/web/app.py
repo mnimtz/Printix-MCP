@@ -53,40 +53,6 @@ from starlette.middleware.sessions import SessionMiddleware
 
 logger = logging.getLogger("printix.web")
 
-
-# ── Tenant-aware DB-Logging für Web-Requests ─────────────────────────────────
-class _WebTenantDBHandler(logging.Handler):
-    """Schreibt Logs in die tenant_logs-Tabelle wenn ein Tenant-Kontext aktiv ist."""
-    _CAT = {
-        "printix_client": "PRINTIX_API", "printix.api": "PRINTIX_API",
-        "reporting": "SQL", "sql": "SQL",
-        "auth": "AUTH", "oauth": "AUTH",
-    }
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            from auth import current_tenant as _ct
-            tenant = _ct.get()
-            if not tenant:
-                return
-            tid = tenant.get("id", "")
-            if not tid:
-                return
-            cat = "SYSTEM"
-            nl = record.name.lower()
-            for k, v in self._CAT.items():
-                if k in nl:
-                    cat = v
-                    break
-            from db import add_tenant_log
-            add_tenant_log(tid, record.levelname, cat, self.format(record))
-        except Exception:
-            pass
-
-_web_db_handler = _WebTenantDBHandler()
-_web_db_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
-_web_db_handler.setLevel(logging.DEBUG)
-logging.getLogger().addHandler(_web_db_handler)
-
 # Templates-Verzeichnis (relativ zu diesem File)
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 
@@ -95,41 +61,7 @@ def create_app(session_secret: str) -> FastAPI:
     app = FastAPI(title="Printix MCP Admin", docs_url=None, redoc_url=None)
     app.add_middleware(SessionMiddleware, secret_key=session_secret, max_age=3600 * 8)
 
-    # ── Tenant-Kontext pro Web-Request setzen (für DB-Logging) ───────────────
-    @app.middleware("http")
-    async def _set_web_tenant_ctx(request: Request, call_next):
-        try:
-            from auth import current_tenant as _ct
-            uid = request.session.get("user_id") if hasattr(request, "session") else None
-            if uid:
-                try:
-                    from db import get_tenant_full_by_user_id
-                    _t = get_tenant_full_by_user_id(uid)
-                    if _t:
-                        _tok = _ct.set(_t)
-                        try:
-                            return await call_next(request)
-                        finally:
-                            _ct.reset(_tok)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        return await call_next(request)
-
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
-
-    # ── Jinja2 custom filters ─────────────────────────────────────────────────
-    import json as _json
-
-    def _from_json(value):
-        try:
-            result = _json.loads(value or "[]")
-            return result if isinstance(result, list) else ["log_error"]
-        except Exception:
-            return ["log_error"]
-
-    templates.env.filters["from_json"] = _from_json
 
     # ── i18n ──────────────────────────────────────────────────────────────────
 
@@ -148,12 +80,20 @@ def create_app(session_secret: str) -> FastAPI:
     def t_ctx(request: Request) -> dict:
         """Gibt den i18n-Kontext für Templates zurück."""
         lang = get_lang(request)
-        return {
+        ctx = {
             "_":             make_translator(lang),
             "lang":          lang,
             "lang_names":    LANGUAGE_NAMES,
             "supported_langs": SUPPORTED_LANGUAGES,
         }
+        # v3.9.0 — Badge "offene Tickets" im Nav (nur für Admins relevant)
+        try:
+            from db import count_feature_requests_by_status
+            counts = count_feature_requests_by_status()
+            ctx["feedback_new_count"] = counts.get("new", 0)
+        except Exception:
+            ctx["feedback_new_count"] = 0
+        return ctx
 
     # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -412,32 +352,6 @@ def create_app(session_secret: str) -> FastAPI:
 
             audit(user["id"], "register", f"Tenant '{tenant['name']}' registriert")
 
-            # Ereignis-Benachrichtigung: user_registered — alle Admins informieren
-            try:
-                from db import get_all_users, get_tenant_full_by_user_id as _gtf
-                from reporting.notify_helper import (
-                    send_event_notification as _notify,
-                    html_user_registered as _html_ur,
-                )
-                for _admin_user in get_all_users():
-                    if not _admin_user.get("is_admin"):
-                        continue
-                    _admin_tenant = _gtf(_admin_user["id"])
-                    if not _admin_tenant:
-                        continue
-                    _notify(
-                        tenant=_admin_tenant,
-                        event_type="user_registered",
-                        subject=f"🔔 Neuer Benutzer registriert: {user.get('username','')}",
-                        html_body=_html_ur(
-                            username=user.get("username", ""),
-                            email=user.get("email", ""),
-                            company=user.get("company", ""),
-                        ),
-                    )
-            except Exception as _ure:
-                logger.debug("user_registered Benachrichtigung fehlgeschlagen: %s", _ure)
-
             for key in list(request.session.keys()):
                 if key.startswith("reg_"):
                     del request.session[key]
@@ -598,15 +512,6 @@ def create_app(session_secret: str) -> FastAPI:
         sql_password:         str = Form(default=""),
         mail_api_key:         str = Form(default=""),
         mail_from:            str = Form(default=""),
-        mail_from_name:       str = Form(default=""),
-        alert_recipients:     str = Form(default=""),
-        alert_min_level:      str = Form(default="ERROR"),
-        notify_log_error:      str = Form(default=""),
-        notify_new_printer:    str = Form(default=""),
-        notify_new_queue:      str = Form(default=""),
-        notify_new_guest_user: str = Form(default=""),
-        notify_report_sent:    str = Form(default=""),
-        notify_user_registered: str = Form(default=""),
     ):
         user = require_login(request)
         if not user:
@@ -615,17 +520,6 @@ def create_app(session_secret: str) -> FastAPI:
 
         try:
             from db import update_tenant_credentials, get_tenant_full_by_user_id, audit
-            # Checkboxen → notify_events JSON-Array aufbauen
-            _ne = []
-            if notify_log_error:      _ne.append("log_error")
-            if notify_new_printer:    _ne.append("new_printer")
-            if notify_new_queue:      _ne.append("new_queue")
-            if notify_new_guest_user: _ne.append("new_guest_user")
-            if notify_report_sent:    _ne.append("report_sent")
-            if notify_user_registered: _ne.append("user_registered")
-            import json as _json
-            _notify_events_json = _json.dumps(_ne)
-
             update_tenant_credentials(
                 user_id=user["id"],
                 printix_tenant_id=printix_tenant_id.strip() or None,
@@ -644,10 +538,6 @@ def create_app(session_secret: str) -> FastAPI:
                 sql_password=sql_password.strip() or None,
                 mail_api_key=mail_api_key.strip() or None,
                 mail_from=mail_from.strip() or None,
-                mail_from_name=mail_from_name.strip() or None,
-                alert_recipients=alert_recipients.strip() or None,
-                alert_min_level=alert_min_level.strip() or None,
-                notify_events=_notify_events_json,
             )
             audit(user["id"], "update_settings", "Credentials aktualisiert")
             tenant = get_tenant_full_by_user_id(user["id"])
@@ -793,7 +683,7 @@ def create_app(session_secret: str) -> FastAPI:
         try:
             from db import set_user_status, audit
             set_user_status(user_id, "approved")
-            audit(admin["id"], "approve_user", f"User {user_id} genehmigt")
+            audit(admin["id"], "approve_user", f"User {user_id} genehmigt", object_type="user", object_id=user_id)
         except Exception as e:
             logger.error("Approve-Fehler: %s", e)
         return RedirectResponse("/admin/users", status_code=302)
@@ -808,7 +698,7 @@ def create_app(session_secret: str) -> FastAPI:
         try:
             from db import set_user_status, audit
             set_user_status(user_id, "disabled")
-            audit(admin["id"], "disable_user", f"User {user_id} deaktiviert")
+            audit(admin["id"], "disable_user", f"User {user_id} deaktiviert", object_type="user", object_id=user_id)
         except Exception as e:
             logger.error("Disable-Fehler: %s", e)
         return RedirectResponse("/admin/users", status_code=302)
@@ -823,7 +713,7 @@ def create_app(session_secret: str) -> FastAPI:
         try:
             from db import delete_user, audit
             delete_user(user_id)
-            audit(admin["id"], "delete_user", f"User {user_id} gelöscht")
+            audit(admin["id"], "delete_user", f"User {user_id} gelöscht", object_type="user", object_id=user_id)
         except Exception as e:
             logger.error("Delete-Fehler: %s", e)
         return RedirectResponse("/admin/users", status_code=302)
@@ -954,7 +844,7 @@ def create_app(session_secret: str) -> FastAPI:
                 is_admin=(is_admin == "1"),
                 status=status,
             )
-            audit(admin["id"], "edit_user", f"User {user_id} bearbeitet")
+            audit(admin["id"], "edit_user", f"User {user_id} bearbeitet", object_type="user", object_id=user_id)
             target = get_user_by_id(user_id)
         except Exception as e:
             logger.error("Edit-Fehler: %s", e)
@@ -981,7 +871,7 @@ def create_app(session_secret: str) -> FastAPI:
         try:
             from db import reset_user_password, audit
             reset_user_password(user_id, new_password)
-            audit(admin["id"], "reset_password", f"Passwort für User {user_id} zurückgesetzt")
+            audit(admin["id"], "reset_password", f"Passwort für User {user_id} zurückgesetzt", object_type="user", object_id=user_id)
         except Exception as e:
             logger.error("Reset-PW-Fehler: %s", e)
         return RedirectResponse(f"/admin/users/{user_id}/edit?pw_saved=1", status_code=302)
@@ -999,6 +889,107 @@ def create_app(session_secret: str) -> FastAPI:
         return templates.TemplateResponse("admin_audit.html", {
             "request": request, "user": user, "entries": entries, **t_ctx(request)
         })
+
+    # ─── Feedback / Feature-Request-Ticketsystem (v3.9.0) ─────────────────────
+    @app.get("/feedback", response_class=HTMLResponse)
+    async def feedback_list(request: Request):
+        user = get_session_user(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import list_feature_requests
+            if user.get("is_admin"):
+                tickets = list_feature_requests(limit=500)
+            else:
+                tickets = list_feature_requests(user_id=user["id"], limit=500)
+        except Exception as e:
+            logger.error("feedback_list-Fehler: %s", e)
+            tickets = []
+        flash = request.query_params.get("flash", "")
+        return templates.TemplateResponse("feedback.html", {
+            "request": request, "user": user,
+            "tickets": tickets, "flash": flash,
+            **t_ctx(request),
+        })
+
+    @app.post("/feedback/new", response_class=HTMLResponse)
+    async def feedback_new(
+        request: Request,
+        title: str = Form(...),
+        description: str = Form(default=""),
+        category: str = Form(default="feature"),
+    ):
+        user = get_session_user(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+        if not title.strip():
+            return RedirectResponse("/feedback", status_code=302)
+        try:
+            from db import create_feature_request, audit, get_tenant_by_user_id
+            t = get_tenant_by_user_id(user["id"]) or {}
+            ticket = create_feature_request(
+                user_id=user["id"],
+                user_email=user.get("email") or user.get("username", ""),
+                title=title.strip()[:200],
+                description=(description or "").strip()[:4000],
+                category=(category or "feature").strip(),
+                tenant_id=t.get("id", ""),
+            )
+            audit(user["id"], "feedback_create",
+                  f"Ticket {ticket.get('ticket_no', '?')}: {title[:80]}",
+                  object_type="feature_request", object_id=str(ticket.get("id", "")))
+        except Exception as e:
+            logger.error("feedback_new-Fehler: %s", e)
+            return RedirectResponse("/feedback?flash=Fehler", status_code=302)
+        tc = t_ctx(request)
+        flash = tc["_"]("feedback_flash_created") + f" {ticket.get('ticket_no','')}"
+        from urllib.parse import quote
+        return RedirectResponse(f"/feedback?flash={quote(flash)}", status_code=302)
+
+    @app.get("/feedback/{ticket_id}", response_class=HTMLResponse)
+    async def feedback_detail(ticket_id: int, request: Request):
+        user = get_session_user(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_feature_request
+            ticket = get_feature_request(ticket_id)
+        except Exception:
+            ticket = None
+        if not ticket:
+            return RedirectResponse("/feedback", status_code=302)
+        # Nicht-Admins dürfen nur ihre eigenen Tickets sehen
+        if not user.get("is_admin") and ticket.get("user_id") != user["id"]:
+            return RedirectResponse("/feedback", status_code=302)
+        return templates.TemplateResponse("feedback_detail.html", {
+            "request": request, "user": user, "ticket": ticket,
+            **t_ctx(request),
+        })
+
+    @app.post("/feedback/{ticket_id}/update", response_class=HTMLResponse)
+    async def feedback_update(
+        ticket_id: int,
+        request: Request,
+        status: str = Form(...),
+        priority: str = Form(default="normal"),
+        admin_note: str = Form(default=""),
+    ):
+        admin = get_session_user(request)
+        if not admin or not admin.get("is_admin"):
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import update_feature_request_status, audit, get_feature_request
+            ok = update_feature_request_status(
+                ticket_id, status=status, admin_note=admin_note, priority=priority,
+            )
+            if ok:
+                t = get_feature_request(ticket_id) or {}
+                audit(admin["id"], "feedback_update",
+                      f"Ticket {t.get('ticket_no','?')} → {status}",
+                      object_type="feature_request", object_id=str(ticket_id))
+        except Exception as e:
+            logger.error("feedback_update-Fehler: %s", e)
+        return RedirectResponse(f"/feedback/{ticket_id}", status_code=302)
 
     @app.get("/admin/settings", response_class=HTMLResponse)
     async def admin_settings_get(request: Request):
@@ -1247,28 +1238,6 @@ def create_app(session_secret: str) -> FastAPI:
                     if uid not in seen:
                         seen.add(uid)
                         users.append(u)
-
-                # Parallel-Fetch der Karten-Anzahl pro Benutzer (max. 10 parallel, 5s Timeout)
-                from concurrent.futures import ThreadPoolExecutor, as_completed
-                def _fetch_card_count(uid):
-                    try:
-                        data = client.list_user_cards(uid)
-                        cards = data.get("cards", data.get("content", []))
-                        return uid, len(cards)
-                    except Exception:
-                        return uid, None
-                with ThreadPoolExecutor(max_workers=10) as pool:
-                    futs = {pool.submit(_fetch_card_count, u.get("id","")): u.get("id","")
-                            for u in users if u.get("id")}
-                    try:
-                        for fut in as_completed(futs, timeout=5):
-                            uid, count = fut.result()
-                            for u in users:
-                                if u.get("id") == uid:
-                                    u["_card_count"] = count
-                    except Exception:
-                        pass  # Timeout oder Fehler — bleibt bei None
-
             elif not tenant:
                 error = "no_tenant"
             else:
@@ -1452,186 +1421,233 @@ def create_app(session_secret: str) -> FastAPI:
             )
 
 
-
-    # In-Memory Job-Status für async Demo-Generierung
-    _demo_jobs: dict = {}
+    # ── Demo-Daten-Register (v3.5.0) ─────────────────────────────────────────
+    import uuid as _uuid
+    import time as _time
+    import asyncio as _asyncio
+    import functools as _functools
+    _demo_jobs: dict = {}  # job_id → {status, error, session_id, started}
 
     @app.get("/tenant/demo/status")
     async def tenant_demo_status(request: Request, job_id: str = ""):
         user = require_login(request)
         if user is None:
-            return {"status": "error", "error": "not_logged_in"}
+            return JSONResponse({"status": "error", "error": "not_logged_in"})
         job = _demo_jobs.get(job_id)
         if not job:
-            return {"status": "unknown"}
-        return {"status": job.get("status"), "error": job.get("error", ""), "session_id": job.get("session_id", "")}
+            return JSONResponse({"status": "unknown"})
+        return JSONResponse({
+            "status": job.get("status"),
+            "error": job.get("error", ""),
+            "session_id": job.get("session_id", ""),
+        })
 
-    # ── Demo-Daten Register (v3.3.0) ─────────────────────────────────────────
     @app.get("/tenant/demo", response_class=HTMLResponse)
-    async def tenant_demo_get(request: Request, flash: str = "", flash_msg: str = "", job_id: str = ""):
+    async def tenant_demo(request: Request):
         user = require_login(request)
-        if user is None:
-            return RedirectResponse("/login", status_code=302)
+        if user is None: return RedirectResponse("/login", status_code=302)
         tc = t_ctx(request)
         sessions = []
-        schema_ready = False
-        error = None
+        has_sql  = False
+        flash     = request.query_params.get("flash")
+        flash_msg = request.query_params.get("errmsg", request.query_params.get("flash_msg", ""))
+        job_id    = request.query_params.get("job_id", "")
         try:
             from db import get_tenant_full_by_user_id
+            from reporting.sql_client import set_config_from_tenant, is_configured
+            from reporting.demo_generator import setup_schema as _setup  # noqa: ensure importable
             tenant = get_tenant_full_by_user_id(user["id"])
-            if not tenant or not tenant.get("sql_server"):
-                error = "no_sql"
-            else:
-                # SQL-Kontext setzen und Demo-Status laden
-                import sys, os
-                src_dir = os.path.dirname(os.path.dirname(__file__))
-                if src_dir not in sys.path:
-                    sys.path.insert(0, src_dir)
-                from reporting.sql_client import set_config_from_tenant
-                set_config_from_tenant(tenant)
-                try:
-                    from reporting.demo_generator import get_demo_status
-                    status = get_demo_status(tenant["printix_tenant_id"])
-                    if "error" not in status:
-                        schema_ready = True
-                        sessions = status.get("sessions", [])
-                    # schema_ready = False wenn Tabelle noch nicht existiert
-                except Exception as e:
-                    schema_ready = "demo_sessions" in str(e).lower() is False
+            if tenant and tenant.get("sql_server"):
+                tok = set_config_from_tenant(tenant)
+                has_sql = is_configured()
+                if has_sql:
+                    # Perf v3.7.8: Query l\u00e4uft in einem Thread damit der Event Loop
+                    # nicht blockiert w\u00e4hrend Azure SQL antwortet. TOP 20 begrenzt die
+                    # Ergebnismenge — \u00e4ltere Sessions sind ohnehin uninteressant und der
+                    # User kann sie \u00fcber die L\u00f6sch-API aufr\u00e4umen.
+                    import asyncio as _aio
+                    from reporting.sql_client import query_fetchall
+                    rows = await _aio.to_thread(
+                        query_fetchall,
+                        "SELECT TOP 20 session_id, tenant_id, demo_tag, created_at, "
+                        "user_count, printer_count, print_job_count, status "
+                        "FROM dbo.demo_sessions WHERE tenant_id = ? "
+                        "ORDER BY created_at DESC",
+                        (tenant.get("printix_tenant_id", ""),)
+                    )
+                    sessions = rows or []
         except Exception as e:
-            logger.error("tenant_demo_get error: %s", e)
-            error = str(e)[:120]
+            logger.warning("tenant_demo list error: %s", e)
         return templates.TemplateResponse("tenant_demo.html", {
             "request": request, "user": user,
-            "sessions": sessions,
-            "schema_ready": schema_ready,
-            "error": error,
-            "flash": flash,
-            "flash_msg": flash_msg,
-            "form": {},
-            "active_tab": "demo",
-            **tc,
+            "has_sql": has_sql, "sessions": sessions,
+            "flash": flash, "flash_msg": flash_msg,
             "job_id": job_id,
+            "form_defaults": {}, "active_tab": "demo", **tc,
         })
 
     @app.post("/tenant/demo/setup", response_class=HTMLResponse)
     async def tenant_demo_setup(request: Request):
         user = require_login(request)
-        if user is None:
-            return RedirectResponse("/login", status_code=302)
+        if user is None: return RedirectResponse("/login", status_code=302)
         try:
             from db import get_tenant_full_by_user_id
+            from reporting.sql_client import set_config_from_tenant
+            from reporting.demo_generator import setup_schema
             tenant = get_tenant_full_by_user_id(user["id"])
             if not tenant or not tenant.get("sql_server"):
-                return RedirectResponse("/tenant/demo?flash=error&flash_msg=no_sql", status_code=302)
-            import sys, os
-            src_dir = os.path.dirname(os.path.dirname(__file__))
-            if src_dir not in sys.path:
-                sys.path.insert(0, src_dir)
-            from reporting.sql_client import set_config_from_tenant
+                return RedirectResponse("/tenant/demo?flash=error&errmsg=SQL+nicht+konfiguriert", status_code=302)
             set_config_from_tenant(tenant)
-            from reporting.demo_generator import setup_schema
             result = setup_schema()
-            if result["success"]:
-                return RedirectResponse("/tenant/demo?flash=schema_ok", status_code=302)
-            else:
-                errs = "; ".join(e["error"] for e in result["errors"][:2])
-                return RedirectResponse(f"/tenant/demo?flash=error&flash_msg={errs[:100]}", status_code=302)
+            if result.get("success"):
+                return RedirectResponse("/tenant/demo?flash=setup_ok", status_code=302)
+            errmsg = "; ".join(e.get("error","") for e in result.get("errors", []))[:200]
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(f"/tenant/demo?flash=error&errmsg={_qp(errmsg)}", status_code=302)
         except Exception as e:
             logger.error("tenant_demo_setup error: %s", e)
-            return RedirectResponse(f"/tenant/demo?flash=error&flash_msg={str(e)[:100]}", status_code=302)
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(f"/tenant/demo?flash=error&errmsg={_qp(str(e)[:200])}", status_code=302)
 
     @app.post("/tenant/demo/generate", response_class=HTMLResponse)
     async def tenant_demo_generate(request: Request):
         user = require_login(request)
-        if user is None:
-            return RedirectResponse("/login", status_code=302)
-        form_data = await request.form()
+        if user is None: return RedirectResponse("/login", status_code=302)
         try:
             from db import get_tenant_full_by_user_id
+            from reporting.sql_client import set_config_from_tenant, get_tenant_id
+            from reporting.demo_generator import generate_demo_dataset
             tenant = get_tenant_full_by_user_id(user["id"])
             if not tenant or not tenant.get("sql_server"):
-                return RedirectResponse("/tenant/demo?flash=error&flash_msg=no_sql", status_code=302)
-            import sys, os, uuid as _uuid, time as _time
-            src_dir = os.path.dirname(os.path.dirname(__file__))
-            if src_dir not in sys.path:
-                sys.path.insert(0, src_dir)
-            from reporting.sql_client import set_config_from_tenant
+                return RedirectResponse("/tenant/demo?flash=error&errmsg=SQL+nicht+konfiguriert", status_code=302)
             set_config_from_tenant(tenant)
-            # Parameter parsen
-            preset        = (form_data.get("preset") or "custom").strip()
-            user_count    = max(1, min(200, int(form_data.get("user_count", 10))))
-            printer_count = max(1, min(50,  int(form_data.get("printer_count", 4))))
-            queue_count   = max(1, min(5,   int(form_data.get("queue_count", 2))))
-            months        = max(1, min(36,  int(form_data.get("months", 12))))
+            form_data = await request.form()
+            user_count    = max(1, min(200, int(form_data.get("user_count",    10))))
+            printer_count = max(1, min(50,  int(form_data.get("printer_count",  4))))
+            queue_count   = max(1, min(5,   int(form_data.get("queue_count",    2))))
+            months        = max(1, min(36,  int(form_data.get("months",        12))))
             jobs_per_day  = max(0.5, min(15.0, float(form_data.get("jobs_per_day", 2.0))))
             languages     = form_data.getlist("languages") or ["de", "en"]
-            sites_raw     = form_data.get("sites", "Hauptsitz,Niederlassung")
+            sites_raw     = form_data.get("sites", "")
             sites         = [s.strip() for s in sites_raw.split(",") if s.strip()] or ["Hauptsitz"]
-            demo_tag      = (form_data.get("demo_tag") or "").strip()
-            import asyncio as _asyncio, functools as _functools
-            from reporting.demo_generator import generate_demo_dataset
+            demo_tag      = (form_data.get("demo_tag") or "").strip()[:80]
+            tid = get_tenant_id()
+            # Hintergrund-Task: sofort Redirect, Browser pollt /tenant/demo/status
+            # SUBPROCESS-Isolation: pyodbc/FreeTDS Segfaults töten nicht den Web-Server
             job_id = _uuid.uuid4().hex[:10]
             _demo_jobs[job_id] = {"status": "running", "started": _time.time()}
-            logger.info("Demo-Job %s gestartet", job_id)
-
             async def _bg_generate():
+                import json as _json, sys as _sys, os as _os
+                output_file = f"/tmp/demo_result_{job_id}.json"
                 try:
-                    result = await _asyncio.to_thread(
-                        _functools.partial(
-                            generate_demo_dataset,
-                            tenant_id         = tenant["printix_tenant_id"],
-                            user_count        = user_count,
-                            printer_count     = printer_count,
-                            queue_count       = queue_count,
-                            months            = months,
-                            languages         = languages,
-                            sites             = sites,
-                            demo_tag          = demo_tag or f"Demo {__import__('datetime').date.today()}",
-                            jobs_per_user_day = jobs_per_day,
-                        )
+                    # Tenant-Config und Parameter als JSON an den Worker-Prozess übergeben
+                    tenant_config = {
+                        "sql_server":        tenant.get("sql_server", ""),
+                        "sql_database":      tenant.get("sql_database", ""),
+                        "sql_username":      tenant.get("sql_username", ""),
+                        "sql_password":      tenant.get("sql_password", ""),
+                        "printix_tenant_id": tenant.get("printix_tenant_id", ""),
+                    }
+                    demo_params = {
+                        "tenant_id":         tid,
+                        "user_count":        user_count,
+                        "printer_count":     printer_count,
+                        "queue_count":       queue_count,
+                        "months":            months,
+                        "jobs_per_user_day": jobs_per_day,
+                        "languages":         languages,
+                        "sites":             sites,
+                        "demo_tag":          demo_tag or f"Demo {__import__('datetime').date.today()}",
+                    }
+                    env = dict(_os.environ)
+                    env["DEMO_TENANT_CONFIG"] = _json.dumps(tenant_config)
+                    env["DEMO_PARAMS"]        = _json.dumps(demo_params)
+                    env["DEMO_OUTPUT_FILE"]   = output_file
+                    proc = await _asyncio.create_subprocess_exec(
+                        _sys.executable, "/app/reporting/demo_worker.py",
+                        env=env,
+                        stdout=_asyncio.subprocess.PIPE,
+                        stderr=_asyncio.subprocess.PIPE,
                     )
-                    if result.get("error"):
-                        _demo_jobs[job_id] = {"status": "error", "error": str(result["error"])[:200]}
-                        logger.error("Demo-Job %s Fehler: %s", job_id, result["error"])
+                    stdout, stderr = await proc.communicate()
+                    if proc.returncode == 0:
+                        try:
+                            with open(output_file) as _f:
+                                result = _json.load(_f)
+                        except Exception:
+                            result = {}
+                        if result.get("error"):
+                            _demo_jobs[job_id] = {"status": "error", "error": str(result["error"])[:200]}
+                        else:
+                            _demo_jobs[job_id] = {"status": "done", "session_id": result.get("session_id", "")}
                     else:
-                        _demo_jobs[job_id] = {"status": "done", "session_id": result.get("session_id", "")}
-                        logger.info("Demo-Job %s abgeschlossen: %s", job_id, result.get("session_id"))
+                        # Subprocess fehlgeschlagen (auch Segfault = exit -11)
+                        err = ""
+                        try:
+                            with open(output_file) as _f:
+                                err = _json.load(_f).get("error", "")[:200]
+                        except Exception:
+                            pass
+                        if not err:
+                            err = (stderr.decode("utf-8", errors="replace") or "").strip()[-200:]
+                        if not err:
+                            err = f"Worker exit {proc.returncode}"
+                        logger.error("Demo-Worker exit %d: %s", proc.returncode, err)
+                        _demo_jobs[job_id] = {"status": "error", "error": err}
                 except Exception as exc:
+                    logger.error("bg_generate error: %s", exc)
                     _demo_jobs[job_id] = {"status": "error", "error": str(exc)[:200]}
-                    logger.error("Demo-Job %s Exception: %s", job_id, exc)
-
+                finally:
+                    try:
+                        _os.unlink(output_file)
+                    except Exception:
+                        pass
             _asyncio.create_task(_bg_generate())
             return RedirectResponse(f"/tenant/demo?job_id={job_id}", status_code=302)
         except Exception as e:
             logger.error("tenant_demo_generate error: %s", e)
-            return RedirectResponse(f"/tenant/demo?flash=error&flash_msg={str(e)[:120]}", status_code=302)
+            return RedirectResponse(f"/tenant/demo?flash=error&errmsg={str(e)[:100]}", status_code=302)
 
-    @app.post("/tenant/demo/rollback", response_class=HTMLResponse)
-    async def tenant_demo_rollback(request: Request):
+    @app.post("/tenant/demo/delete/{session_id}", response_class=HTMLResponse)
+    async def tenant_demo_delete(request: Request, session_id: str):
         user = require_login(request)
-        if user is None:
-            return RedirectResponse("/login", status_code=302)
-        form_data = await request.form()
-        demo_tag = (form_data.get("demo_tag") or "").strip()
+        if user is None: return RedirectResponse("/login", status_code=302)
         try:
             from db import get_tenant_full_by_user_id
+            from reporting.sql_client import set_config_from_tenant, get_tenant_id, execute_write
             tenant = get_tenant_full_by_user_id(user["id"])
             if not tenant or not tenant.get("sql_server"):
-                return RedirectResponse("/tenant/demo?flash=error&flash_msg=no_sql", status_code=302)
-            import sys, os
-            src_dir = os.path.dirname(os.path.dirname(__file__))
-            if src_dir not in sys.path:
-                sys.path.insert(0, src_dir)
-            from reporting.sql_client import set_config_from_tenant
+                return RedirectResponse("/tenant/demo?flash=error", status_code=302)
             set_config_from_tenant(tenant)
-            from reporting.demo_generator import rollback_demo
-            result = rollback_demo(tenant["printix_tenant_id"], demo_tag)
-            logger.info("Demo-Rollback: %s → %d Zeilen gelöscht", demo_tag, result.get("total_deleted", 0))
-            return RedirectResponse("/tenant/demo?flash=rollback_ok", status_code=302)
+            tid = get_tenant_id()
+            # Mark session as deleted and remove demo data rows
+            execute_write(
+                "UPDATE dbo.demo_sessions SET status='deleted' WHERE session_id=? AND tenant_id=?",
+                [(session_id, tid)]
+            )
+            # Purge demo rows from all tables for this session
+            for tbl in ("tracking_data","jobs","jobs_scan","jobs_copy","users","printers","networks"):
+                try:
+                    execute_write(
+                        f"DELETE FROM dbo.{tbl} WHERE demo_session_id=? AND tenant_id=?",
+                        [(session_id, tid)]
+                    )
+                except Exception:
+                    pass
+            # jobs_copy_details linked via job_id - purge via subquery
+            try:
+                execute_write(
+                    "DELETE FROM dbo.jobs_copy_details WHERE job_id IN "
+                    "(SELECT id FROM dbo.jobs_copy WHERE demo_session_id=? AND tenant_id=?)",
+                    [(session_id, tid)]
+                )
+            except Exception:
+                pass
+            return RedirectResponse("/tenant/demo?flash=deleted", status_code=302)
         except Exception as e:
-            logger.error("tenant_demo_rollback error: %s", e)
-            return RedirectResponse(f"/tenant/demo?flash=error&flash_msg={str(e)[:120]}", status_code=302)
+            logger.error("tenant_demo_delete error: %s", e)
+            return RedirectResponse(f"/tenant/demo?flash=error&errmsg={str(e)[:100]}", status_code=302)
+
 
     @app.post("/tenant/demo/rollback-all", response_class=HTMLResponse)
     async def tenant_demo_rollback_all(request: Request):

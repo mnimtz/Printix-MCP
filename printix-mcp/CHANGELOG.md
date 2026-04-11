@@ -1,74 +1,487 @@
 # Changelog
 
+## 3.9.0 (2026-04-11) — „Audit & Governance + Feedback-Ticketsystem"
+
+### Feature — Admin-Audit-Trail mit strukturiertem Objekttyp/-ID
+- Erweiterter `audit()`-Helper (`db.py`) um die neuen optionalen Felder `object_type`, `object_id` und `tenant_id` — rückwärts-kompatibel mit allen bestehenden Call-Sites. Alias `audit_write` zeigt auf dieselbe Funktion für klarere Semantik in neuen Aufrufen.
+- Idempotente Schema-Migration: `ALTER TABLE audit_log ADD COLUMN object_type/object_id/tenant_id` + zwei Indizes (`idx_audit_log_created`, `idx_audit_log_tenant`).
+- Bestehende Mutation-Endpunkte in `src/web/app.py` wurden angereichert — `approve_user`, `disable_user`, `delete_user`, `edit_user`, `reset_password` setzen jetzt `object_type="user"` und `object_id=<user_id>`, damit der Admin-Audit-Trail-Report strukturiert filterbar wird.
+- Neue Query-Funktion `query_audit_log_range()` in `db.py` (SQLite-seitig) mit Filter-Parametern: `start_date`, `end_date`, `tenant_id`, `action_prefix`, `limit`.
+
+### Feature — Report `audit_log` (Admin-Audit-Trail)
+- Neue Query-Funktion `query_audit_log()` in `src/reporting/query_tools.py` — liest den Audit-Trail aus der lokalen SQLite (kein MSSQL-Zugriff) und normalisiert die Felder auf `timestamp`, `actor`, `action`, `object_type`, `object_id`, `details`, `tenant_id`.
+- Dispatcher-Eintrag + Stufe-2-Listing (`STUFE2_QUERY_TYPES`) + Form-Label.
+- Preset `audit_log` (Icon 🛡️, Tag „Governance", monatlicher Schedule 8:30).
+- Output-Formate: HTML, PDF, XLSX, CSV.
+
+### Feature — Report `off_hours_print` (Druck außerhalb Geschäftszeiten)
+- Neue Query-Funktion `query_off_hours_print()` mit konfigurierbarem Geschäftszeit-Fenster (Default 07:00–18:00 + Wochenende = off-hours). Aggregiert pro Tag `off_hours_jobs` vs `in_hours_jobs`.
+- Preset `off_hours_print` (Icon 🌙, Tag „Compliance", monatlicher Schedule 8:45).
+
+### Feature — Feedback-/Feature-Request-Ticketsystem
+- Neue Tabelle `feature_requests` mit automatisch vergebenen Ticket-Nummern im Format `FR-YYYYMM-NNNN` (fortlaufend pro Monat).
+- Helper in `db.py`: `create_feature_request()`, `list_feature_requests()`, `get_feature_request()`, `update_feature_request_status()`, `count_feature_requests_by_status()`, `_next_ticket_no()`.
+- Neue Navigations-Registerkarte „Feedback" (zwischen „Hilfe" und „Logout", Desktop + Mobile-Drawer). Für Admins mit rotem Badge für neue Tickets.
+- Routen in `app.py`:
+  - `GET /feedback` — Listenansicht (User sehen eigene Tickets, Admins sehen alle)
+  - `POST /feedback/new` — neues Ticket anlegen (Titel, Kategorie, Beschreibung — E-Mail wird automatisch aus Session übernommen)
+  - `GET /feedback/{id}` — Detail-Ansicht mit Admin-Editor
+  - `POST /feedback/{id}/update` — Status/Priorität/Admin-Notiz aktualisieren (nur Admin)
+- 6 Status-Buckets: `new`, `planned`, `in_progress`, `done`, `rejected`, `later` — jeweils farbig gebadged.
+- 4 Kategorien: `feature` (💡), `bug` (🐞), `question` (❓), `other` (📌).
+- 4 Prioritäten: `low`, `normal`, `high`, `critical`.
+- Alle Aktionen schreiben in den Audit-Log (`object_type="feature_request"`).
+- Zwei neue Templates: `feedback.html` (Listenansicht + Formular) und `feedback_detail.html` (Detail + Admin-Editor).
+
+### i18n — 12 Sprachen (~42 Feedback-Keys × 12 = 504 neue Strings)
+- Neue Keys: `nav_feedback`, `feedback_title`, `feedback_intro`, `feedback_new`, `feedback_f_{title,title_ph,category,description,description_ph,email}`, `feedback_submit`, `feedback_{my,all}_tickets`, `feedback_col_{ticket,title,category,user,status,created}`, `feedback_view`, `feedback_back`, `feedback_no_tickets`, `feedback_cat_{feature,bug,question,other}`, `feedback_status_{new,planned,in_progress,done,rejected,later}`, `feedback_admin_note`, `feedback_admin_actions`, `feedback_priority`, `feedback_prio_{low,normal,high,critical}`, `feedback_save`, `feedback_flash_created`.
+- Die v3.8.1 bereits angelegten Audit-Log- und Off-Hours-Keys werden in diesem Release produktiv genutzt (Vorziehen hat sich gelohnt — keine neue Übersetzungs-Welle nötig).
+
+### Touched Files
+- `src/db.py` — Audit-Schema-Migration, erweiterter `audit()`-Helper, `query_audit_log_range()`, `feature_requests`-Tabelle + 5 Helper.
+- `src/web/app.py` — 4 neue Feedback-Routen, `t_ctx()` um `feedback_new_count` erweitert, 5 existierende `audit()`-Calls mit `object_type`/`object_id` angereichert.
+- `src/web/templates/base.html` — Nav-Link „Feedback" (Desktop + Mobile) mit Admin-Badge.
+- `src/web/templates/feedback.html` (neu), `feedback_detail.html` (neu).
+- `src/reporting/query_tools.py` — `query_audit_log()`, `query_off_hours_print()`, Dispatcher-Einträge.
+- `src/reporting/preset_templates.py` — `audit_log`- und `off_hours_print`-Presets.
+- `src/web/reports_routes.py` — `QUERY_TYPE_LABELS` + `STUFE2_QUERY_TYPES` erweitert.
+- `src/web/i18n.py` — ~504 neue Feedback-Keys über 12 Sprachen.
+- `config.yaml`, `run.sh`, `src/server.py` — v3.8.1 → v3.9.0.
+
+
+## 3.8.1 (2026-04-11) — „Visual Upgrade + Heatmap"
+
+### Fix — v3.8.0 `sensitive_documents` SQL-Fehler „Invalid column name 'filename'"
+- Problem: In Bestandsinstallationen existierte `reporting.v_jobs` bereits (aus v3.7.x), aber ohne `filename`-Spalte. Der Report fiel mit `(207, "Invalid column name 'filename'.")` um, obwohl die neue View-Definition die Spalte enthält — die stale View wurde nicht überschrieben.
+- Fix: Neue Laufzeit-Column-Detection via `sys.columns` + `OBJECT_ID()`. `query_sensitive_documents()` prüft für jede View, ob die `filename`-Spalte existiert. Fehlt sie, wird direkt auf `dbo.jobs.name` zurückgegriffen (für Scans wird der Scan-Block einfach deaktiviert, weil `dbo.jobs_scan` gar kein Dateinamen-Feld hat).
+- Damit läuft der Compliance-Scan auch auf Installationen, bei denen der Schema-Refresh noch nicht gelaufen ist.
+
+### Feature — Neuer Report `hour_dow_heatmap` (Stunde × Wochentag)
+- Visuelle Heatmap der Druckaktivität, aggregiert nach Stunde (0–23) × Wochentag (Mo–So). Zeigt auf einen Blick Arbeitsmuster, Stoßzeiten und Off-Hours-Druck.
+- Neue Query-Funktion `query_hour_dow_heatmap(start_date, end_date, site_id, user_email)` in `src/reporting/query_tools.py`. Nutzt `SET DATEFIRST 7` + `DATEPART(weekday/hour, finished_at)` für deterministisches DoW-Ordering, gruppiert nach `(dow, hour)` und liefert zusätzlich Color- und Mono-Spalten-Breakdown.
+- Neuer Report-Builder `build_hour_dow_heatmap_report()` in `src/reporting/report_engine.py` — baut KPI-Strip (Spitzen-Zeitfenster, Top-3 Slots), SVG-Heatmap-Chart und Top-Slots-Tabelle.
+- Neuer Chart-Typ `heatmap` im SVG-Renderer: 24 × 7 Zellen mit quadratischer Farbskala, Achsenlabels DoW/Stunde, legendenfähig.
+- Preset `hour_dow_heatmap` (Tag „Analyse", Icon 🗓️, monatlicher Schedule-Vorschlag).
+
+### i18n — 12 Sprachen (~14 neue Keys × 12 = 168)
+- `rpt_type_hour_dow_heatmap`, `rpt_eng_title_hour_dow_heatmap`, `rpt_eng_chart_hour_dow`, `rpt_eng_chart_color_vs_bw`, `rpt_eng_dow_mon..sun`, `rpt_eng_kpi_peak_slot`, `rpt_eng_section_top_slots`, `rpt_eng_col_weekday`, `rpt_eng_col_hour`, `preset_name_hour_dow_heatmap`, `preset_desc_hour_dow_heatmap`, `preset_tag_Analyse`.
+- Außerdem sind die in v3.9.0 benötigten Audit-Log- und Off-Hours-Keys bereits mit angelegt (Vorziehen der i18n-Lieferung), damit v3.9.0 beim Rollout keinerlei Übersetzungen mehr braucht.
+
+### Touched Files
+- `src/reporting/query_tools.py` — `query_hour_dow_heatmap()`, Dispatcher-Zweig, `query_sensitive_documents()`-Fix.
+- `src/reporting/report_engine.py` — `build_hour_dow_heatmap_report()`, Dispatcher-Zweig, Heatmap-SVG-Renderer.
+- `src/reporting/preset_templates.py` — `hour_dow_heatmap`-Preset.
+- `src/web/i18n.py` — ~480 neue Keys über 12 Sprachen (v3.8.1 + v3.9.0 Vorlage).
+- `config.yaml`, `run.sh`, `src/server.py` — v3.8.0 → v3.8.1.
+
+
+## 3.8.0 (2026-04-11) — „Sensible Dokumente + Demo-Daten"
+
+### Feature — Neuer Compliance-Report: `sensitive_documents`
+- Scannt Druck- und Scan-Jobs per `LIKE`-Match auf dem Dateinamen nach sensiblen Begriffen — zugeschnitten auf klassische Compliance-Kategorien: **HR** (Gehaltsabrechnung, Arbeitsvertrag, Kündigung, Personalakte …), **Finanzen** (Kreditkartenabrechnung, IBAN, Kontoauszug, Steuererklärung …), **Vertraulich** (VERTRAULICH, Confidential, NDA, Geheim), **Gesundheit** (Krankmeldung, Arztbrief, AU), **Recht** (Klageschrift, Anwaltsschreiben, Mahnbescheid) und **PII** (Personalausweis, Reisepass, SVN).
+- Neue Query-Funktion `query_sensitive_documents(start_date, end_date, keyword_sets, custom_keywords, site_id, user_email, include_scans, page, page_size)` in `src/reporting/query_tools.py`. Verarbeitet dynamisch OR-verknüpfte `LIKE`-Klauseln (parametrisiert, Cap bei 40 Terms) über `UNION ALL(v_jobs, v_jobs_scan)` und annotiert jedes Ergebnis mit der gefundenen Keyword-Treffer-Markierung.
+- Neuer Helper `_resolve_sensitive_keywords(sets, custom)`: 6 vordefinierte Keyword-Sets + freie Eingabe, Dedup + Lowercasing + Length-Cap.
+- Dispatcher-Eintrag in `run_query()`: `sensitive_documents` → `query_sensitive_documents(**filtered_kwargs)`.
+- Neues Preset `sensitive_documents` mit Tag „Compliance", Icon 🛡️, Schedule-Vorschlag monatlich am 1. um 08:00.
+- Web-Formular (`reports_form.html`): neue Query-Params-Gruppe `qp-sensitive_documents` mit 6 Keyword-Set-Checkboxen + Freitextfeld + „Scan-Jobs einbeziehen"-Checkbox. Hidden-Field-Sync beim Submit.
+- `reports_routes.py`: `_parse_csv_list()`-Helper, `_merge_query_params()` erweitert, Form-Felder (`keyword_sets`, `custom_keywords`, `include_scans`) in `reports_new_post` + `reports_edit_post`.
+- `QUERY_TYPE_LABELS` + `STUFE2_QUERY_TYPES` um `sensitive_documents` ergänzt — der generische Stufe-2-Fallback in `generate_report()` rendert den Report als Tabelle, keine dedizierte Builder-Funktion nötig.
+
+### Feature — Demo-Generator mit sensiblen Beispieldaten
+- Neue Konstanten `_SENSITIVE_PRINT_TEMPLATES` (25) und `_SENSITIVE_SCAN_TEMPLATES` (12) mit realistischen Dateinamen pro Keyword-Set.
+- `_filename_print()` und `_filename_scan()` picken mit Wahrscheinlichkeit `_SENSITIVE_RATIO = 0.08` aus dem sensiblen Pool — liefert bei einem typischen 12-Monats-Dataset mehrere Hundert Treffer für den Compliance-Scan.
+- `_filename_print()` nutzt jetzt den User-Slug als Template-Variable `{user}` — realistisch für Gehaltsabrechnungen/Arbeitsverträge.
+
+### Schema-Fix — `demo.jobs_scan.filename` fehlte
+- Bisher versuchte `_gen_scan_jobs()` bereits `filename` in `demo.jobs_scan` zu schreiben, obwohl die Tabellendefinition die Spalte nicht enthielt. Dieser latente Fehler war nur noch nicht aufgefallen, weil kein Report die Spalte las.
+- `SCHEMA_STATEMENTS`: neue Tabellendefinition inkl. `filename NVARCHAR(500) NULL` + idempotente `ALTER TABLE ADD filename` Migration für bestehende Installationen.
+
+### Schema-Fix — `reporting.v_jobs` / `reporting.v_jobs_scan` ohne `filename`
+- `v_jobs`: Union aus `dbo.jobs.name AS filename` und `demo.jobs.filename` — Compliance-Report findet jetzt echte Druck-Dateinamen.
+- `v_jobs_scan`: `dbo.jobs_scan` hat keine Filename-Spalte → `CAST(NULL AS NVARCHAR(500)) AS filename`; `demo.jobs_scan.filename` wird normal mitgeführt.
+- Beide Views werden per `CREATE OR ALTER VIEW` idempotent aktualisiert; `setup_schema()` triggert automatisch `invalidate_view_cache()`.
+
+### i18n — 12 Sprachen (~240 neue Keys)
+- Neue Labels: `rpt_type_sensitive_documents`, `rpt_eng_title_sensitive_documents`, `preset_tag_Compliance`, `preset_name_sensitive_documents`, `preset_desc_sensitive_documents`, `rpt_sensitive_keyword_sets[_hint]`, `rpt_sensitive_custom_keywords[_placeholder|_hint]`, `rpt_sensitive_include_scans`, `sens_kw_set_{hr,finance,confidential,health,legal,pii}`, `rpt_eng_col_{filename,matched_keyword,source}`.
+- Komplett übersetzt für **de, en, fr, it, es, nl, no, sv, bar, hessisch, oesterreichisch, schwiizerdütsch**.
+
+### Touched Files
+- `src/reporting/query_tools.py` — `query_sensitive_documents()`, `_resolve_sensitive_keywords()`, `SENSITIVE_KEYWORD_SETS`, Dispatcher-Zweig.
+- `src/reporting/preset_templates.py` — `sensitive_documents`-Preset.
+- `src/reporting/demo_generator.py` — sensitive Templates, `_filename_print/_scan`-Bias, `demo.jobs_scan.filename` Schema + Migration, `v_jobs` + `v_jobs_scan` Views.
+- `src/web/reports_routes.py` — `QUERY_TYPE_LABELS`, `STUFE2_QUERY_TYPES`, `_parse_csv_list()`, `_merge_query_params()`, Form-Felder.
+- `src/web/templates/reports_form.html` — `qp-sensitive_documents`-Block + JS.
+- `src/web/i18n.py` — 240 neue Keys über 12 Sprachen.
+- `config.yaml`, `run.sh`, `src/server.py` — v3.7.11 → v3.8.0.
+
+
+## 3.7.11 (2026-04-11)
+
+### Fix — `run_query()`-Dispatcher stolperte über zusätzliche Preset-Kwargs
+- Konkreter Fehler: Custom-Report „Top 5" (query_type=`top_users`) lieferte Preview-Fehler `query_top_users() got an unexpected keyword argument 'group_by'`. Analog zum Trend-Fix in v3.7.10 gab es eine Signatur-Diskrepanz, dieses Mal zwischen den im Stufe-2-Template hinterlegten Layout-Keys (`group_by`, `order_by`, `preset_id`, …) und den konkreten Query-Funktionen.
+- Neuer Helper `_filter_kwargs_to_sig(fn, kwargs)`: schneidet via `inspect.signature` alle Keys ab, die die Ziel-Query-Funktion nicht kennt, und loggt sie auf Debug-Level. Funktionen mit `**kwargs` werden unverändert durchgereicht.
+- Alle 17 Dispatch-Zweige in `run_query()` wurden umgestellt — print_stats, cost_report, top_users, top_printers, trend, anomalies, printer_history, device_readings, job_history, queue_stats, user_detail, user_copy_detail, user_scan_detail, workstation_overview, workstation_detail, tree_meter, service_desk.
+- Damit sind alle Preset-basierten Reports immun gegen "unexpected keyword argument"-Fehler, sobald ein Preset-Autor einen zusätzlichen Key in `query_params` ablegt (z.B. aus UI-Feldern oder Layout-Metadaten, die nicht zur SQL-Query gehören).
+- Verifiziert im laufenden Container: Filter-Test + Dispatch-Test mit dem exakten fehlschlagenden Preset (`top_users` mit `group_by` + `order_by`) — Filter entfernt beide Keys, Dispatch liefert stub-Result ohne TypeError.
+
+### Touched Files
+- `src/reporting/query_tools.py` — `_filter_kwargs_to_sig()` Helper, alle 17 `run_query()`-Dispatch-Zweige.
+- `config.yaml`, `run.sh`, `src/server.py` — v3.7.10 → v3.7.11.
+
+
+## 3.7.10 (2026-04-11)
+
+### Fix 1 — Trend-Preview akzeptierte kein `start_date`/`end_date`
+- `query_tools.run_query(query_type="trend", …)` leitete die Preset-Keys `start_date`/`end_date` direkt an `query_trend()` weiter, das aber nur `period1_start`, `period1_end`, `period2_start`, `period2_end` kennt → `TypeError: unexpected keyword argument 'start_date'`.
+- Neuer Helper `_translate_trend_kwargs()` konvertiert `start_date/end_date` in ein Period-1-Fenster und legt automatisch ein gleich langes Period-2-Fenster unmittelbar davor an. Unbekannte Keys wie `group_by` werden gefiltert, Kostenparameter (`cost_per_sheet`, `cost_per_mono`, `cost_per_color`) werden durchgereicht.
+- Betroffen: alle Stufe-2-Presets mit `query_type=trend` (z.B. "Wöchentlicher Drucktrend").
+
+### Fix 2 — Stufe-2-Reports zeigten rohe DB-Spaltennamen als Tabellen-Header
+- Der generische Fallback in `report_engine.generate_report()` übernahm `list(data[0].keys())` direkt als `columns` → Tabellen erschienen mit `job_id`, `print_time`, `user_email`, `page_count`, `color`, … statt mit lesbaren Überschriften.
+- Neue Mapping-Tabelle `COLUMN_LABELS` (de + en, ~70 Spalten) plus `_translate_col(col, lang)` mit Fallback-Kette (lang → Dialekt-Fallback → en → Title-Case).
+- `generate_report()` nimmt nun `lang: Optional[str]` entgegen; `reports_routes.reports_preview_get` reicht `tc["lang"]` durch, sodass HTML/PDF/XLSX-Preview in der aktiven UI-Sprache rendern.
+- Beispiel `job_history` (DE): `Auftrags-ID · Druckzeit · Benutzer-E-Mail · Benutzer · Drucker · Site · Seiten · Farbe · Status` statt der Raw-Namen.
+- Verifiziert mit 9 Test-Cases inkl. Dialekt-Fallback (bar→de), fehlendem Mapping (fr→en) und unbekannter Spalte (Title-Case).
+
+### Feature — MCP-Tool `printix_save_report_template` unterstützt Custom-Logo
+- Neue optionale Parameter `logo_base64`, `logo_mime`, `logo_url`. Auflösungs-Logik identisch zu `_resolve_logo` im Web-Formular: Base64 hat Vorrang vor URL, MIME wird auf `image/*` geprüft, Rohgrößen-Cap bei 1 MB, Fehler werden als `{"error": …}` zurückgegeben.
+- Damit können Reports, die per AI-Chat (claude.ai, ChatGPT) über das MCP-Tool angelegt werden, ein benutzerdefiniertes Logo im Report-Header führen — vorher ging das nur über die Web-UI.
+- Kein Breaking Change: alle neuen Parameter haben Defaults, bestehende Aufrufe bleiben gültig.
+
+### Touched Files
+- `src/reporting/query_tools.py` — `_translate_trend_kwargs()`, `run_query()`-Dispatch.
+- `src/reporting/report_engine.py` — `COLUMN_LABELS`, `_LANG_FALLBACK`, `_translate_col()`, `generate_report(lang=…)`-Signatur + Fallback-Branch.
+- `src/web/reports_routes.py` — Preview-Route reicht `tc["lang"]` durch.
+- `src/server.py` — `printix_save_report_template` mit Logo-Parametern.
+- `config.yaml`, `run.sh`, `src/server.py` — v3.7.9 → v3.7.10.
+
+
+## 3.7.9 (2026-04-11)
+
+### Bugfix A — Stufe-2 Report-Templates erzeugten immer einen Druckvolumen-Report
+
+- **Root cause:** `QUERY_TYPE_LABELS` in `web/reports_routes.py` enthielt nur 6 Einträge (Stufe 1). Presets wie "Workstation-Übersicht", "Service Desk Report" oder "Drucker Service-Status" setzten zwar den korrekten `query_type` (z.B. `service_desk`, `workstation_overview`), aber beim Rendern des Form-Templates `reports_form.html` hatte das `<select name="query_type">` nur Optionen für die 6 Stufe-1-Typen. Der Browser wählte stillschweigend die erste Option (`print_stats`) — das Template wurde mit falschem `query_type` gespeichert. Zusätzlich war der `scheduler._run_report_job()` auf 6 hardcoded Query-Funktionen limitiert, sodass auch manuell gesetzte Stufe-2-Templates bei der Ausführung mit "Unbekannter Query-Typ" kommentarlos abbrachen.
+- **Fix 1 — QUERY_TYPE_LABELS erweitert:** Alle 17 Query-Typen (6 Stufe 1 + 11 Stufe 2) sind jetzt im Dropdown gelistet. Neue Stufe-2-Einträge: `printer_history`, `device_readings`, `job_history`, `queue_stats`, `user_detail`, `user_copy_detail`, `user_scan_detail`, `workstation_overview`, `workstation_detail`, `tree_meter`, `service_desk`.
+- **Fix 2 — `_merge_query_params()` Helper:** Neue Hilfsfunktion im `reports_routes.py` sammelt `query_params` aus drei Quellen: (a) bestehende Template-Parameter beim Edit, (b) Preset-JSON `preset_qp_json` beim Neuanlage-Flow, (c) die Form-Felder (start_date, end_date, group_by, limit, cost_*). Stufe-2-spezifische Parameter (z.B. `printer_id`, `user_id`, `network_id`) bleiben dadurch erhalten, auch wenn das Form nur die Basisfelder anzeigt.
+- **Fix 3 — Hidden `preset_qp_json` Field:** `reports_form.html` enthält jetzt ein verstecktes `<input name="preset_qp_json">`, das beim Edit mit `report.query_params | tojson` befüllt wird. Beim Speichern werden dadurch alle originalen Parameter weitergereicht, auch wenn das UI sie nicht kennt.
+- **Fix 4 — Scheduler-Dispatch:** `scheduler._run_report_job()` und `scheduler.run_report_now()` rufen jetzt beide den universellen `query_tools.run_query(query_type=…, **params)`-Dispatcher auf (v3.7.9 `run_query` unterstützt alle 17 Typen). Der alte 6-Entry-`query_fn`-Dict wurde ersatzlos gestrichen.
+- **Fix 5 — Generic Fallback im `generate_report()`:** Für Stufe-2-Query-Typen ohne eigenes Jinja-Template fällt die Engine auf den generic-Section-Builder zurück. Neu: Der Titel wird aus `rpt_eng_title_<query_type>` per i18n aufgelöst — ohne i18n-Key wird `query_type.replace("_", " ").title()` als Fallback genommen.
+
+### Bugfix B — Logo tauchte weder in PDF- noch in XLSX-Anhängen auf
+
+- **Root cause:** `render_pdf()` und `render_xlsx()` hatten gar keine Logo-Behandlung. Nur `render_html()` rief `_derive_logo_src()` auf. Der HTML-Pfad funktionierte bereits, aber E-Mail-Anhänge blieben ohne Logo.
+- **Fix 1 — `render_pdf()` Logo-Embedding:** Die Funktion zeichnet jetzt explizit einen Header-Hintergrund-Rect via `pdf.rect(..., style="F")` und platziert das Logo rechtsbündig im 19pt-hohen Header. Das Base64-Datum wird aus `layout.logo_base64` dekodiert (inkl. `data:image/...;base64,`-Strip) und via `pdf.image(BytesIO(...))` mit `logo_h=14`, `logo_w=28` eingebettet.
+- **Fix 2 — `render_xlsx()` Logo-Embedding:** Oben rechts (Ankerzelle E1) wird das Logo per `openpyxl.drawing.image.Image` eingesetzt. Die Höhe wird auf 50px begrenzt, die Breite aus dem Originalverhältnis berechnet. Fehlerhaftes Base64 wird abgefangen und geloggt, ohne den Report zu brechen.
+- **Fix 3 — HA-Variante `render_html()` (nur HA-Deploy):** Die ältere HA-Fassung von `render_html()` las nur `layout.logo_url` und ignorierte `logo_base64`. Beim User-Upload wurde daher nie ein Logo in der HTML-Vorschau angezeigt. Die HA-Seite baut jetzt — analog zu `_derive_logo_src()` auf macOS — eine `data:<mime>;base64,…`-URI aus `logo_base64`/`logo_mime` und übergibt sie dem Jinja-Template als `logo_url`. (macOS-Quelle nutzt bereits `_derive_logo_src()` und ist unverändert.)
+
+### i18n
+
+- 264 neue Übersetzungen (11 × 12 × 2): Für jede der 12 UI-Sprachen (de, en, fr, it, es, nl, no, sv, bar, hessisch, oesterreichisch, schwiizerdütsch) wurden 11 neue `rpt_type_*` Keys (Dropdown-Labels im Report-Form) und 11 neue `rpt_eng_title_*` Keys (Report-Titel im generierten HTML/PDF/XLSX) hinzugefügt.
+
+### Banner
+
+- v3.7.8 → v3.7.9 in `config.yaml`, `run.sh`, `src/server.py`.
+
+## 3.7.8 (2026-04-11)
+
+### Demo-Seite: Ladezeit-Fix
+
+- **Root cause:** Der `/tenant/demo`-Handler rief `get_demo_status()` bzw. `query_fetchall()` synchron im FastAPI-Event-Loop auf. Jede Azure-SQL-Round-Trip-Zeit (Auto-Pause/Wake-up + Netz-Latenz) blockierte damit den gesamten Worker — die Seite brauchte mehrere Sekunden bis zum ersten Byte, und parallele Requests (z.B. MCP-Calls) stallten mit.
+- **Fix 1 — Async-Offload:** Die blockierende SQL-Abfrage läuft jetzt in `asyncio.to_thread(...)`. Der Event-Loop bleibt frei, FastAPI kann andere Requests parallel bedienen. Python 3.11 propagiert `ContextVar` über `copy_context` automatisch durch, d.h. Tenant-Config (`set_config_from_tenant`) bleibt im Worker-Thread gültig.
+- **Fix 2 — TOP 20:** Die SELECT-Abfrage auf `demo.demo_sessions` / `dbo.demo_sessions` wurde auf `SELECT TOP 20 … ORDER BY created_at DESC` begrenzt. Die Demo-Seite zeigt sowieso nur die jüngsten Sessions, und die alte Abfrage konnte bei langen Demo-Historien hunderte Zeilen aus Azure SQL ziehen.
+- **Abdeckung:** Gilt für beide Code-Pfade (HA: `get_demo_status()` in `demo_generator.py` → `demo.demo_sessions`, macOS-Source: Inline-Query in `web/app.py` → `dbo.demo_sessions`). Die beiden Pfade divergieren architektonisch (unterschiedliches Schema), haben aber jetzt dieselben Performance-Charakteristika.
+
+### Banner
+
+- v3.7.7 → v3.7.8 in `config.yaml`, `run.sh`, `src/server.py`.
+
+---
+
+## 3.7.7 (2026-04-11)
+
+### Reports-Formular: Logo-URL → Datei-Upload
+
+- **Warum:** Die bisherige Logo-URL war ungünstig in der Praxis — Firmenlogos liegen selten unter einer öffentlich erreichbaren URL, und externe Bilder werden in PDF-Exports oft blockiert. Das Engine-Backend unterstützte `layout.logo_base64` bereits seit v3.8.0, aber das Formular bot nur ein URL-Feld.
+- **UI:** Das URL-Textfeld wurde durch einen Datei-Upload (`<input type="file" accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp">`) ersetzt. Der Client liest das Bild per `FileReader.readAsDataURL()`, extrahiert den Base64-Teil und den MIME-Typ und schreibt beides in versteckte Form-Felder (`logo_base64`, `logo_mime`) — kein Multipart nötig. Preview und "Logo entfernen"-Button werden sofort aktualisiert.
+- **Größenlimit:** 512 KB Rohgröße (client-seitig per JS geprüft, server-seitig per Cap in `_resolve_logo()` als Doppelsicherung — Base64 ist ~1.33× → ~683 KB bleibt unter Starlette's 1 MB Form-Limit).
+- **Rückwärtskompatibilität:** Bestehende Templates mit `logo_url` werden weiter unterstützt — `_resolve_logo()` behält die URL als Legacy-Fallback wenn kein neuer Upload kommt. Der Engine-Renderer bevorzugt ohnehin `logo_base64` über `logo_url`.
+- **Backend:** Neuer Helper `_resolve_logo()` in `reports_routes.py` entscheidet anhand der Form-Felder (`logo_remove`, `logo_base64`, `logo_mime`, `logo_url`), welche Werte ins Layout wandern. Beide POST-Handler (`/reports/new`, `/reports/{id}/edit`) nutzen ihn.
+- **i18n:** `rpt_logo` und `rpt_logo_hint` in allen 12 Sprachen (de/en/fr/it/es/nl/no/sv + bar/hessisch/oesterreichisch/schwiizerdütsch) auf Upload-Formulierung umgestellt. Neuer Key `rpt_logo_remove` für den Entfernen-Button in jeder Sprache.
+
+### Banner
+
+- v3.7.6 → v3.7.7 in `config.yaml`, `run.sh`, `src/server.py`.
+
+---
+
+## 3.7.6 (2026-04-11)
+
+### Reports: "Datum"-Spalte zeigte E-Mail bei Gruppierung nach Benutzer/Drucker/Standort (Fix)
+
+- **Root cause:** `generate_report()` reichte den `group_by`-Parameter nicht an `build_print_stats_report()` und `build_cost_report_report()` weiter. Beide Build-Funktionen verwendeten ihren Default `group_by="day"` und beschrifteten die erste Spalte hardcoded mit "Datum" — auch dann, wenn die SQL-Query nach `user`, `printer` oder `site` gruppiert hatte und die Werte E-Mails, Druckernamen oder Standorte enthielten. Im Screenshot von "MNI - Druckvolumen-Report" zeigte die "Datum"-Spalte deshalb Werte wie `alessandro.weber@…`.
+- **Fix:** `generate_report(query_params=...)` neuer Parameter, der `group_by` extrahiert und an die Build-Funktionen weiterreicht. `build_cost_report_report()` bekam denselben `group_by`-Parameter und ein `period_col_label`-Mapping (Datum/Woche/Monat/Benutzer/Drucker/Standort). Beide Build-Funktionen formatieren die erste Spalte jetzt nur dann mit `.split("T")[0]` wenn `group_by` ein Datum ist.
+- **Chart-Label-Truncation:** für nicht-datumsbasierte Gruppierung wurde die Truncation von 10 auf 24 Zeichen erhöht — vorher zeigte die X-Achse `alessandro` und `andreas.we`, jetzt der vollständige Name. Der Chart-Achsentitel verwendet jetzt das dynamische `col_label` statt hardcoded "Periode".
+- **Callsites:** alle drei `generate_report()`-Aufrufer (`scheduler._run_report_job`, `scheduler.run_report_now`, `web/reports_routes` Preview) reichen jetzt `query_params=params` weiter.
+
+### Reports: Anzeigename statt E-Mail bei `group_by="user"`
+
+- **Root cause:** `query_print_stats` selektierte für `group_by="user"` direkt `u.email` als `period`. Die Reports zeigten dadurch immer die E-Mail-Adresse statt des lesbaren Namens.
+- **Fix:** `group_expr` und `label_col` verwenden jetzt `COALESCE(u.name, u.email)` — fällt nur dann auf E-Mail zurück, wenn kein Anzeigename vorhanden ist. Reports zeigen jetzt "Hans Müller" statt "hans.mueller@printix-demo.example".
+
+### Demo-Daten: E-Mail-Domain stabil und ohne Doppelpräfix
+
+- **Root cause:** `demo_generator.py` baute `email_domain = f"demo-{demo_tag.lower().replace(' ','')}.invalid"`. Der Default-`demo_tag` ist aber `"DEMO_<timestamp>"` (oder die UI vergibt `"Demo <date>"`), wodurch die Domain zu `demo-demo20260411103045.invalid` wurde — doppeltes "demo-"-Präfix und unschön.
+- **Fix:** stabile Demo-Domain `printix-demo.example` (RFC 2606 reservierter `.example` TLD ist eindeutig als Demo erkennbar und kollidiert garantiert mit keiner echten Domain). Demo-User haben jetzt sauber `hans.mueller@printix-demo.example`.
+
+### Banner
+
+- v3.7.5 → v3.7.6 in `config.yaml`, `run.sh`, `src/server.py`.
+
+---
+
+## 3.7.5 (2026-04-11)
+
+### Reports-Seite: SQL-Konfig-Warnung obwohl SQL konfiguriert (Fix)
+
+- **Root cause:** `_reporting_available()` in `src/web/reports_routes.py` rief `is_configured()` auf, ohne vorher den `current_sql_config` ContextVar zu setzen. Im Web-Prozess (Port 8080) gibt es **keine** automatische ContextVar-Befüllung — die `BearerAuthMiddleware` läuft nur im MCP-Server-Prozess (Port 8765). Folge: `/reports` zeigte dauerhaft "SQL-Server nicht konfiguriert", obwohl die Tenant-Settings vollständig gepflegt waren.
+- **Fix:** `_reporting_available(tenant)` nimmt jetzt den Tenant-Datensatz entgegen und ruft `set_config_from_tenant(tenant)` vor `is_configured()` auf. Callsite in `reports_list_get` übergibt den bereits geladenen `tenant`-Datensatz.
+
+### Auth-Logs erscheinen jetzt in `tenant_logs` (Reihenfolgen-Fix)
+
+- **Root cause:** `BearerAuthMiddleware.__call__()` in `src/auth.py` rief `logger.debug("Auth OK: Tenant ...")` **vor** `current_tenant.set(tenant)`. Der `_TenantDBHandler` liest `current_tenant` per ContextVar, um den Log in die richtige `tenant_logs`-Zeile zu schreiben — war noch leer, also wurde der Record verworfen. Die Auth-Kategorie zeigte deswegen "0 lines" im Log-Viewer trotz aktiver Sessions.
+- **Fix:** Reihenfolge umgedreht — erst `current_tenant.set()` + `current_sql_config.set()`, dann `logger.debug("Auth OK ...")`. Kommentar an der Stelle dokumentiert die Abhängigkeit.
+
+### demo_worker Subprozess-Logs sichtbar in Docker stdout
+
+- **Root cause:** `src/reporting/demo_worker.py` läuft als isolierter `subprocess.Popen`-Prozess (Segfault-Schutz). Er erbte zwar Pipes, hatte aber selbst kein `logging.basicConfig()` — alle `reporting.sql_client`/`reporting.demo_generator` Logs landeten im Nirgendwo. Während der Demo-Generierung gab es deshalb keinerlei Fortschrittsanzeige in `ha addons logs`.
+- **Fix:** `demo_worker.py` ruft `logging.basicConfig(stream=sys.stdout, force=True)` direkt nach den Imports, eigener Logger `printix.demo_worker` mit Lifecycle-Logs (`gestartet`, `Starte generate_demo_dataset`, `fertig: session_id=…`, `abgebrochen: …`).
+
+### Banner
+
+- run.sh + server.py auf v3.7.5 nachgezogen.
+
+
+## 3.7.4 (2026-04-11)
+
+### Performance: Demo-Daten-Generierung — Multi-Row VALUES Bulk Insert (kritischer Fix)
+
+- **Root cause:** `pymssql.executemany()` führte für jede Zeile einen eigenen TDS-Round-Trip aus (kein `fast_executemany` in pymssql 2.3.13). Bei ~45.000 Print-Jobs × Azure SQL Internet-Latenz hing die Demo-Generierung Stunden bzw. unbegrenzt — der Worker-Prozess blockierte zuletzt minutenlang in `poll()` mit unbestätigten TCP-Bytes im tx_queue.
+- **Fix:** Neuer `_execute_many_multirow()` Helper in `src/reporting/sql_client.py`. Erkennt aus dem SQL-Template die Spaltenzahl, baut ein einziges `INSERT … VALUES (?,?,…),(?,?,…),…` Statement pro Batch (`rows_per_stmt = min(1000, 2000 // num_cols)`) und sendet die geflatteten Parameter in **einem** Round-Trip — statt N. Das reduziert ~45k Round-Trips auf ~450 (Faktor 100×).
+- `execute_many()` branched jetzt auf `_prefer_pymssql()`: pymssql nimmt den Multirow-Pfad, pyodbc behält weiterhin `fast_executemany`. Logging: "Bulk-Insert (pymssql multirow): N Zeilen à K Spalten" pro Batch.
+
+### Logging: `printix.web` Logs jetzt sichtbar in Docker stdout
+
+- **Root cause:** `src/web/run.py` rief nie `logging.basicConfig()` auf. Der `printix.web` Logger hatte deshalb im Web-Prozess **keinen** StreamHandler — die einzige Senke war `_WebTenantDBHandler` (SQL-Tabelle `tenant_logs`). Solange SQL hing, gingen alle Web-Logs (inkl. Demo-Job-Lifecycle, Auth-Events, Reports-Aufrufe) ins Vakuum.
+- **Fix:** `run.py` ruft jetzt **vor** jeglicher Logger-Erstellung `logging.basicConfig(level=…, format=…, stream=sys.stdout, force=True)`. Damit erscheinen alle Module-Logs (`printix.web`, `printix.web.sql`, `printix.web.auth`, etc.) zuverlässig in `ha addons logs local_printix-mcp` — auch wenn die SQL-Senke gerade nicht antwortet.
+
+### Banner
+
+- run.sh Banner und Header-Kommentar von v3.5.x auf v3.7.4 nachgezogen.
+
+## 3.7.3 (2026-04-11)
+
+### Bugfixes: Mail-Versand (Resend 422), Demo-Namen, Hintergrund-Hinweise
+
+Drei Probleme aus dem laufenden Betrieb der "Monatlichen Kostenanalyse":
+
+- **Resend 422 "Invalid `to` field" beim Mail-Versand** — Reports schlugen mit
+  `Invalid to field. The email address needs to follow the email@example.com or
+  Name <email@example.com> format` fehl, sobald der Empfänger einen Anzeigenamen
+  hatte oder das Template mit einem unvollständigen Eintrag (nur Name, keine Adresse)
+  gespeichert wurde. Ursache: der alte naive Parser
+  (`recipients.replace(";", ",").split(",")`) zerlegte `"Nimtz, Marcus" <m@firma.de>`
+  am Komma innerhalb der Anführungszeichen, und es gab _keine_ Validierung vor dem
+  Resend-Call.
+  **Fix**: neues Modul `src/reporting/email_parser.py` mit RFC-5322-tauglichem
+  Parser (respektiert Quotes und Angle-Brackets, versteht `,` und `;` als Separator,
+  normalisiert auf Resend-kompatibles `Name <email@domain>`). Die Eingabe wird in
+  `reports_routes.py` beim Speichern VALIDIERT — ungültige Einträge erzeugen eine
+  klare Fehlermeldung im Formular statt fehlerhafte Templates zu speichern.
+  Zusätzlich Pre-Flight-Check in `mail_client.send_report()`: auch bei bereits
+  korrupt gespeicherten Templates wird _vor_ dem Resend-Call eine `ValueError` mit
+  "Ungültige Empfänger-Adresse(n): …" ausgelöst, damit der User den Fehler sofort
+  versteht. Formularfeld hat neuen Hint `rpt_recipients_hint` in allen 12 Sprachen.
+
+- **Demo-Benutzer: "komische Schreibweisen"** — bei größeren Datensätzen (1000+
+  User) entstanden durch den zu kleinen Namens-Pool (24×24 = 576 Kombinationen)
+  viele Duplikate, die _nur im E-Mail-Feld_ mit einer Zufallszahl ergänzt wurden —
+  der Anzeigename `Hans Müller` blieb für alle Duplikate identisch.
+  **Fix** in `demo_generator.py`:
+    - Namens-Banken von ~24 auf ~70 Einträge pro Sprache erweitert (knapp 5000
+      Kombinationen pro Locale)
+    - neue saubere Kollisionsbehandlung: doppelte Namen bekommen ein Mittelinitial
+      (`Hans A. Müller`, `Hans B. Müller`, …), E-Mail folgt dem gleichen Schema
+      (`hans.a.mueller@…`) — statt `hans.mueller42@…`
+    - neue Helper-Funktion `_ascii_slug()` entfernt Bindestriche/Apostrophe/Spaces
+      statt sie mit `-` zu ersetzen (`Jean-Luc de Vries` → `jeanluc.devries`,
+      vorher `jean-luc.de-vries`)
+    - Test mit 2000 Usern: 0 Duplikate bei Namen und E-Mails.
+
+- **"Läuft das noch?" — fehlende Hintergrund-Hinweise** — beim Klick auf
+  "Demo-Daten generieren" mit großen Datensätzen sah der User minutenlang nichts
+  und ging davon aus, der Job sei abgestürzt.
+  **Fix**: `tenant_demo.html` zeigt beim Klick sofort eine gelbe Warnung
+  "Generierung läuft im Hintergrund … kann mehrere Minuten dauern … Seite kann
+  offen bleiben, Schließen bricht den Job NICHT ab". Nach Abschluss der animierten
+  Progress-Schritte bleibt der Balken bei 92% und pulsiert mit der Meldung "Daten
+  werden weiter im Hintergrund geschrieben…" — der User sieht jetzt klar, dass der
+  Worker noch läuft. 3 neue i18n-Keys in allen 12 Sprachen.
+  Zusätzlich: der "Jetzt ausführen"-Button in der Report-Liste deaktiviert sich
+  beim Klick und zeigt ⏳ mit Titel "Läuft … bitte warten …". Neuer Key
+  `rpt_run_running` in allen 12 Sprachen.
+
+### Nicht-Breaking
+
+Dieses Release ändert keine Datenbank-Schemata, Migrationen oder Config-Keys.
+Templates mit bereits korrupt gespeicherten Recipients werden beim nächsten Edit
+gegen den neuen Parser validiert und bleiben sonst unverändert in der JSON.
+
+---
+
+## 3.7.2 (2026-04-10)
+
+### Bugfix: Reports zeigen keine Demo-Daten (fehlende reporting.v_* Views)
+
+Nach 3.7.1 lief die Demo-Generierung sauber durch (demo.* Tabellen gefüllt), aber
+**alle Reports blieben leer**. Ursache: die drei wichtigsten Reporting-Views fehlten in
+der Azure SQL und `_V()` in `query_tools.py` fällt dann auf `dbo.*` zurück — und dort
+liegen bei Demo-Setups keine Daten.
+
+- **`reporting.v_tracking_data`** fehlte wegen Typkonflikt bei `CREATE VIEW`:
+  `dbo.tracking_data.id` ist `uniqueidentifier`, `demo.tracking_data.id` ist `bigint` →
+  UNION ALL schlug mit `Operand type clash: uniqueidentifier is incompatible with bigint`
+  fehl. Fix: beide Seiten explizit `CAST(id AS NVARCHAR(36))`.
+- **`reporting.v_jobs`** fehlte weil die View-Definition eine Spalte `filename` auswählte,
+  die in `dbo.jobs` nicht existiert (dort heißt sie `name`). Fix: `filename` aus der
+  Spaltenliste entfernt (kein Report nutzt sie).
+- **`reporting.v_jobs_scan`** fehlte weil die Definition `workflow_name` auswählte, das es
+  in `dbo.jobs_scan` nicht gibt (dort `workflow_id`). Fix: `workflow_name` entfernt
+  (kein Report nutzt sie).
+- **`set_config_from_tenant()`** in `sql_client.py`: Fallback auf `tenant_id` falls
+  `printix_tenant_id` leer ist — erleichtert CLI-Tests und direkten Worker-Aufruf.
+- **Verifiziert**: `query_top_printers`, `query_cost_report`, `query_top_users`,
+  `query_print_stats` liefern jetzt alle Demo-Daten (z.B. `[DEMO] RCH-IMC-OG1-02`,
+  monatliche Kostenaufstellung, Top-User aus `demo.users`).
+
+### Wichtig für bestehende Installationen
+
+Nach dem Update muss einmalig das Schema-Setup neu laufen, damit die fehlenden Views
+erstellt werden. Entweder über die Web-UI (Azure SQL → "Schema-Setup ausführen") oder
+direkt über das `printix_demo_setup_schema` MCP-Tool.
+
+## 3.7.1 (2026-04-10)
+
+### Bugfix: Demo-Datengenerierung + Reports auf ARM64 (SIGSEGV)
+
+- **pymssql als SQL-Treiber auf ARM64**: `sql_client.py` v2.1.0 — auf `aarch64`/`armv7l`
+  wird jetzt automatisch `pymssql` statt `pyodbc + FreeTDS` verwendet. FreeTDS crashte
+  auf Home Assistant (ARM64) mit SIGSEGV (Worker exit -11) bei Azure SQL-Verbindungen.
+- **`_adapt_sql()`**: Konvertiert pyodbc-Platzhalter (`?`) automatisch zu pymssql-Format
+  (`%s`) — alle vorhandenen SQL-Statements (Demo-Generator, Reports) bleiben unverändert.
+- **`pymssql>=2.3.0`** in `requirements.txt` ergänzt — wird bei jedem Rebuild installiert.
+- **`is_configured()`**: `tenant_id` nicht mehr Pflichtfeld (ermöglicht Verbindungen ohne
+  Printix-Tenant-ID, z.B. für reine SQL-Tests).
+
+## 3.7.0 (2026-04-10)
+
+### Report Designer Stufe 2 — 11 neue Query-Typen + alle Presets verfügbar
+
+- **11 neue SQL-Query-Funktionen** in `reporting/query_tools.py` (Stufe 2):
+  `printer_history`, `device_readings`, `job_history` (paginiert, T-SQL OFFSET/FETCH),
+  `queue_stats`, `user_detail`, `user_copy_detail`, `user_scan_detail`,
+  `workstation_overview`, `workstation_detail` (graceful fallback falls Tabelle fehlt),
+  `tree_meter` (Duplex-Einsparung → Bäume), `service_desk`.
+- **`run_query`-Dispatcher** deckt jetzt alle 17 Query-Typen ab (Stufe 1 + 2).
+- **Alle 18 Presets verfügbar**: `preset_templates.py` — sämtliche Presets auf
+  `available: True` gesetzt, korrekter `query_type` zugewiesen. PDF- und XLSX-Formate
+  ebenfalls freigegeben (`available: True`).
+- **Bugfix Demo-Generierung (90% Hänger)**: `asyncio.create_task(_bg_generate())`
+  fehlte in `app.py` — Hintergrund-Task wurde nie gestartet. Job blieb dauerhaft
+  auf „running" stehen. Fix: `create_task` vor `return RedirectResponse` ergänzt.
+
+## 3.6.6 (2026-04-10)
+
+### Bugfix: Azure SQL Auto-Pause / Transient Fault
+
+- **Automatischer Retry bei Azure SQL Serverless Auto-Pause**: `get_connection()` versucht bis zu 3× mit 5s Pause bei transientem Fehler 40613 `"Database is not currently available"` (Serverless-Tier wacht nach Inaktivität auf). Kein manuelles Doppelklicken mehr nötig.
+- **URL-Encoding für Fehlermeldungen**: Setup-Fehler werden jetzt korrekt mit `quote_plus()` in der Redirect-URL kodiert — Sonderzeichen wie `[`, `]`, `(`, `)` im FreeTDS-Fehlerstring brechen die Anzeige nicht mehr ab.
+
 ## 3.6.5 (2026-04-10)
 
-### Fixed
-- Report-Vorschau: Symbolische Datumswerte (last_year_start/end etc.) werden vor Query-Ausführung aufgelöst
+### Bugfixes: Demo-Generierung, Report-Vorschau, SQL-ContextVar
 
-## 3.6.4 (2026-04-10)
+- **Demo-Generierung — Hintergrund-Task**: `tenant_demo_generate` blockiert den HTTP-Request nicht mehr (`asyncio.create_task`). Browser-Redirect erfolgt sofort, JS pollt `/tenant/demo/status?job_id=…`. Kein Proxy-Timeout mehr (war: `await asyncio.to_thread(...)` = 20–60s Request blockiert).
+- **Demo-Status-Endpoint**: Neuer `GET /tenant/demo/status` — gibt `{status, error, session_id}` zurück. Polling-JS in `tenant_demo.html` mit HA-Ingress-kompatiblem Basispfad (`window.location.pathname` statt hartkodiertem `/tenant/demo/…`). Behandelt Zustand `"unknown"` (Server-Neustart während Generierung).
+- **Report-Vorschau — Datumsformat**: `_resolve_dynamic_dates()` wird jetzt in der Preview-Route aufgerufen. Symbolische Datumswerte wie `last_year_start` / `last_year_end` werden vor dem SQL-Query in `YYYY-MM-DD` aufgelöst (Fehler: `"Ungültiges Datumsformat: 'last_year_end'"`).
+- **Report-Vorschau — run_query**: `run_query`-Dispatcher in `reporting/query_tools.py` hinzugefügt (fehlte → ImportError → 500-Fehler in Vorschau).
+- **Report sofort ausführen — SQL-ContextVar**: `set_config_from_tenant(tenant)` wird jetzt vor `run_report_now()` aufgerufen. Behebt `"SQL nicht konfiguriert"`-Fehler beim manuellen Report-Versand.
 
-### Fixed
-- Report-Vorschau: `run_query`-Dispatcher in query_tools.py ergänzt (fehlender Import)
+## 3.6.0 (2026-04-10)
 
-## 3.6.3 (2026-04-10)
+### Report Designer Stufe 1 — Visuelle Reports + XLSX/PDF + Vorschau
 
-### Fixed
-- Demo-Generator: `preset`-Parameter aus functools.partial entfernt (TypeError verhinderte Daten-Generierung)
-- Demo-Polling-JS: Absolute URL-Pfade auf `window.location.pathname`-relativ umgestellt (HA Ingress-Proxy-Kompatibilität)
+- **CSS-Balkendiagramme**: Horizontale Balkendiagramme im HTML-Report-Output — email-client-kompatibel (kein JS), erscheinen vor jeder Datentabelle. Unterstützt: print_stats, cost_report, top_users, top_printers.
+- **XLSX-Output**: Excel-Export mit Branding (openpyxl) — farbige Kopfzeilen, abwechselnde Zeilenfarben, automatische Spaltenbreite. `openpyxl>=3.1.0` in requirements.txt.
+- **PDF-Output**: fpdf2-basiertes PDF (Helvetica, Latin-1-kompatibel). `fpdf2>=2.7.0` in requirements.txt.
+- **Report-Vorschau** (`/reports/{id}/preview`): Zeigt den generierten HTML-Report direkt im Browser — ohne Mail-Versand. Öffnet in neuem Tab mit blauem Vorschau-Banner.
+- **👁 Vorschau-Button** in der Reports-Liste (neben ▶ und ✏).
+- **i18n**: `rpt_preview_title` in allen 12 Sprachen ergänzt.
 
-## 3.4.0 (2026-04-10)
+## 3.5.2 (2026-04-10)
 
-### Neu — Demo-Daten Generator (UI)
+### Demo-Daten UI: Performance & UX
 
-- **Demo-Daten Tab**: Neues Register "Demo-Daten" in der Printix Web-UI (neben Drucker/Queues/Benutzer)
-- **3 Unternehmens-Presets**: Kleinunternehmen (15 MA/3 Drucker), Mittelstand (50 MA/10 Drucker), Großunternehmen (120 MA/30 Drucker) — je mit vorausgefüllten Werten für Volumen, Sprachen und Standorte
-- **Print-Queues**: Demo-Schema enthält jetzt `demo.queues` mit konfigurierbarer Anzahl Queues pro Drucker (1–5); Jobs werden Queues zugeordnet
-- **Internationales Namensset**: 11 Sprachen (neu: Portugiesisch/Brasilianisch, Polnisch, Japanisch); insgesamt 200+ Vornamen/Nachnamen
-- **Abteilungs-Druckgewichtung**: FIN, VTR, PRD, LOG drucken mehr als HR oder IT — für realistische Verteilung in Reports
-- **Quartalsend-Boost**: Letzter Monat jedes Quartals hat +20% Druckvolumen — saisonal realistisch
-- **Migration-Guards**: Schema-Setup fügt fehlende Spalten (`queue_id`, `preset`, `queue_count`) automatisch nach, falls alte Tabellen existieren
-- **Verbesserter Batch-Insert**: Chunk-Größe auf 300 reduziert, mit Progress-Logging — vermeidet Timeouts bei großen Datasets
-- **Azure SQL Hinweis-Banner**: Klar sichtbarer Warnhinweis, dass die Funktion eine eigene Azure SQL (mit Schreibrechten) erfordert
-- **i18n**: Alle neuen Felder (Preset, Queues, Preset-Namen) in allen 12 Sprachen übersetzt
-- **`set_config_from_tenant()`**: Neue Hilfsfunktion in sql_client.py für Web-Routen ohne Bearer-Middleware
+- **asyncio.to_thread()**: Demo-Generierung läuft jetzt im Thread-Pool — uvicorn Event-Loop bleibt während der Generierung responsive (kein Browser-Timeout mehr).
+- **Kleinere Defaults**: Schieberegler-Defaults reduziert (User 20→10, Drucker 6→4, Jobs/Tag 3.0→2.0); Preset-Obergrenze ebenfalls reduziert (max. 200 User / 50 Drucker).
+- **Warnung bei großen Datenmengen**: JS-Schätzung zeigt vorhergesagte Job-Anzahl in Echtzeit; ab >20.000 Jobs orangefarbene Warnung.
+- **i18n**: `demo_hint_large_data` in allen 12 Sprachen ergänzt (Hinweis auf lange Laufzeit bei großen Datenmengen).
 
-## 3.1.1 (2026-04-09)
+## 3.5.1 (2026-04-10)
 
-### Bugfixes
-- **Anhänge fehlten bei on-demand Reports**: run_report_now() sendete E-Mails ohne Anhänge (PDF/XLSX/CSV) — Attachment-Logik fehlte im run_report_now-Pfad (war nur in _run_report_job vorhanden). Behoben.
-- **FreeTDS Date Error 241**: _fmt_date() gibt jetzt echte Python date-Objekte zurück statt Strings — FreeTDS/SQL Server Konvertierungsfehler behoben.
-- **Unbekannte Magic-Keywords**: last_year_start, last_year_end, last_quarter_start/end, last_week_start/end, this_year_start in _resolve_dynamic_dates ergänzt.
-- **MCP-Tool Docstring**: printix_save_report_template zeigt jetzt alle gültigen Magic-Keywords und query_types explizit an.
+### Bugfixes & Demo-UI Verbesserungen
+
+- **Kritischer Fix**: Demo-Daten-Generierung funktioniert jetzt korrekt mit bestehenden Printix Azure SQL-Datenbanken. Alle Custom-Tabellen liegen im `demo.*`-Schema (nicht `dbo.*`), um Konflikte mit nativen Printix-Tabellen (Liquibase-Migrations) zu vermeiden.
+- **reporting.* Views**: UNION ALL-Pattern — echte `dbo.*`-Daten und Demo-`demo.*`-Daten werden korrekt zusammengeführt. Demo-Daten erscheinen nur wenn aktive Sessions für den Tenant existieren.
+- **Batch-Size**: Insert-Batch-Größe von 500 auf 2000 erhöht (~4× schnellere Generierung).
+- **Button „Alle Demo-Daten löschen"**: Neuer globaler Löschen-Button in der Demo-UI — funktioniert auch ohne bestehende Sessions (z.B. nach fehlgeschlagener Generierung oder für sauberes Neu-Deployment).
+- **Rollback-All API**: Neues `rollback_demo_all(tenant_id)` — löscht alle Demo-Daten des Tenants über alle Tags/Sessions hinweg.
+- **i18n**: `demo_btn_rollback_all` + `demo_confirm_rollback_all` in allen 12 Sprachen ergänzt.
+
+## 3.5.0 (2026-04-10)
+
+### Demo-Daten Web-UI & Reporting-Views
+
+- **Demo-Daten Register (Web-UI)**: Neuer Tab „Demo-Daten" in der Tenant-Navigation (Drucker / Queues / Benutzer / Demo-Daten). Vollständige Verwaltung von Demo-Sessions direkt im Browser ohne KI-Chat.
+- **Hinweis-Box**: Prominenter Hinweis im Demo-Tab erklärt, dass Demo-Daten ausschließlich in der Azure SQL-Datenbank gespeichert werden und in der Printix-Oberfläche nicht sichtbar sind.
+- **Demo generieren**: Formular mit Schiebereglern für User-Anzahl, Drucker-Anzahl, Zeitraum und Sprachauswahl. Fortschrittsoverlay während der Generierung.
+- **Schema einrichten**: Button zum Erstellen/Aktualisieren aller Tabellen und `reporting.*`-Views mit einem Klick.
+- **Session-Verwaltung**: Tabellarische Übersicht aller Demo-Sessions mit Status, Statistiken und Löschen-Button (entfernt Demo-Daten aus allen Tabellen).
+- **reporting.* SQL-Views**: `setup_schema()` erstellt jetzt automatisch `reporting`-Schema mit 8 Views (`v_tracking_data`, `v_jobs`, `v_users`, `v_printers`, `v_networks`, `v_jobs_scan`, `v_jobs_copy`, `v_jobs_copy_details`). Views filtern: echte Daten immer sichtbar, Demo-Daten nur wenn aktive Demo-Sessions für den Tenant existieren.
+- **Transparente Report-Integration**: Alle Report-Abfragen in `query_tools.py` nutzen automatisch `reporting.v_*` wenn Views verfügbar sind — Fallback auf `dbo.*` für ältere Setups. Demo-Daten erscheinen so nahtlos in allen BI-Reports.
+- **i18n**: Alle Demo-Tab-Texte in 12 Sprachen (DE, EN, FR, IT, ES, NL, NO, SV, Bairisch, Hessisch, Österreichisch, Schwiizerdütsch). Bugfix: Fehlende `demo_lbl_user`- und `demo_progress_*`-Schlüssel in EN-, NL- und NO-Sektionen ergänzt (waren versehentlich nur in DE eingefügt worden).
+
+## 3.3.0 (2026-04-09)
+
+## 3.2.0 (2026-04-09)
+
+### Reports — Erweiterungen
+
+- **Logo-URL im Report-Header**: Neues Feld „Logo-URL" im Reports-Formular — Bild wird oben rechts im HTML-Report-Header angezeigt. URL wird in der Template-DB gespeichert (`layout.logo_url`).
+- **Erweiterter Datumspicker**: Start- und Enddatum bieten jetzt alle 11 Preset-Werte (letztes Jahr, letztes Quartal, letzte Woche, u.v.m.) plus eine „Benutzerdefiniert"-Option mit individuellem `<input type="date">`.
+- **Mehrsprachigkeit (i18n)**: Alle Texte im Reports-Register (Formular, Liste, Abschnittsnamen, Labels, Buttons, Datums-Presets, Flash-Meldungen) nutzen jetzt das i18n-System — wechseln mit der UI-Sprache. DE und EN vollständig übersetzt.
+- **CSV-Fallback**: Leere CSV-Datei wird nicht mehr übersprungen — stattdessen wird eine Hinweis-Zeile eingefügt (`Keine Daten im abgefragten Zeitraum`).
 
 ## 3.1.0 (2026-04-09)
 
-### Neu — PDF/XLSX Ausgabe & alle Report-Presets verfügbar
+### Fehlerbehebungen & Erweiterungen
 
-- **PDF-Export**: Alle Reports können jetzt als PDF generiert und per E-Mail versendet werden (fpdf2-basiert). Farbiger Header, KPI-Karten als farbige Rechtecke, Tabellen mit alternierenden Zeilenfarben, automatischer Seitenumbruch.
-- **XLSX-Export**: Alle Reports können jetzt als Excel-Datei (.xlsx) generiert und per E-Mail versendet werden (openpyxl-basiert). Auto-Spaltenbreiten, numerische Erkennung, farbiger Header.
-- **Alle 18 Presets verfügbar**: Alle 11 bisher als "Bald verfügbar" markierten Report-Presets sind jetzt vollständig implementiert:
-  - Drucker-Verlauf (printer_history)
-  - Drucker-Servicestatus (device_readings — graceful fail bei fehlendem BI-Zugang)
-  - Job-Historie (job_history)
-  - Druckregeln-Übersicht (queue_stats — graceful fail)
-  - Benutzer-Druckdetails (user_detail)
-  - Benutzer-Kopierdetails (user_copy_detail)
-  - Benutzer-Scandetails (user_scan_detail)
-  - Workstation-Übersicht (workstation_overview — graceful fail)
-  - Workstation-Details (workstation_overview — graceful fail)
-  - Tree-O-Meter (tree_meter: Bäume + CO₂-Berechnung, konfigurierbare Blätter/Baum)
-  - Service-Desk-Report (service_desk: alle nicht-OK Druckjobs)
-- **E-Mail-Anhänge**: Scheduler und Run-Now senden CSV/JSON/PDF/XLSX als base64-kodierte Anhänge; HTML bleibt E-Mail-Body.
-- **Graceful Fail**: BI-Tabellen (Workstations, Print-Queues, Device-Readings) geben strukturierte Fehlermeldung zurück wenn SQL-Zugang nicht verfügbar — kein Absturz.
-
-### Technisch
-- requirements.txt: fpdf2>=2.7.0, openpyxl>=3.1.0
-- reporting/query_tools.py: 10 neue Query-Funktionen (query_job_history, query_printer_history, query_user_detail, query_user_copy_detail, query_user_scan_detail, query_tree_meter, query_service_desk, query_workstation_overview, query_queue_stats, query_device_readings)
-- reporting/report_engine.py: render_pdf(), render_xlsx(), 8 neue Report-Builder, zentrales _REPORT_BUILDERS-Dict (16 Einträge), _hex_to_rgb() Hilfsfunktion
-- reporting/preset_templates.py: ALL_FORMATS pdf/xlsx auf available:True; alle 11 Presets mit query_type + query_params befüllt
-- reporting/scheduler.py: alle 16 Query-Typen registriert, base64-Attachment-Verarbeitung für alle Formate
-- web/templates/reports_form.html: Format-Hinweis aktualisiert (HTML = Body, andere = Anhang)
-
+- **FreeTDS-Fix**: `_fmt_date()` gibt jetzt Python `date`-Objekte zurück statt Strings — verhindert SQL Server Error 241 (Datumskonvertierung schlägt fehl bei FreeTDS-Verbindungen).
+- **PDF/XLSX-Generierung**: `render_pdf()` (fpdf2) und `render_xlsx()` (openpyxl) hinzugefügt — vollständige Reports mit Kopfzeile, KPI-Karten und Tabellen.
+- **PDF-Sonderzeichen-Fix** (`_pdf_safe()`): Em-Dash, En-Dash und andere Nicht-Latin-1-Zeichen werden vor der PDF-Ausgabe ersetzt — verhindert `FPDFUnicodeEncodingException`.
+- **Anhänge in E-Mails**: Alle Formate (CSV, JSON, PDF, XLSX) werden als Base64-Anhänge mit korrektem `content_type` versendet — behebt fehlendes CSV/PDF in E-Mail-Anhängen.
+- **Betreff-Platzhalter**: Neue Funktion `_resolve_subject()` löst `{year}`, `{month}`, `{month_name}`, `{quarter}`, `{period}` im Betreff auf.
+- **Dynamische Datumswerte** erweitert: `last_year_start/end`, `this_year_start`, `last_week_start/end`, `last_quarter_start/end` jetzt verfügbar.
+- **UI: PDF/XLSX-Checkboxen** in Reports-Formular ergänzt (Erstellen + Bearbeiten).
 
 ## 3.0.0 (2026-04-09)
 
@@ -81,70 +494,43 @@
 - **Schedule-Verwaltung**: Zeitplan direkt im Formular konfigurieren (täglich / wöchentlich / monatlich) mit Wochentag- und Uhrzeitauswahl.
 - **Run-Now-Button**: Templates aus der Liste heraus sofort ausführen (▶) — Flash-Meldung zeigt Ergebnis (versendet / generiert / Fehler).
 - **Per-Tenant-Filterung**: Jeder Benutzer sieht nur seine eigenen Report-Templates (owner_user_id-basiert).
-- **MCP-Tool-Verbesserungen**: printix_run_report_now() akzeptiert jetzt auch Template-Namen (case-insensitiv) statt ausschließlich UUIDs; listet verfügbare Templates wenn kein Parameter angegeben.
-- **i18n**: 8 neue Übersetzungsschlüssel in allen 12 Sprachen/Dialekten.
+- **MCP-Tool-Verbesserungen**: `printix_run_report_now()` akzeptiert jetzt auch Template-Namen (case-insensitiv) statt ausschließlich UUIDs; listet verfügbare Templates wenn kein Parameter angegeben.
+- **i18n**: 8 neue Übersetzungsschlüssel in allen 12 Sprachen/Dialekten (nav_reports, reports_title, reports_new, reports_saved, reports_deleted, reports_run_ok, reports_run_error, reports_no_templates).
 
 ### Technisch
-- reporting/preset_templates.py (NEU): 18 Preset-Definitionen mit Metadaten
-- reporting/template_store.py: list_templates_by_user(user_id) ergänzt
-- web/reports_routes.py (NEU): register_reports_routes() — 7 Routen
-- web/templates/reports_list.html (NEU): Template-Tabelle + Preset-Bibliothek
-- web/templates/reports_form.html (NEU): 4-Abschnitte-Formular
-- web/templates/base.html: Reports-Link in Navigation eingefügt
-- web/app.py: register_reports_routes() am Ende von create_app() eingebunden
+- `reporting/preset_templates.py` (NEU): 18 Preset-Definitionen mit Metadaten (icon, PBI-Seite, query_type, query_params, schedule_suggestion, tag, available-Flag)
+- `reporting/template_store.py`: `list_templates_by_user(user_id)` ergänzt für per-Tenant-Filterung
+- `web/reports_routes.py` (NEU): `register_reports_routes()` — 7 Routen (GET+POST /reports, /reports/new, /reports/{id}/edit, POST /reports/{id}/run, /reports/{id}/delete)
+- `web/templates/reports_list.html` (NEU): Template-Tabelle + Preset-Bibliothek mit Tag-Gruppen
+- `web/templates/reports_form.html` (NEU): 4-Abschnitte-Formular mit dynamischer Query-Parameter-Anzeige (JavaScript switchQueryType)
+- `web/templates/base.html`: Reports-Link in Navigation eingefügt
+- `web/app.py`: `register_reports_routes()` am Ende von `create_app()` eingebunden
 
-## 2.13.0 (2026-04-09)
-
-### Neu — Mail Delivery Event-Benachrichtigungen
-- **E-Mail Benachrichtigungen Checkboxen**: Neue Sektion in den Einstellungen — Benutzer wählen pro Ereignis-Typ ob eine E-Mail versandt werden soll
-  - 🚨 Kritische Log-Fehler (ERROR/CRITICAL)
-  - 🖨️ Neuer Drucker in Printix erkannt
-  - 📋 Neue Drucker-Queue erkannt
-  - 👤 Neuer Gast-Benutzer erkannt
-  - 📊 Report erfolgreich versendet
-  - 🔔 Neuer MCP-Benutzer registriert (Admin-Benachrichtigung)
-- **Event Poller**: Hintergrund-Job läuft alle 30 Minuten, ruft Printix API ab und erkennt neue Drucker/Queues/Gast-Benutzer; Zustand wird per Tenant in DB gespeichert (überlebt Neustarts)
-- **Notify Helper**: Zentrale Hilfsfunktionen für Ereignis-Benachrichtigungen mit HTML-E-Mail-Templates pro Ereignistyp
-- **User-Registrierung**: Admin erhält E-Mail-Benachrichtigung wenn neuer Benutzer sich registriert (wenn `user_registered` aktiviert)
-- **Report versendet**: Bestätigungs-E-Mail nach erfolgreichem automatischem Report (wenn `report_sent` aktiviert)
-
-### Technisch
-- `db.py`: Migration fügt `notify_events` (JSON-Array) und `poller_state` (JSON-Objekt) zu `tenants` hinzu; neue `update_poller_state()` Funktion
-- `reporting/notify_helper.py`: Neu — `send_event_notification()`, `get_enabled_events()`, HTML-Templates pro Ereignistyp
-- `reporting/event_poller.py`: Neu — `PrintixEventPoller` mit APScheduler-Integration; `register_event_poller()` idempotent
-- `reporting/log_alert_handler.py`: Prüft jetzt ob `log_error` in `notify_events` aktiv ist
-- `reporting/scheduler.py`: `report_sent` Benachrichtigung nach erfolgreichem Mail-Versand
-- `web/templates/settings.html`: 6 Checkboxen in neuer Sektion „E-Mail Benachrichtigungen"
-- `web/app.py`: Jinja2-Filter `from_json`; `notify_*` Form-Parameter; `update_tenant_credentials()` mit `notify_events`; `user_registered`-Hook bei Registrierung
-- `server.py`: `register_event_poller()` beim Server-Start
-
-## 2.10.0 (2026-04-09)
-
-### Neu
-- **Karten-Anzahl in User-Übersicht**: Beim Laden der Benutzerliste werden die Karten-Counts jetzt parallel (max. 10 gleichzeitige Requests, 5s Timeout) von der Printix API abgerufen — zeigt echte Zahlen statt „–"
-- Falls die Karten-API nicht erreichbar ist oder timeout: zeigt weiterhin „🃏 –" als Fallback
-
-### Technisch
-- `app.py`: `tenant_users` Route nutzt `ThreadPoolExecutor(max_workers=10)` + `as_completed(timeout=5)` für parallele Card-Count-Fetches
-- `tenant_users.html`: Zeigt `_card_count` aus Server-Daten; fällt zurück auf „–" wenn `None`
-
-## 2.9.0 (2026-04-09)
+## 2.11.0 (2026-04-09)
 
 ### Bugfixes
-- **Karten-Löschen korrigiert**: Printix API gibt 405 zurück auf `DELETE /users/{uid}/cards/{cid}` — verwendet jetzt den globalen Card-API-Endpoint `DELETE /cards/{card_id}` (war vorher 404 wegen leerer ID, jetzt korrekte UUID + korrekter Endpoint)
-- **Kartenzählung in User-Liste**: `list_users` API liefert kein `cards`-Feld → zeigt jetzt „🃏 –" statt irreführender „0" an; Klick auf Benutzer öffnet Detailseite mit echter Karten-Anzahl
-- **Rolle in User-Liste**: verwendet jetzt `roles[0]` (Array) statt `role` (String) — konsistent mit User-Detail-Ansicht
+- **E-Mail-Versand repariert**: `mail_client.py` las bisher `MAIL_API_KEY` aus der Umgebungsvariablen — die aber nie gesetzt wird, da Credentials in der SQLite-DB liegen. Jetzt werden API-Key und Absender direkt aus dem Tenant-Kontext übergeben.
+- **Karten-Löschung korrigiert (v2.9.0-Nachfolge)**: `DELETE /users/{uid}/cards/{cid}` liefert 405 Method Not Allowed — der globale Endpoint `DELETE /cards/{card_id}` wird jetzt ausschließlich genutzt.
+
+### Neu
+- **Log-Alert-E-Mails**: Kritische Logs (WARNING / ERROR / CRITICAL, konfigurierbar) werden automatisch per E-Mail versendet — pro Tenant konfigurierbar in den Einstellungen (Empfänger + Mindest-Level). Rate-Limiting: max. 1 Alert alle 5 Minuten pro Tenant.
+- **Report-Owner**: Gespeicherte Report-Templates speichern jetzt die `owner_user_id` des erstellenden Tenants — der Hintergrund-Scheduler kann damit auch ohne Request-Kontext die richtigen Mail-Credentials aus der DB laden.
+- **DB-Migration**: Tenants-Tabelle um `alert_recipients` und `alert_min_level` erweitert (sicher, idempotent via PRAGMA table_info).
 
 ### Technisch
-- `printix_client.py`: `delete_card()` verwendet nur noch `DELETE /cards/{card_id}` (user_id-Parameter bleibt aus Kompatibilitätsgründen, wird ignoriert)
-- `tenant_users.html`: Template-Fix für Kartenzählung + Rollenanzeige aus `roles`-Array
+- `reporting/mail_client.py`: `send_report()` und `send_alert()` akzeptieren optionale `api_key`/`mail_from`-Parameter mit Priorität: explizit → Modul-Override → os.environ
+- `reporting/scheduler.py`: `run_report_now()` nimmt `mail_api_key`/`mail_from` entgegen; `_run_report_job()` lädt Credentials über `owner_user_id` aus der DB (`_load_tenant_mail_credentials()`)
+- `reporting/template_store.py`: Neues Feld `owner_user_id` im Template-Schema
+- `reporting/log_alert_handler.py`: Neuer `PrintixAlertHandler` — logging.Handler-Subklasse mit Rekursionsschutz, Threading-Lock und Rate-Limiting
+- `db.py`: `update_tenant_credentials()` und `get_tenant_full_by_user_id()` um Alert-Felder erweitert; Migration für bestehende DBs
+- `server.py`: Alert-Handler wird beim Laden des Reporting-Moduls registriert; `printix_run_report_now()` gibt Mail-Credentials aus Tenant-Kontext weiter; `printix_save_report_template()` speichert `owner_user_id`
 
 ## 2.8.0 (2026-04-09)
 
 ### Neu
 - **2 neue Dialekt-Sprachen**: Österreichisch (`oesterreichisch`) und Schwiizerdütsch (`schwiizerdütsch`) — vollständige Übersetzungen aller UI-Texte mit authentischen Dialektausdrücken
-  - Österreichisch: Grüß Gott, Servus, Leiwand, Bittschön, Na sicher, Geh bitte!, …
-  - Schwiizerdütsch: Grüezi, Sali, Merci vielmal, Charte statt Karten, Spicherä, …
+  - Österreichisch: Grüß Gott, Servus, Leiwand, Bittschön, Pfiat di, Na sicher, Geh bitte!, …
+  - Schwiizerdütsch: Grüezi, Sali, Merci vielmal, Uf Wiederluege, Charte statt Karten, Spicherä, …
 - **SUPPORTED_LANGUAGES** und **LANGUAGE_NAMES** um beide Dialekte erweitert
 - Sprachauswahl in der UI zeigt jetzt 12 Sprachen/Dialekte
 
@@ -208,14 +594,119 @@
 ### Geändert
 - **Nav-Tab „Printix"**: ehemals „Printers/Drucker/Imprimantes/…" — jetzt sprachübergreifend
   „Printix" (generischer Name, da Tab Drucker, Queues und Benutzer enthält)
-- **Sprach-Dropdown** (Nav): Umstieg von CSS-Hover auf JS-Click-Toggle — kein versehentliches
-  Schließen beim Maus-Übergang zwischen Button und Dropdown mehr
+- **Sprach-Dropdown** (Nav): Umstieg von CSS-Hover auf JS-Click-Toggle
 - **Nav-Reihenfolge**: Logs vor Hilfe; Printix-Tab zwischen Einstellungen und Logs
 
 ### Behoben
 - **Queues-Seite zeigte 0 Einträge**: Printix-API gibt `GET /printers` als flache Liste von
-  Printer-Queue-Paaren zurück (kein verschachteltes `queues`-Array). Queue-IDs werden jetzt
-  korrekt aus `_links.self.href` (`/printers/{id}/queues/{id}`) extrahiert.
+  Printer-Queue-Paaren zurück. Queue-IDs werden jetzt korrekt aus `_links.self.href` extrahiert.
+
+## 2.1.0 (2026-04-09)
+
+### Neu — EFIGS Mehrsprachigkeit + Benutzerverwaltung 2.0
+
+**Mehrsprachigkeit (EFIGS)**
+- `src/web/i18n.py`: Vollständige Übersetzungen in DE, EN, FR, IT, ES
+- Language-Switcher in der Navigation (alle Seiten)
+- Automatische Spracherkennung via `Accept-Language`-Header
+- Sprachauswahl wird in der Session gespeichert und bleibt nach Logout erhalten
+- `_()` Übersetzungsfunktion in allen Templates verfügbar
+
+**Admin: Vollständige Benutzerverwaltung**
+- Neuer User direkt anlegen (ohne Wizard): `GET/POST /admin/users/create`
+- Benutzer bearbeiten (Name, E-Mail, Status, Admin-Flag): `GET/POST /admin/users/{id}/edit`
+- Passwort zurücksetzen (Admin): `POST /admin/users/{id}/reset-password`
+- Benutzer löschen (inkl. Tenant): `POST /admin/users/{id}/delete`
+- Server-Einstellungen (Base URL): `GET/POST /admin/settings`
+
+**Self-Service für Benutzer**
+- Einstellungsseite: Printix API-Credentials, SQL, Mail bearbeiten: `GET/POST /settings`
+- OAuth-Secret neu generieren (AJAX): `POST /settings/regenerate-oauth`
+- Passwort ändern (mit Verifikation): `GET/POST /settings/password`
+- Hilfeseite mit personalisierten Verbindungsdaten: `GET /help`
+
+**Dashboard-Verbesserungen**
+- Bearer Token direkt im Dashboard sichtbar und kopierbar
+- Links zu Einstellungen und Hilfe im Dashboard
+
+**Base-URL konfigurierbar über Web-UI**
+- `db.py`: Neue `settings`-Tabelle (`get_setting` / `set_setting`)
+- Admin kann die öffentliche URL in der Web-UI setzen (überschreibt `MCP_PUBLIC_URL` ENV)
+
+### Geändert
+- `config.yaml`: Version 2.1.0
+- `run.sh`: Banner auf v2.1.0
+- Alle Templates: i18n-Strings via `_()`, Language-Switcher in `base.html`
+- `admin_users.html`: Edit- und Delete-Links hinzugefügt
+- `dashboard.html`: Bearer Token + Schnellzugriff auf Einstellungen/Hilfe
+
+## 2.0.1 (2026-04-09)
+
+### Bugfixes
+
+- **`requirements.txt`**: `starlette<1.0.0` hinzugefügt — Starlette 1.0.0 hat einen
+  Breaking Change (`TypeError: unhashable type: 'dict'` in `TemplateResponse`), der die
+  Web-UI lautlos zum Absturz brachte.
+- **`run.sh`**: `WEB_PORT` auf festen Wert `8080` gesetzt — zuvor wurde der externe
+  Host-Port aus der HA-Konfiguration als interner Container-Port verwendet, wodurch
+  uvicorn auf dem falschen Port lauschte und die Web-UI nicht erreichbar war.
+
+## 2.0.0 (2026-04-08)
+
+### Architektur-Upgrade: Multi-Tenant
+
+Vollständige Umstellung auf ein Multi-Tenant-Modell. Alle Credentials werden nicht
+mehr in der HA-Konfiguration hinterlegt, sondern in einer verschlüsselten SQLite-Datenbank
+verwaltet. Mehrere Benutzer können sich registrieren und jeweils ihre eigene Printix-Instanz
+über denselben MCP-Server betreiben.
+
+### Neu
+
+**Web-Verwaltungsoberfläche (Port 8080)**
+- 4-Schritt-Registrierungs-Wizard: Account → Printix API-Credentials → Optional (SQL + Mail) → Zusammenfassung
+- Dashboard: zeigt Bearer Token, OAuth-Credentials und Verbindungsanleitung
+- Admin-Bereich: Benutzer genehmigen / sperren, Audit-Log einsehen
+- Erster Benutzer wird automatisch Admin und genehmigt
+
+**SQLite Multi-Tenant Store (`/data/printix_multi.db`)**
+- Tabellen: `users`, `tenants`, `audit_log`
+- Alle Secrets (Printix API-Keys, SQL-Passwörter, Bearer Token, OAuth-Secret) mit Fernet verschlüsselt
+- Fernet-Schlüssel wird beim ersten Start generiert und in `/data/fernet.key` gespeichert
+- Passwörter mit bcrypt gehasht
+
+**Pro-Tenant automatisch generierte Credentials**
+- `bearer_token` — 48-Byte URL-safe Token
+- `oauth_client_id` — `px-` + 8 Hex-Bytes
+- `oauth_client_secret` — 32-Byte URL-safe Secret
+
+**Multi-Tenant Request-Routing**
+- `BearerAuthMiddleware` sucht Tenant anhand Bearer Token in der DB
+- ContextVars `current_tenant` + `current_sql_config` pro Request gesetzt
+- `PrintixClient` wird per Request aus `current_tenant` instantiiert (kein Singleton mehr)
+- `sql_client.py` liest SQL-Credentials aus `current_sql_config` ContextVar
+
+**Admin-Approval-Workflow**
+- Neue Benutzer landen im Status `pending` und werden im Audit-Log erfasst
+- Admin kann über Web-UI freischalten oder sperren
+- Genehmigter Benutzer erhält Zugang zu Dashboard mit seinen Credentials
+
+### Geändert
+
+- `config.yaml`: Credential-Felder entfernt, nur noch `mcp_port`, `web_port`, `public_url`, `log_level`
+- `run.sh`: Startet Web-UI (Port 8080) im Hintergrund + MCP-Server im Vordergrund; generiert Fernet-Key
+- `oauth.py`: Vollständig DB-gestützt — kein statisches Client-Secret mehr
+- `auth.py`: Kein Token-Parameter mehr; Tenant-Lookup dynamisch aus DB
+- `Dockerfile`: Ports 8765 + 8080 exposed
+- `requirements.txt`: `fastapi`, `python-multipart`, `itsdangerous`, `cryptography`, `bcrypt` ergänzt
+
+### Migration von v1.x
+
+v1.x-Credentials (aus `mcp_secrets.json` oder HA-Konfiguration) werden nicht automatisch
+übernommen. Nach dem Update auf v2.0.0:
+1. Web-UI öffnen: `http://<HA-IP>:8080`
+2. Ersten Benutzer registrieren (wird automatisch Admin)
+3. Printix API-Credentials im Wizard eintragen
+4. Bearer Token + OAuth-Credentials aus dem Dashboard in claude.ai / ChatGPT eintragen
 
 ## 1.15.0 (2026-04-08)
 

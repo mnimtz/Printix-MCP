@@ -1,1 +1,1 @@
-# Printix MCP Web-Verwaltungsoberfläche
+# Printix MCP Web-Verwaltungsmodul

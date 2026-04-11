@@ -1345,6 +1345,9 @@ def printix_save_report_template(
     footer_text: str = "",
     created_prompt: str = "",
     report_id: str = "",
+    logo_base64: str = "",
+    logo_mime: str = "image/png",
+    logo_url: str = "",
 ) -> str:
     """
     Speichert eine vollständige Report-Definition als wiederverwendbares Template.
@@ -1355,25 +1358,11 @@ def printix_save_report_template(
 
     Args:
         name:               Lesbarer Name, z.B. "Monatlicher Kostenreport Controlling"
-        query_type:         Einer der folgenden Werte:
-                            print_stats | cost_report | top_users | top_printers | trend |
-                            job_history | printer_history | user_detail | user_copy_detail |
-                            user_scan_detail | tree_meter | service_desk |
-                            workstation_overview | queue_stats | device_readings
-        query_params:       JSON-String mit Query-Parametern.
-                            Für start_date / end_date NUR diese Magic-Keywords verwenden:
-                              last_month_start | last_month_end
-                              this_month_start
-                              last_year_start  | last_year_end
-                              this_year_start
-                              last_quarter_start | last_quarter_end
-                              last_week_start  | last_week_end
-                              today
-                            KEIN festes Datum wie "2026-04-01" — immer Magic-Keywords!
-                            Beispiel: '{"start_date":"last_month_start","end_date":"last_month_end","group_by":"month"}'
+        query_type:         print_stats | cost_report | top_users | top_printers | anomalies | trend
+        query_params:       JSON-String mit Query-Parametern, z.B. '{"start_date":"last_month_start","end_date":"last_month_end","group_by":"month"}'
         recipients:         Kommagetrennte E-Mail-Adressen, z.B. "controller@firma.de,cfo@firma.de"
         mail_subject:       Betreffzeile, z.B. "Druckkosten {month} {year}"
-        output_formats:     Kommagetrennte Formate: html,csv,json,pdf,xlsx (default: html)
+        output_formats:     Kommagetrennte Formate: html,csv,json (default: html)
         schedule_frequency: Leer = kein Schedule | monthly | weekly | daily
         schedule_day:       Bei monthly: Tag 1-28. Bei weekly: 0=Mo...6=So (default: 1)
         schedule_time:      Uhrzeit der Ausführung HH:MM (default: 08:00)
@@ -1382,6 +1371,10 @@ def printix_save_report_template(
         footer_text:        Optionaler Fußzeilentext
         created_prompt:     Ursprüngliche Nutzeranfrage (für spätere Regenerierung)
         report_id:          Optional — vorhandene ID zum Überschreiben
+        logo_base64:        Optional — Base64-Kodierung (ohne data:-Prefix) eines Logo-Bildes
+                            für den Report-Header. Max. 1 MB Rohgröße. Hat Vorrang vor logo_url.
+        logo_mime:          MIME-Type des Base64-Logos, z.B. image/png, image/jpeg (default: image/png)
+        logo_url:           Alternativ: externe URL zu einem Logo-Bild (nur wenn logo_base64 leer)
     """
     if not _REPORTING_AVAILABLE:
         return _ok({"error": "Reporting-Modul nicht verfügbar."})
@@ -1402,11 +1395,30 @@ def printix_save_report_template(
             "time":      schedule_time,
         }
 
+    # v3.7.10: Logo-Auflösung analog zum Web-Formular (_resolve_logo).
+    # Reihenfolge: Base64 hat Vorrang vor URL; 1MB-Cap; MIME-Safety.
+    _lb64  = (logo_base64 or "").strip()
+    _lmime = (logo_mime   or "image/png").strip() or "image/png"
+    _lurl  = (logo_url    or "").strip()
+    if _lb64:
+        if not _lmime.startswith("image/"):
+            _lmime = "image/png"
+        # Base64-Größen-Cap (Rohbytes ≈ 0.75 × len(b64))
+        _approx_raw = int(len(_lb64) * 0.75)
+        if _approx_raw > 1024 * 1024:
+            return _ok({"error": f"Logo zu groß ({_approx_raw} bytes > 1MB). Max 1 MB Rohgröße."})
+        _lurl = ""  # Base64 gewinnt gegen URL
+    else:
+        _lb64  = ""
+        _lmime = "image/png"
+
     layout = {
         "company_name":  company_name,
         "primary_color": primary_color,
         "footer_text":   footer_text,
-        "logo_base64":   "",
+        "logo_base64":   _lb64,
+        "logo_mime":     _lmime,
+        "logo_url":      _lurl,
     }
 
     try:
@@ -1774,8 +1786,6 @@ def printix_update_schedule(
         return _ok({"error": str(e)})
 
 
-
-
 # ─── Demo Data Generator ─────────────────────────────────────────────────────
 
 try:
@@ -1791,8 +1801,9 @@ def _demo_check() -> str | None:
     if not _DEMO_AVAILABLE:
         return "Demo-Generator nicht verfügbar — bitte Container neu bauen."
     if not _sql_configured():
-        return ("SQL nicht konfiguriert. Bitte eigene Azure SQL eintragen "
-                "und dann printix_demo_setup_schema ausführen.")
+        return ("SQL nicht konfiguriert. "
+                "Bitte eigene Azure SQL in den Einstellungen eintragen "
+                "und anschließend printix_demo_setup_schema ausführen.")
     return None
 
 
@@ -1801,18 +1812,19 @@ def printix_demo_setup_schema() -> str:
     """
     Erstellt alle erforderlichen Tabellen für Demo-Daten in der konfigurierten Azure SQL.
 
-    Legt folgende Tabellen an (nur wenn noch nicht vorhanden):
+    Legt folgende Tabellen an (nur wenn sie noch nicht existieren):
       dbo.networks, dbo.users, dbo.printers, dbo.jobs, dbo.tracking_data,
       dbo.jobs_scan, dbo.jobs_copy, dbo.jobs_copy_details, dbo.demo_sessions
 
-    Idempotent — kann mehrfach ausgeführt werden.
-    Voraussetzung: Eigene Azure SQL mit CREATE/INSERT-Rechten konfiguriert.
+    Idempotent — kann mehrfach ohne Schaden ausgeführt werden.
+    Voraussetzung: Eigene Azure SQL mit INSERT/CREATE-Rechten konfiguriert.
     """
     err = _demo_check()
     if err:
         return _ok({"error": err})
     try:
-        return _ok(_demo_gen.setup_schema())
+        result = _demo_gen.setup_schema()
+        return _ok(result)
     except Exception as e:
         return _ok({"error": str(e)})
 
@@ -1830,32 +1842,43 @@ def printix_demo_generate(
     """
     Generiert ein vollständiges Demo-Dataset in der konfigurierten Azure SQL-Datenbank.
 
-    Erstellt realistische Print-, Scan- und Kopierjobs rückwirkend ab heute.
-    Alle Standard-Reports zeigen danach aussagekräftige Demo-Daten.
+    Erstellt realistische Druck-, Scan- und Kopierjobs für den angegebenen Zeitraum
+    — rückwirkend ab heute. Alle Reports (Volumen, Kosten, Top-User, Trends usw.)
+    zeigen danach aussagekräftige Demo-Daten.
 
     Args:
         user_count:        Anzahl Demo-User (1–200, default: 15)
         printer_count:     Anzahl Demo-Drucker (1–50, default: 6)
-        months:            Monate rückwirkend ab heute (1–36, default: 12)
-        languages:         Kommagetrennt: de,en,fr,it,es,nl,sv,no
-        sites:             Kommagetrennte Standortnamen, z.B. "Berlin,Hamburg,Wien"
-        demo_tag:          Name für diese Session (für Rollback), leer = auto
-        jobs_per_user_day: Durchschnittliche Druckjobs pro User/Werktag (default: 3.0)
+        months:            Anzahl Monate rückwirkend ab heute (1–36, default: 12)
+        languages:         Kommagetrennte Sprachliste für Benutzernamen
+                           Verfügbar: de, en, fr, it, es, nl, sv, no
+                           Beispiel: "de,fr,en" → gemischte Herkunft
+        sites:             Kommagetrennte Standortnamen
+                           Beispiel: "Hauptsitz,München,Wien,Zürich"
+        demo_tag:          Name für diese Demo-Session (für späteres Rollback)
+                           Beispiel: "DEMO_ACME_2025" — leer = automatisch generiert
+        jobs_per_user_day: Durchschnittliche Druckjobs pro User pro Werktag (default: 3.0)
+
+    Beispiel-Aufruf:
+        "Erstelle Demo-Daten: 20 User, 8 Drucker, 12 Monate, Sprachen DE/FR/EN,
+         Standorte Berlin/Hamburg/München, Tag DEMO_KUNDE_2025"
     """
     err = _demo_check()
     if err:
         return _ok({"error": err})
     try:
         tenant_id = _get_sql_tenant_id()
+        lang_list = [l.strip() for l in languages.split(",") if l.strip()]
+        site_list = [s.strip() for s in sites.split(",") if s.strip()]
         result = _demo_gen.generate_demo_dataset(
-            tenant_id         = tenant_id,
-            user_count        = user_count,
-            printer_count     = printer_count,
-            months            = months,
-            languages         = [l.strip() for l in languages.split(",") if l.strip()],
-            sites             = [s.strip() for s in sites.split(",") if s.strip()],
-            demo_tag          = demo_tag,
-            jobs_per_user_day = jobs_per_user_day,
+            tenant_id        = tenant_id,
+            user_count       = user_count,
+            printer_count    = printer_count,
+            months           = months,
+            languages        = lang_list,
+            sites            = site_list,
+            demo_tag         = demo_tag,
+            jobs_per_user_day= jobs_per_user_day,
         )
         return _ok(result)
     except Exception as e:
@@ -1866,21 +1889,27 @@ def printix_demo_generate(
 @mcp.tool()
 def printix_demo_rollback(demo_tag: str) -> str:
     """
-    Löscht alle Demo-Daten einer bestimmten Session aus der Azure SQL.
+    Löscht alle Demo-Daten einer bestimmten Session aus der Azure SQL-Datenbank.
 
     Entfernt alle Zeilen aus tracking_data, jobs, jobs_scan, jobs_copy,
-    printers, users, networks und demo_sessions mit dem angegebenen demo_tag.
+    jobs_copy_details, printers, users, networks und demo_sessions,
+    die mit dem angegebenen demo_tag erstellt wurden.
+
+    Voraussetzung: printix_demo_status zeigt vorhandene Tags.
 
     Args:
-        demo_tag: Name der Demo-Session, sichtbar via printix_demo_status
+        demo_tag: Name der Demo-Session, z.B. "DEMO_ACME_2025"
+                  (sichtbar in printix_demo_status)
     """
     err = _demo_check()
     if err:
         return _ok({"error": err})
     if not demo_tag.strip():
-        return _ok({"error": "demo_tag darf nicht leer sein."})
+        return _ok({"error": "demo_tag darf nicht leer sein. Verfügbare Tags via printix_demo_status."})
     try:
-        return _ok(_demo_gen.rollback_demo(_get_sql_tenant_id(), demo_tag.strip()))
+        tenant_id = _get_sql_tenant_id()
+        result = _demo_gen.rollback_demo(tenant_id, demo_tag.strip())
+        return _ok(result)
     except Exception as e:
         return _ok({"error": str(e)})
 
@@ -1890,16 +1919,19 @@ def printix_demo_status() -> str:
     """
     Zeigt alle aktiven Demo-Sessions im aktuellen Tenant.
 
-    Listet jede Session mit demo_tag, Datum, Anzahl User/Drucker/Jobs.
-    Gibt die Tags für printix_demo_rollback zurück.
+    Listet jede Session mit demo_tag, Erstellungsdatum, Anzahl User/Drucker/Jobs.
+    Nützlich um Tags für printix_demo_rollback zu ermitteln.
     """
     err = _demo_check()
     if err:
         return _ok({"error": err})
     try:
-        return _ok(_demo_gen.get_demo_status(_get_sql_tenant_id()))
+        tenant_id = _get_sql_tenant_id()
+        result = _demo_gen.get_demo_status(tenant_id)
+        return _ok(result)
     except Exception as e:
         return _ok({"error": str(e)})
+
 
 # ─── Dual Transport Router ────────────────────────────────────────────────────
 
@@ -1967,7 +1999,7 @@ if __name__ == "__main__":
             logger.warning("Scheduler-Init fehlgeschlagen: %s", _sched_err)
 
     logger.info("╔══════════════════════════════════════════════════════════════╗")
-    logger.info("║        PRINTIX MCP SERVER v3.2.1 — MULTI-TENANT             ║")
+    logger.info("║        PRINTIX MCP SERVER v3.9.0 — MULTI-TENANT             ║")
     logger.info("╠══════════════════════════════════════════════════════════════╣")
     logger.info("║  MCP (claude.ai):  %s/mcp", base)
     logger.info("║  SSE (ChatGPT):    %s/sse", base)

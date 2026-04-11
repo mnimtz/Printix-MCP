@@ -116,6 +116,13 @@ class OAuthMiddleware:
 
     Tenant-Lookup erfolgt per client_id aus der SQLite-DB.
     Kein festes client_id/secret mehr in env vars.
+
+    Routet:
+      GET/POST /oauth/authorize  → Authorize-Logik
+      POST     /oauth/token      → Token-Endpunkt (gibt tenant.bearer_token zurück)
+      GET      /.well-known/*    → OAuth Discovery (RFC 8414 / 9728)
+      GET      /health           → Health-Check
+      *                          → BearerAuthMiddleware → DualTransportApp → MCP
     """
 
     def __init__(self, app):
@@ -189,6 +196,7 @@ class OAuthMiddleware:
         await send({"type": "http.response.body", "body": body})
 
     def _lookup_tenant_by_client(self, client_id: str) -> dict | None:
+        """Findet Tenant anhand der OAuth client_id in der DB."""
         try:
             from db import get_tenant_by_oauth_client_id
             return get_tenant_by_oauth_client_id(client_id)
@@ -227,16 +235,18 @@ class OAuthMiddleware:
     # ── OAuth Endpunkte ────────────────────────────────────────────────────────
 
     async def _authorize_get(self, scope, send):
+        """Zeigt die Bestätigungsseite für den Tenant."""
         params = self._parse_query(scope.get("query_string", b""))
-        client_id    = params.get("client_id", "")
+        client_id   = params.get("client_id", "")
         redirect_uri = params.get("redirect_uri", "")
-        state        = params.get("state", "")
+        state       = params.get("state", "")
 
         if not client_id or not redirect_uri:
             await self._json(send, 400, {"error": "invalid_request",
                                           "error_description": "client_id und redirect_uri erforderlich"})
             return
 
+        # Tenant anhand client_id finden
         tenant = self._lookup_tenant_by_client(client_id)
         tenant_name = tenant.get("name", client_id) if tenant else client_id
 
@@ -254,6 +264,7 @@ class OAuthMiddleware:
         await send({"type": "http.response.body", "body": body})
 
     async def _authorize_post(self, scope, receive, send):
+        """Verarbeitet Formular-Submit (Erlauben / Ablehnen)."""
         raw = await self._read_body(receive)
         params = self._parse_form(raw)
 
@@ -273,6 +284,7 @@ class OAuthMiddleware:
             await self._redirect(send, f"{redirect_uri}?error=unauthorized_client&state={state}")
             return
 
+        # Authorization Code generieren (gültig 10 Min.)
         code = secrets.token_urlsafe(32)
         _auth_codes[code] = {
             "tenant_id":    tenant["id"],
@@ -286,8 +298,10 @@ class OAuthMiddleware:
         await self._redirect(send, f"{redirect_uri}?code={code}&state={state}")
 
     async def _token(self, scope, receive, send):
+        """Tauscht Authorization Code gegen den Tenant-Bearer-Token."""
         raw = await self._read_body(receive)
 
+        # Content-Type: form-encoded oder JSON
         ct = ""
         for k, v in scope.get("headers", []):
             if k == b"content-type":
@@ -307,6 +321,7 @@ class OAuthMiddleware:
         client_id     = params.get("client_id", "")
         client_secret = params.get("client_secret", "")
 
+        # Client-Credentials + Tenant aus DB prüfen
         tenant = self._lookup_tenant_by_client(client_id)
         if not tenant:
             logger.warning("OAuth: Token-Anfrage mit unbekannter client_id=%s", client_id)
@@ -314,6 +329,7 @@ class OAuthMiddleware:
                                           "error_description": "Unbekannte client_id"})
             return
 
+        # client_secret validieren (stored in DB, plain — tenant hat eigenen OAuth-Secret)
         try:
             from db import verify_tenant_oauth_secret
             if not verify_tenant_oauth_secret(tenant["id"], client_secret):
@@ -331,6 +347,7 @@ class OAuthMiddleware:
                                           "error_description": "Nur authorization_code wird unterstützt"})
             return
 
+        # Authorization Code validieren
         code_data = _auth_codes.pop(code, None)
         if not code_data or code_data["expires_at"] < time.time():
             logger.warning("OAuth: Ungültiger oder abgelaufener Code")
@@ -348,5 +365,5 @@ class OAuthMiddleware:
         await self._json(send, 200, {
             "access_token": tenant["bearer_token"],
             "token_type":   "bearer",
-            "expires_in":   31536000,
+            "expires_in":   31536000,  # 1 Jahr
         })

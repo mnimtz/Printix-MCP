@@ -23,7 +23,6 @@
     font-size:.78em; font-weight:700; padding:1px 8px; border-radius:10px;
   }
   .card-count.zero { background:#f1f5f9; color:#9ca3af; }
-  .card-count.unknown { background:#f1f5f9; color:#9ca3af; font-style:italic; }
   .role-badge {
     display:inline-block; font-size:.72em; padding:1px 6px; border-radius:8px;
     background:#fef3c7; color:#92400e;
@@ -51,7 +50,7 @@
         👤 {{ _('tenant_tab_users') }}
       </a>
       <a href="/tenant/demo" class="tenant-tab {% if active_tab == 'demo' %}active{% endif %}">
-        🧪 {{ _('tenant_tab_demo') }}
+        🗄️ {{ _('tenant_tab_demo') }}
       </a>
     </div>
 
@@ -97,12 +96,11 @@
         </thead>
         <tbody>
           {% for u in users %}
-          {% set display = u.get('name') or u.get('displayName') or u.get('fullName') or '?' %}
+          {% set display = u.get('displayName') or u.get('fullName') or u.get('name') or '?' %}
           {% set email   = u.get('email', '–') %}
-          {% set roles_list = u.get('roles') or [] %}
-          {% set role    = roles_list[0] if roles_list else u.get('role', '') %}
+          {% set cards   = u.get('cards', []) %}
+          {% set role    = u.get('role', '') %}
           {% set uid     = u.get('id', '') %}
-          {% set card_count = u.get('_card_count') %}
           <tr class="clickable" onclick="location.href='/tenant/users/{{ uid }}'">
             <td>
               <div style="display:flex;align-items:center;gap:10px;">
@@ -112,13 +110,10 @@
             </td>
             <td style="color:#6b7280;font-size:.88em;">{{ email }}</td>
             <td>
-              {% if card_count is not none %}
-                <span class="card-count {% if card_count == 0 %}zero{% endif %}">
-                  🃏 {{ card_count }}
-                </span>
-              {% else %}
-                <span class="card-count unknown" title="Karten-API nicht erreichbar">🃏 –</span>
-              {% endif %}
+              {% set card_count = cards | length %}
+              <span class="card-count {% if card_count == 0 %}zero{% endif %}">
+                🃏 {{ card_count }}
+              </span>
             </td>
             <td>
               {% if role %}

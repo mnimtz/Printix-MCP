@@ -81,11 +81,11 @@ class BearerAuthMiddleware:
             await self._unauthorized(send, "Invalid bearer token.")
             return
 
-        logger.debug("Auth OK: Tenant '%s' für %s %s",
-                     tenant.get("name", tenant.get("id", "?")),
-                     scope.get("method", "?"), path)
-
         # Tenant in ContextVar setzen (thread-safe dank contextvars)
+        # WICHTIG: ContextVar MUSS gesetzt sein BEVOR der erste Logger-Aufruf
+        # erfolgt — sonst landet das Auth-OK-Log nicht in tenant_logs (der
+        # _TenantDBHandler liest current_tenant und verwirft Records ohne
+        # Tenant-Kontext).
         token_ct = current_tenant.set(tenant)
 
         # SQL-Konfiguration für Reporting-Modul setzen
@@ -96,6 +96,10 @@ class BearerAuthMiddleware:
             "password":  tenant.get("sql_password", ""),
             "tenant_id": tenant.get("printix_tenant_id", ""),
         })
+
+        logger.debug("Auth OK: Tenant '%s' für %s %s",
+                     tenant.get("name", tenant.get("id", "?")),
+                     scope.get("method", "?"), path)
 
         try:
             await self.app(scope, receive, send)

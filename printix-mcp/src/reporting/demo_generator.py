@@ -29,65 +29,146 @@ NAMES: dict[str, dict[str, list[str]]] = {
     "de": {
         "first": ["Hans","Klaus","Petra","Sabine","Michael","Andrea","Thomas","Maria",
                   "Günther","Ursula","Wolfgang","Monika","Dieter","Brigitte","Frank",
-                  "Christine","Bernd","Karin","Jörg","Ute","Rainer","Ingrid","Holger","Silke"],
+                  "Christine","Bernd","Karin","Jörg","Ute","Rainer","Ingrid","Holger","Silke",
+                  "Stefan","Barbara","Martin","Claudia","Andreas","Susanne","Jürgen","Gabriele",
+                  "Peter","Birgit","Matthias","Kerstin","Rolf","Heike","Gerhard","Angelika",
+                  "Uwe","Elke","Ralf","Marion","Harald","Manuela","Norbert","Nicole","Helmut",
+                  "Martina","Volker","Beate","Dirk","Anja","Axel","Tanja","Bernhard","Daniela",
+                  "Karl","Simone","Fabian","Julia","Lukas","Lena","Sebastian","Nina","Tobias",
+                  "Katharina","Alexander","Sandra","Markus","Stefanie"],
         "last":  ["Müller","Schmidt","Schneider","Fischer","Weber","Meyer","Wagner","Becker",
                   "Schulz","Hoffmann","Schäfer","Koch","Bauer","Richter","Klein","Wolf",
-                  "Schröder","Neumann","Schwarz","Zimmermann","Braun","Krüger","Hofmann","Lange"],
+                  "Schröder","Neumann","Schwarz","Zimmermann","Braun","Krüger","Hofmann","Lange",
+                  "Schmitt","Werner","Schmitz","Krause","Meier","Lehmann","Schmid","Schulze",
+                  "Maier","Köhler","Herrmann","König","Walter","Mayer","Huber","Kaiser","Fuchs",
+                  "Peters","Lang","Scholz","Möller","Weiß","Jung","Hahn","Schubert","Vogel",
+                  "Friedrich","Keller","Günther","Frank","Berger","Winkler","Roth","Beck",
+                  "Lorenz","Baumann","Franke","Albrecht","Schuster","Simon","Ludwig","Böhm",
+                  "Winter","Kraus","Martin","Schumacher","Krämer","Vogt","Stein","Jäger","Otto"],
     },
     "en": {
         "first": ["John","Sarah","Michael","Emma","David","Lisa","James","Jennifer","Robert",
                   "Mary","William","Patricia","Richard","Linda","Joseph","Barbara","Thomas",
-                  "Elizabeth","Charles","Susan","Daniel","Jessica","Matthew","Ashley"],
+                  "Elizabeth","Charles","Susan","Daniel","Jessica","Matthew","Ashley",
+                  "Christopher","Amanda","Andrew","Melissa","Joshua","Deborah","Kenneth",
+                  "Stephanie","Paul","Rebecca","Mark","Laura","Donald","Helen","Steven","Sharon",
+                  "Kevin","Cynthia","Brian","Kathleen","George","Amy","Edward","Shirley","Ronald",
+                  "Angela","Timothy","Anna","Jason","Brenda","Jeffrey","Pamela","Ryan","Nicole",
+                  "Jacob","Samantha","Gary","Katherine","Nicholas","Christine","Eric","Debra",
+                  "Jonathan","Rachel","Stephen","Catherine","Larry","Carolyn","Justin","Janet"],
         "last":  ["Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis",
-                  "Wilson","Taylor","Anderson","Thomas","Jackson","White","Harris","Martin",
-                  "Thompson","Young","Walker","Robinson","Lewis","Clark","Hall","Allen"],
+                  "Wilson","Taylor","Anderson","Jackson","White","Harris","Martin",
+                  "Thompson","Young","Walker","Robinson","Lewis","Clark","Hall","Allen",
+                  "Wright","King","Scott","Green","Baker","Adams","Nelson","Carter","Mitchell",
+                  "Perez","Roberts","Turner","Phillips","Campbell","Parker","Evans","Edwards",
+                  "Collins","Stewart","Morris","Rogers","Reed","Cook","Morgan","Bell","Murphy",
+                  "Bailey","Rivera","Cooper","Richardson","Cox","Howard","Ward","Torres",
+                  "Peterson","Gray","Ramirez","James","Watson","Brooks","Kelly","Sanders",
+                  "Price","Bennett","Wood","Barnes","Ross","Henderson","Coleman","Jenkins"],
     },
     "fr": {
         "first": ["Jean","Marie","Pierre","Sophie","Luc","Isabelle","François","Nathalie",
                   "Philippe","Sylvie","Michel","Catherine","Christophe","Valérie","Nicolas",
-                  "Sandrine","Stéphane","Laurence","Patrick","Anne","Julien","Céline"],
+                  "Sandrine","Stéphane","Laurence","Patrick","Anne","Julien","Céline",
+                  "Olivier","Véronique","Alain","Brigitte","Laurent","Corinne","Éric",
+                  "Martine","Thierry","Nicole","Bruno","Chantal","Pascal","Dominique",
+                  "Frédéric","Florence","Didier","Christine","Hervé","Monique","Sébastien",
+                  "Caroline","Vincent","Hélène","Xavier","Karine","Emmanuel","Emilie","Fabien",
+                  "Camille","Antoine","Julie","Alexandre","Delphine","Mathieu","Aurélie",
+                  "Guillaume","Stéphanie","Romain","Sarah","Arnaud","Marion","Damien","Audrey",
+                  "Cédric","Élodie","Gilles","Charlotte","Thomas","Amélie","Rémy","Manon"],
         "last":  ["Dupont","Martin","Bernard","Dubois","Thomas","Robert","Richard","Petit",
                   "Durand","Leroy","Moreau","Simon","Laurent","Lefebvre","Michel","Garcia",
-                  "David","Bertrand","Roux","Vincent","Fournier","Morel","Girard","André"],
+                  "David","Bertrand","Roux","Vincent","Fournier","Morel","Girard","André",
+                  "Mercier","Blanc","Guérin","Boyer","Garnier","Chevalier","Francois","Legrand",
+                  "Gauthier","Perrin","Robin","Clément","Morin","Nicolas","Henry","Roussel",
+                  "Mathieu","Gautier","Masson","Marchand","Duval","Denis","Dumont","Marie",
+                  "Lemaire","Noël","Meyer","Dufour","Meunier","Brun","Blanchard","Giraud",
+                  "Joly","Rivière","Lucas","Brunet","Gaillard","Barbier","Arnaud","Martinez",
+                  "Gerard","Roche","Renard","Schmitt","Roy","Leroux","Colin","Vidal","Caron"],
     },
     "it": {
         "first": ["Marco","Giulia","Luca","Sara","Andrea","Francesca","Matteo","Chiara",
                   "Davide","Valentina","Alessandro","Laura","Simone","Elena","Federico",
-                  "Martina","Riccardo","Paola","Stefano","Giorgia","Antonio","Roberta"],
+                  "Martina","Riccardo","Paola","Stefano","Giorgia","Antonio","Roberta",
+                  "Giuseppe","Silvia","Francesco","Anna","Giovanni","Alessia","Paolo",
+                  "Barbara","Roberto","Cristina","Luigi","Claudia","Salvatore","Monica",
+                  "Mario","Patrizia","Vincenzo","Rossella","Alberto","Daniela","Fabio","Raffaella",
+                  "Massimo","Lucia","Enrico","Manuela","Claudio","Michela","Giorgio","Elisa",
+                  "Pietro","Tiziana","Carlo","Sabrina","Lorenzo","Angela","Nicola","Rita",
+                  "Emanuele","Letizia","Gianluca","Serena","Alessio","Eleonora","Filippo","Ilaria"],
         "last":  ["Rossi","Ferrari","Russo","Bianchi","Romano","Gallo","Costa","Fontana",
                   "Conti","Esposito","Ricci","Bruno","De Luca","Moretti","Lombardi",
-                  "Barbieri","Testa","Serra","Fabbri","Villa","Pellegrini","Marini"],
+                  "Barbieri","Testa","Serra","Fabbri","Villa","Pellegrini","Marini",
+                  "Greco","Mancini","Marino","Rizzo","Lombardo","Giordano","Galli","Leone",
+                  "Longo","Gentile","Martinelli","Cattaneo","Morelli","Ferrara","Santoro",
+                  "Mariani","Rinaldi","Caruso","Ferri","Sala","Monti","De Santis","Marchetti",
+                  "D'Amico","Colombo","Gatti","Parisi","Bellini","Grassi","Benedetti","Giuliani",
+                  "Amato","Battaglia","Sanna","Farina","Palumbo","Coppola","Basile","Riva",
+                  "Donati","Orlando","Bianco","Valentini","Pagano","Piras","Messina","Cattivelli"],
     },
     "es": {
         "first": ["Carlos","Ana","Miguel","Carmen","José","María","Antonio","Isabel",
                   "Francisco","Laura","Manuel","Marta","Juan","Cristina","David","Elena",
-                  "Pedro","Lucía","Alejandro","Patricia","Diego","Sofía","Javier","Raquel"],
+                  "Pedro","Lucía","Alejandro","Patricia","Diego","Sofía","Javier","Raquel",
+                  "Jorge","Rosa","Luis","Pilar","Rafael","Dolores","Ángel","Teresa","Fernando",
+                  "Nuria","Ramón","Mónica","Jesús","Beatriz","Rubén","Ángela","Sergio","Silvia",
+                  "Alberto","Rocío","Óscar","Sonia","Iván","Julia","Álvaro","Alicia","Mario",
+                  "Eva","Adrián","Clara","Pablo","Inés","Daniel","Andrea","Víctor","Natalia",
+                  "Roberto","Sara","Enrique","Claudia","Gabriel","Paula","Emilio","Victoria","Marcos"],
         "last":  ["García","Martínez","López","Sánchez","González","Pérez","Rodríguez",
                   "Fernández","Torres","Ramírez","Flores","Morales","Ortiz","Vargas","Díaz",
-                  "Reyes","Gómez","Molina","Herrera","Silva","Castro","Romero","Navarro"],
+                  "Reyes","Gómez","Molina","Herrera","Silva","Castro","Romero","Navarro",
+                  "Jiménez","Álvarez","Moreno","Muñoz","Alonso","Gutiérrez","Ruiz","Hernández",
+                  "Serrano","Blanco","Suárez","Castillo","Ortega","Rubio","Sanz","Iglesias",
+                  "Nuñez","Medina","Garrido","Santos","Cortés","Lozano","Guerrero","Cano",
+                  "Prieto","Méndez","Cruz","Calvo","Gallego","Vidal","León","Márquez","Herrero",
+                  "Peña","Cabrera","Campos","Vega","Fuentes","Carrasco","Diez","Caballero","Reyes"],
     },
     "nl": {
         "first": ["Jan","Emma","Pieter","Sophie","Dirk","Anneke","Thomas","Lisa","Joost",
                   "Marieke","Bas","Inge","Tim","Claudia","Martijn","Evelien","Ruben",
-                  "Nathalie","Sander","Iris","Lars","Roos","Jeroen","Fleur"],
+                  "Nathalie","Sander","Iris","Lars","Roos","Jeroen","Fleur",
+                  "Mark","Linda","Michiel","Esther","Wouter","Annemarie","Erik","Yvonne",
+                  "Rick","Saskia","Kees","Monique","Johan","Petra","Bram","Marloes",
+                  "Maarten","Wendy","Vincent","Karin","Daan","Femke","Stijn","Hanneke",
+                  "Niels","Suzanne","Koen","Judith","Robin","Mirjam","Jeroen","Astrid",
+                  "Jasper","Caroline","Joost","Lieke","Tom","Sanne","Freek","Mariska"],
         "last":  ["de Vries","Janssen","van den Berg","Bakker","Peters","Visser","Meijer",
-                  "Bos","Mulder","de Boer","Smit","Dekker","Leeuwen","Dijkstra","van Dijk",
-                  "Vermeulen","Kok","Jacobs","Brouwer","Groot","Willems","Langen"],
+                  "Bos","Mulder","de Boer","Smit","Dekker","van Leeuwen","Dijkstra","van Dijk",
+                  "Vermeulen","Kok","Jacobs","Brouwer","de Groot","Willems","van der Meer",
+                  "van Beek","Schouten","Hoekstra","van Dam","Verhoeven","de Wit","Prins","Bosch",
+                  "Huisman","Peeters","van der Velde","Kuipers","van der Linden","Koster",
+                  "Gerritsen","van Veen","van den Broek","Willemsen","Timmermans","Martens",
+                  "van Loon","Hendriks","Wolters","de Lange","Koning","van Zanten","Scholten"],
     },
     "sv": {
         "first": ["Erik","Anna","Lars","Maja","Björn","Linnea","Johan","Emma","Mikael",
                   "Lena","Anders","Sofia","Per","Maria","Henrik","Sara","Jonas","Karin",
-                  "Stefan","Ingrid","Oskar","Frida","Viktor","Johanna"],
+                  "Stefan","Ingrid","Oskar","Frida","Viktor","Johanna",
+                  "Peter","Kerstin","Daniel","Helena","Magnus","Eva","Thomas","Birgitta",
+                  "Jan","Ulla","Bengt","Margareta","Kalle","Monika","Axel","Linda",
+                  "Fredrik","Cecilia","Gustav","Elsa","Ludvig","Astrid","Rasmus","Alma",
+                  "Oliver","Wilma","Isak","Nora","Alexander","Ida","Simon","Alice"],
         "last":  ["Eriksson","Johansson","Andersson","Lindqvist","Nilsson","Larsson",
                   "Svensson","Gustafsson","Pettersson","Persson","Olsson","Bergström",
-                  "Holm","Björk","Lindberg","Magnusson","Carlsson","Jakobsson","Hansson","Karlsson"],
+                  "Holm","Björk","Lindberg","Magnusson","Carlsson","Jakobsson","Hansson","Karlsson",
+                  "Jonsson","Lindström","Axelsson","Berglund","Fredriksson","Sandberg","Henriksson",
+                  "Forsberg","Sjöberg","Lundberg","Wallin","Engström","Danielsson","Håkansson",
+                  "Lund","Bengtsson","Jönsson","Lindgren","Berg","Fransson","Holmberg","Nyström"],
     },
     "no": {
         "first": ["Erik","Ingrid","Lars","Astrid","Ole","Kari","Bjørn","Elin","Tor","Silje",
-                  "Per","Anne","Gunnar","Kristin","Svein","Hanne","Trond","Randi","Dag","Marit"],
+                  "Per","Anne","Gunnar","Kristin","Svein","Hanne","Trond","Randi","Dag","Marit",
+                  "Jan","Berit","Arne","Liv","Rolf","Eli","Knut","Turid","Odd","Ragnhild",
+                  "Geir","Sissel","Morten","Trine","Håkon","Linda","Kjell","Grete","Tore","Unni",
+                  "Magnus","Mari","Eirik","Nora","Henrik","Ida","Jonas","Emma","Sindre","Ingeborg"],
         "last":  ["Hansen","Johansen","Olsen","Larsen","Andersen","Pedersen","Nilsen",
                   "Kristiansen","Jensen","Karlsen","Johnsen","Haugen","Pettersen","Eriksen",
-                  "Berg","Dahl","Halvorsen","Iversen","Moen","Jacobsen","Strand","Lund"],
+                  "Berg","Dahl","Halvorsen","Iversen","Moen","Jacobsen","Strand","Lund",
+                  "Solberg","Bakken","Svendsen","Martinsen","Rasmussen","Kristoffersen","Jørgensen",
+                  "Nygård","Paulsen","Gundersen","Ellingsen","Lie","Mathisen","Knutsen","Aas",
+                  "Sæther","Hagen","Antonsen","Ruud","Christensen","Thomassen","Hauge"],
     },
 }
 
@@ -159,6 +240,63 @@ _SCAN_TEMPLATES = [
     "Brief_Eingang_{date}.pdf",
     "Zertifikat_Eingang_{date}.pdf",
 ]
+
+# ── Sensible Dateinamen (v3.8.0) ──────────────────────────────────────────────
+# Diese Templates enthalten bewusst Schlüsselwörter aus den 6 Keyword-Sets des
+# "Sensible Dokumente"-Reports (HR, Finanzen, Vertraulich, Gesundheit, Recht, PII),
+# damit Demo-Datasets Treffer für den Compliance-Scan liefern. Anteil in den
+# Print-/Scan-Jobs: ~8 % (siehe _filename_print/_filename_scan).
+_SENSITIVE_PRINT_TEMPLATES = [
+    # HR
+    "Gehaltsabrechnung_{year}_{mo:02d}.pdf",
+    "Lohnabrechnung_{user}_{mo:02d}_{year}.pdf",
+    "Arbeitsvertrag_{user}.pdf",
+    "Kuendigung_Entwurf_{nr:03d}.pdf",
+    "Personalakte_{user}.pdf",
+    "Bewerbung_{user}_CV.pdf",
+    # Finanzen
+    "Kreditkartenabrechnung_{year}_{mo:02d}.pdf",
+    "IBAN_Liste_Kunden_{year}.xlsx",
+    "Kontoauszug_{year}_{mo:02d}.pdf",
+    "Steuererklaerung_{year}.pdf",
+    "Bilanz_Entwurf_{year}.xlsx",
+    # Vertraulich / Confidential
+    "VERTRAULICH_Strategie_{year}.pdf",
+    "Confidential_Board_Meeting_{date}.pdf",
+    "NDA_{kunde}_{nr:03d}.pdf",
+    "Geheim_MA_Deal_{nr:03d}.pdf",
+    # Gesundheit / Health
+    "Krankmeldung_{user}_{date}.pdf",
+    "Arztbrief_{user}.pdf",
+    "AU_Bescheinigung_{nr:04d}.pdf",
+    # Recht / Legal
+    "Klageschrift_{nr:03d}.pdf",
+    "Anwaltsschreiben_{kunde}.pdf",
+    "Gerichtsbeschluss_{nr:04d}.pdf",
+    "Mahnbescheid_{nr:04d}.pdf",
+    # PII
+    "Personalausweis_Kopie_{user}.pdf",
+    "Reisepass_Scan_{user}.pdf",
+    "SVN_Liste_{year}.xlsx",
+]
+
+_SENSITIVE_SCAN_TEMPLATES = [
+    "SCAN_Personalausweis_{date}.pdf",
+    "SCAN_Reisepass_{date}.pdf",
+    "SCAN_Gehaltsabrechnung_{date}.pdf",
+    "SCAN_Arbeitsvertrag_{date}.pdf",
+    "SCAN_Krankmeldung_{date}.pdf",
+    "SCAN_Arztbrief_{date}.pdf",
+    "SCAN_Kontoauszug_{date}.pdf",
+    "SCAN_NDA_Vertraulich_{date}.pdf",
+    "SCAN_Anwaltsschreiben_{date}.pdf",
+    "SCAN_Personalakte_{date}.pdf",
+    "SCAN_Kreditkarte_Beleg_{date}.pdf",
+    "SCAN_VERTRAULICH_{date}.pdf",
+]
+
+# Wahrscheinlichkeit, mit der ein Dateiname aus dem sensiblen Pool gezogen wird.
+_SENSITIVE_RATIO = 0.08
 
 CAPTURE_WORKFLOWS = [
     "Posteingang digitalisieren",
@@ -269,9 +407,18 @@ SCHEMA_STATEMENTS: list[str] = [
         page_count      INT          NOT NULL DEFAULT 1,
         color           BIT          NOT NULL DEFAULT 0,
         workflow_name   NVARCHAR(500) NULL,
+        filename        NVARCHAR(500) NULL,
         demo_session_id NVARCHAR(100) NULL,
         CONSTRAINT PK_jobs_scan PRIMARY KEY (id)
     )
+    """,
+    # v3.8.0 — idempotente Migration: filename-Spalte nachrüsten für bestehende Installationen
+    """
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.columns
+        WHERE object_id = OBJECT_ID('demo.jobs_scan') AND name = 'filename'
+    )
+        ALTER TABLE demo.jobs_scan ADD filename NVARCHAR(500) NULL
     """,
     # jobs_copy
     """
@@ -357,11 +504,13 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     """
     CREATE OR ALTER VIEW reporting.v_tracking_data AS
-    SELECT id, job_id, tenant_id, page_count, color, duplex,
+    -- dbo.tracking_data.id = uniqueidentifier, demo.tracking_data.id = bigint
+    -- → beide explizit auf NVARCHAR(36) casten, damit UNION ALL kompatibel wird.
+    SELECT CAST(id AS NVARCHAR(36)) AS id, job_id, tenant_id, page_count, color, duplex,
            print_time, printer_id, print_job_status
     FROM dbo.tracking_data
     UNION ALL
-    SELECT id, job_id, tenant_id, page_count, color, duplex,
+    SELECT CAST(id AS NVARCHAR(36)) AS id, job_id, tenant_id, page_count, color, duplex,
            print_time, printer_id, print_job_status
     FROM demo.tracking_data
     WHERE EXISTS (
@@ -371,8 +520,12 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     """
     CREATE OR ALTER VIEW reporting.v_jobs AS
+    -- v3.8.0: dbo.jobs.name -> filename, demo.jobs.filename -> filename.
+    -- Wird für den Compliance-Report "Sensible Dokumente" (query_sensitive_documents)
+    -- benötigt, der per LIKE im Dateinamen nach Schlüsselwörtern sucht.
     SELECT id, tenant_id, color, duplex, page_count, paper_size,
-           printer_id, submit_time, tenant_user_id, filename
+           printer_id, submit_time, tenant_user_id,
+           CAST(name AS NVARCHAR(500)) AS filename
     FROM dbo.jobs
     UNION ALL
     SELECT id, tenant_id, color, duplex, page_count, paper_size,
@@ -421,12 +574,16 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
     """
     CREATE OR ALTER VIEW reporting.v_jobs_scan AS
+    -- v3.8.0: filename ergänzt für den Compliance-Report "Sensible Dokumente".
+    -- dbo.jobs_scan führt (soweit bekannt) keinen Dateinamen — daher NULL-Fallback.
+    -- demo.jobs_scan hat seit v3.8.0 eine filename-Spalte (idempotente Migration).
     SELECT id, tenant_id, printer_id, tenant_user_id, scan_time,
-           page_count, color, workflow_name
+           page_count, color,
+           CAST(NULL AS NVARCHAR(500)) AS filename
     FROM dbo.jobs_scan
     UNION ALL
     SELECT id, tenant_id, printer_id, tenant_user_id, scan_time,
-           page_count, color, workflow_name
+           page_count, color, filename
     FROM demo.jobs_scan
     WHERE EXISTS (
         SELECT 1 FROM demo.demo_sessions ds
@@ -506,18 +663,30 @@ def _pick_name(languages: list[str], rng: random.Random) -> tuple[str, str, str]
     return rng.choice(bank["first"]), rng.choice(bank["last"]), lang
 
 
+def _ascii_slug(s: str) -> str:
+    """
+    Wandelt Diakritika um und entfernt alles außer Buchstaben/Ziffern.
+      'Günther' -> 'guenther'
+      "D'Amico" -> 'damico'
+      'de Vries' -> 'devries'
+    """
+    replacements = {"ä":"ae","ö":"oe","ü":"ue","ß":"ss","á":"a","à":"a","â":"a",
+                    "é":"e","è":"e","ê":"e","ë":"e","í":"i","ì":"i","î":"i","ï":"i",
+                    "ó":"o","ò":"o","ô":"o","ú":"u","ù":"u","û":"u","ñ":"n","ç":"c",
+                    "ø":"o","å":"a","æ":"ae","Ä":"ae","Ö":"oe","Ü":"ue","É":"e","È":"e",
+                    "Á":"a","À":"a","Í":"i","Ó":"o","Ú":"u","Ñ":"n","Ç":"c"}
+    for k, v in replacements.items():
+        s = s.replace(k, v)
+    return "".join(c for c in s.lower() if c.isalnum())
+
+
 def _email(first: str, last: str, domain: str) -> str:
-    def _ascii(s: str) -> str:
-        replacements = {"ä":"ae","ö":"oe","ü":"ue","ß":"ss","á":"a","à":"a","â":"a",
-                        "é":"e","è":"e","ê":"e","ë":"e","í":"i","ì":"i","î":"i","ï":"i",
-                        "ó":"o","ò":"o","ô":"o","ú":"u","ù":"u","û":"u","ñ":"n","ç":"c",
-                        "ø":"o","å":"a","æ":"ae","Ä":"ae","Ö":"oe","Ü":"ue"}
-        for k, v in replacements.items():
-            s = s.replace(k, v)
-        return "".join(c for c in s.lower() if c.isalnum() or c == ".")
-    f = _ascii(first)
-    l = _ascii(last.replace(" ", "-"))
-    return f"{f}.{l}@{domain}"
+    """
+    Erzeugt eine saubere E-Mail-Adresse:
+      'Günther Schröder' -> 'guenther.schroeder@domain'
+      'Jean-Luc' 'de Vries' -> 'jeanluc.devries@domain'
+    """
+    return f"{_ascii_slug(first)}.{_ascii_slug(last)}@{domain}"
 
 
 def _working_days(start: datetime, end: datetime) -> list[datetime]:
@@ -557,19 +726,30 @@ def _page_count(rng: random.Random) -> int:
     return max(1, min(200, pages))
 
 
-def _filename_print(rng: random.Random, ts: datetime) -> str:
-    tpl = rng.choice(_PRINT_TEMPLATES)
+def _filename_print(rng: random.Random, ts: datetime,
+                    user: Optional[dict] = None) -> str:
+    # v3.8.0 — mit Wahrscheinlichkeit _SENSITIVE_RATIO aus dem sensiblen Pool
+    if rng.random() < _SENSITIVE_RATIO:
+        tpl = rng.choice(_SENSITIVE_PRINT_TEMPLATES)
+    else:
+        tpl = rng.choice(_PRINT_TEMPLATES)
+    user_slug = _ascii_slug(user["name"]) if user and user.get("name") else "mitarbeiter"
     return tpl.format(
         nr=rng.randint(1, 9999), date=ts.strftime("%Y-%m-%d"),
-        year=ts.year, q=((ts.month - 1) // 3) + 1,
+        year=ts.year, q=((ts.month - 1) // 3) + 1, mo=ts.month,
         kw=ts.isocalendar()[1], maj=rng.randint(1, 5), min=rng.randint(0, 9),
         kunde=rng.choice(["ABC","XYZ","Mustermann","Musterfrau","Omega","Alpha","Beta"]),
         thema=rng.choice(["Produkt","Service","Vertrieb","Marketing","IT","HR"]),
+        user=user_slug,
     )
 
 
 def _filename_scan(rng: random.Random, ts: datetime) -> str:
-    tpl = rng.choice(_SCAN_TEMPLATES)
+    # v3.8.0 — mit Wahrscheinlichkeit _SENSITIVE_RATIO aus dem sensiblen Pool
+    if rng.random() < _SENSITIVE_RATIO:
+        tpl = rng.choice(_SENSITIVE_SCAN_TEMPLATES)
+    else:
+        tpl = rng.choice(_SCAN_TEMPLATES)
     return tpl.format(
         nr=rng.randint(1, 9999), date=ts.strftime("%Y%m%d"),
         time=ts.strftime("%H%M%S"),
@@ -582,20 +762,54 @@ def _gen_users(
     tenant_id: str, user_count: int, languages: list[str],
     session_id: str, rng: random.Random, email_domain: str,
 ) -> list[dict]:
-    users, seen_emails = [], set()
+    """
+    Generiert Benutzer nach dem Schema 'Vorname Nachname'.
+
+    Kollisionsbehandlung: Wenn derselbe 'Vorname Nachname' doppelt auftritt,
+    wird ein Mittelinitial (A./B./C./...) eingefügt — so bleiben Anzeige-Name
+    UND E-Mail-Adresse eindeutig und lesbar, statt dass nur die Mail-Adresse
+    mit einer zufälligen Zahl ergänzt wird (was vorher 'komische Schreibweisen'
+    erzeugt hat).
+    """
+    users: list[dict] = []
+    seen_names_exact: set[str] = set()   # vollständiger Anzeigename (inkl. Initial)
+    seen_base_counts: dict[str, int] = {}  # "Vorname Nachname" -> Anzahl bisher
+    seen_emails: set[str] = set()
+
     attempts = 0
-    while len(users) < user_count and attempts < user_count * 10:
+    max_attempts = max(user_count * 15, 100)
+    while len(users) < user_count and attempts < max_attempts:
         attempts += 1
         first, last, _ = _pick_name(languages, rng)
-        email = _email(first, last, email_domain)
-        if email in seen_emails:
-            email = f"{email.split('@')[0]}{rng.randint(2,99)}@{email_domain}"
+
+        base_name = f"{first} {last}"
+        count = seen_base_counts.get(base_name, 0)
+
+        if count == 0:
+            display_name = base_name
+            email = _email(first, last, email_domain)
+        else:
+            # Mittelinitial einfügen: 'Hans A. Müller', 'Hans B. Müller', ...
+            # count=1 -> A, count=2 -> B, ... Email: 'hans.a.mueller@...'
+            initial = chr(ord('A') + ((count - 1) % 26))
+            display_name = f"{first} {initial}. {last}"
+            email = (
+                f"{_ascii_slug(first)}.{initial.lower()}."
+                f"{_ascii_slug(last)}@{email_domain}"
+            )
+
+        # Fallback: sehr unwahrscheinliche Kollision -> skippen, neu ziehen
+        if display_name in seen_names_exact or email in seen_emails:
+            continue
+
+        seen_base_counts[base_name] = count + 1
+        seen_names_exact.add(display_name)
         seen_emails.add(email)
         users.append({
             "id":              _uid(),
             "tenant_id":       tenant_id,
             "email":           email,
-            "name":            f"{first} {last}",
+            "name":            display_name,
             "department":      rng.choice(DEPARTMENTS),
             "demo_session_id": session_id,
         })
@@ -660,7 +874,7 @@ def _gen_print_jobs(
                 duplex  = 1 if rng.random() < 0.60 else 0
                 paper   = rng.choice(PAPER_SIZES)
                 printer = rng.choice(printers)
-                fname   = _filename_print(rng, ts)
+                fname   = _filename_print(rng, ts, user)
                 job_id  = _uid()
 
                 jobs_rows.append((
@@ -761,7 +975,9 @@ def generate_demo_dataset(
     languages        = [l for l in (languages or ["de"]) if l in NAMES] or ["de"]
     sites            = sites or ["Hauptsitz", "Niederlassung"]
     demo_tag         = demo_tag.strip() or f"DEMO_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    email_domain     = f"demo-{demo_tag.lower().replace(' ','')}.invalid"
+    # Stabile Demo-Domain — RFC 2606 .example TLD ist eindeutig als Demo erkennbar
+    # und vermeidet das frühere "demo-demo2026...invalid"-Doppelpräfix.
+    email_domain     = "printix-demo.example"
 
     rng        = random.Random(seed)
     session_id = f"{demo_tag}_{_uid()[:8]}"
@@ -974,7 +1190,9 @@ def get_demo_status(tenant_id: str) -> dict:
     from .sql_client import query_fetchall
     try:
         sessions = query_fetchall(
-            "SELECT session_id,demo_tag,created_at,status,"
+            # Perf v3.7.8: TOP 20 begrenzt die Round-Trip-Dauer bei Azure SQL
+            # (die Demo-Seite zeigt sowieso nur die neuesten Sessions).
+            "SELECT TOP 20 session_id,demo_tag,created_at,status,"
             "user_count,printer_count,network_count,"
             "print_job_count,scan_job_count,copy_job_count,params_json "
             "FROM demo.demo_sessions WHERE tenant_id=? ORDER BY created_at DESC",

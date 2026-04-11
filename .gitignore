@@ -8,3 +8,6 @@ __pycache__/
 node_modules/
 dist/
 build/
+*.bak
+*.bak.*
+src.bak.v389/

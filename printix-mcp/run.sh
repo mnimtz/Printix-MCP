@@ -1,13 +1,13 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# Printix MCP Server v3.5.1 — Home Assistant Add-on Entrypoint
+# Printix MCP Server v3.9.0 — Home Assistant Add-on Entrypoint
 #
 # Startet zwei Services:
 #   1. Web-Verwaltungsoberfläche  (WEB_PORT,  Standard: 8080)
 #   2. MCP-Server (SSE + HTTP)   (MCP_PORT,  Standard: 8765)
 #
 # Alle Zugangsdaten werden in der SQLite-DB (/data/printix_multi.db) verwaltet.
-# Erstkonfiguration über die Web-UI: http://<HA-IP>:<HOST_WEB_PORT>
+# Erstkonfiguration über die Web-UI: http://<HA-IP>:<WEB_PORT>
 # ==============================================================================
 
 set -e
@@ -46,7 +46,7 @@ else
 fi
 
 bashio::log.info "╔══════════════════════════════════════════════════════════════╗"
-bashio::log.info "║        PRINTIX MCP SERVER v3.5.1 — MULTI-TENANT             ║"
+bashio::log.info "║        PRINTIX MCP SERVER v3.9.0 — MULTI-TENANT            ║"
 bashio::log.info "╠══════════════════════════════════════════════════════════════╣"
 bashio::log.info "║ Web-Verwaltung:  http://<HA-IP>:${HOST_WEB_PORT}"
 bashio::log.info "║  → Erstkonfiguration / Benutzer registrieren"

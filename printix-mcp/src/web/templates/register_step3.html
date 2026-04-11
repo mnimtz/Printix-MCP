@@ -14,19 +14,28 @@
     </div>
 
     <div class="section-title">Optionale Erweiterungen</div>
-    <div class="section-sub">Diese Einstellungen sind nicht erforderlich — du kannst sie jederzeit später hinzufügen.</div>
+    <div class="section-sub">
+      Diese Einstellungen sind nicht erforderlich — du kannst sie jederzeit später hinzufügen.
+    </div>
 
-    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
 
     <form method="post" action="/register/optional">
-      <div style="font-size:.9em; font-weight:700; color:#1e3a5f; margin-bottom:4px;">📊 Azure SQL Reporting</div>
+      <!-- SQL Reporting -->
+      <div style="font-size:.9em; font-weight:700; color:#1e3a5f; margin-bottom:4px;">
+        📊 Azure SQL Reporting
+      </div>
       <div style="font-size:.83em; color:#6b7280; margin-bottom:16px;">
         Direktzugriff auf die Printix BI-Datenbank für AI-gestütztes Reporting.
+        Zugangsdaten werden von Printix/Tungsten bereitgestellt.
       </div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
         <div class="form-group" style="grid-column: 1 / -1;">
           <label>SQL Server</label>
-          <input type="text" name="sql_server" placeholder="printix-bi-data-2.database.windows.net">
+          <input type="text" name="sql_server"
+                 placeholder="printix-bi-data-2.database.windows.net">
         </div>
         <div class="form-group">
           <label>Datenbank</label>
@@ -44,9 +53,13 @@
 
       <div class="divider"></div>
 
-      <div style="font-size:.9em; font-weight:700; color:#1e3a5f; margin-bottom:4px;">📧 E-Mail-Versand (Resend)</div>
+      <!-- Mail -->
+      <div style="font-size:.9em; font-weight:700; color:#1e3a5f; margin-bottom:4px;">
+        📧 E-Mail-Versand (Resend)
+      </div>
       <div style="font-size:.83em; color:#6b7280; margin-bottom:16px;">
-        Für automatischen Versand von Reports. API-Key unter <strong>resend.com → API Keys</strong>.
+        Für automatischen Versand von Reports per E-Mail.
+        API-Key erstellen unter <strong>resend.com → API Keys</strong>.
       </div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
         <div class="form-group">
@@ -62,8 +75,20 @@
       <div style="display:flex; gap:12px; margin-top:8px;">
         <a href="/register/api" class="btn btn-secondary">← Zurück</a>
         <button type="submit" class="btn btn-primary">Weiter →</button>
+        <a href="/register/optional" onclick="skipOptional(event)" class="btn btn-secondary" style="color:#6b7280;">
+          Überspringen →
+        </a>
       </div>
     </form>
   </div>
 </div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+  function skipOptional(e) {
+    e.preventDefault();
+    // Submit form with empty optional fields
+    document.querySelector('form').submit();
+  }
+</script>
 {% endblock %}

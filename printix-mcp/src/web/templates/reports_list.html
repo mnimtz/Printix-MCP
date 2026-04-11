@@ -96,7 +96,8 @@
           <td style="font-size:.8em;color:#9ca3af;">{{ t.created_at[:10] if t.created_at else '—' }}</td>
           <td style="text-align:right; white-space:nowrap;">
             <!-- Run now -->
-            <form class="run-form" method="post" action="/reports/{{ t.report_id }}/run">
+            <form class="run-form" method="post" action="/reports/{{ t.report_id }}/run"
+                  onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').innerHTML='⏳';this.querySelector('button').title='{{ _('rpt_run_running') | e }}';">
               <button type="submit" class="btn btn-success btn-sm"
                       title="{{ _('rpt_run_now') }}"
                       {% if not reporting_ok %}disabled{% endif %}>▶</button>

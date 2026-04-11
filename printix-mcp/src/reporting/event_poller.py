@@ -203,16 +203,12 @@ def _process_printers(
     send_fn, html_printer_fn, html_queue_fn,
 ) -> None:
     """Verarbeitet die Drucker-Antwort der Printix API."""
-    # Printix gibt HAL+JSON zurück — Drucker sind in _embedded.printers
-    # Jeder Drucker enthält Queues (manchmal embedded, manchmal _links)
     printers = []
 
     if isinstance(resp, dict):
-        # HAL+JSON Format: {"_embedded": {"printers": [...]}}
         embedded = resp.get("_embedded", {})
         if isinstance(embedded, dict):
             printers = embedded.get("printers", [])
-        # Fallback: {"content": [...]} oder direkte Liste
         if not printers:
             printers = resp.get("content", []) or resp.get("printers", [])
     elif isinstance(resp, list):
@@ -222,7 +218,6 @@ def _process_printers(
         if not isinstance(printer, dict):
             continue
 
-        # Drucker-ID aus _links.self.href extrahieren
         printer_id = _extract_id(printer)
         printer_name = printer.get("name", printer_id or "Unbekannt")
 
@@ -302,10 +297,8 @@ def _process_guest_users(
 
 def _extract_id(obj: dict) -> str:
     """Extrahiert eine ID aus einem Printix API-Objekt (verschiedene Formate)."""
-    # Direktes ID-Feld
     if "id" in obj:
         return str(obj["id"])
-    # HAL+JSON _links.self.href → letztes Pfad-Segment
     links = obj.get("_links", {})
     if isinstance(links, dict):
         self_link = links.get("self", {})

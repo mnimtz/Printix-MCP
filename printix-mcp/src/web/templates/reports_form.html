@@ -46,7 +46,7 @@
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
 
-    <form method="post" action="{{ '/reports/' + report.report_id + '/edit' if is_edit else '/reports/new' }}">
+    <form method="post" action="{{ '/reports/' + report.report_id + '/edit' if is_edit else '/reports/new' }}" onsubmit="return prepareLogoBeforeSubmit()">
 
       <!-- ── 1. Grunddaten ─────────────────────────────────────────────── -->
       <div class="form-section">
@@ -150,6 +150,10 @@
           <input type="hidden" name="start_date" id="start_date_hidden" value="{{ sd_val }}">
           <input type="hidden" name="end_date"   id="end_date_hidden"   value="{{ ed_val }}">
 
+          <!-- Preset-qp als JSON f\u00fcr Stufe-2-Typen (workstation_id, status_filter \u2026) -->
+          <input type="hidden" name="preset_qp_json" id="preset_qp_json"
+                 value="{{ report.get('query_params', {}) | tojson | e }}">
+
           <!-- print_stats / trend: Gruppierung -->
           <div class="qp-group" id="qp-print_stats">
             <div class="form-group" style="margin-bottom:0;">
@@ -214,6 +218,47 @@
             </p>
           </div>
 
+          <!-- v3.8.0 — sensitive_documents: Keyword-Sets + Freitext -->
+          <div class="qp-group" id="qp-sensitive_documents">
+            {% set _sens_sets = report.get('query_params',{}).get('keyword_sets', []) %}
+            {% set _sens_custom = report.get('query_params',{}).get('custom_keywords', []) %}
+            {% set _sens_scans = report.get('query_params',{}).get('include_scans', True) %}
+            {% set _sens_keys = ['hr','finance','confidential','health','legal','pii'] %}
+
+            <div class="form-group">
+              <label>{{ _('rpt_sensitive_keyword_sets') }}</label>
+              <div style="display:flex;flex-wrap:wrap;gap:10px 18px;">
+                {% for k in _sens_keys %}
+                <label class="fmt-item" style="font-size:.9em;">
+                  <input type="checkbox" name="keyword_sets_cb" value="{{ k }}"
+                         {{ 'checked' if k in _sens_sets else '' }}>
+                  {{ _('sens_kw_set_' + k) }}
+                </label>
+                {% endfor %}
+              </div>
+              <!-- Hidden field vom JS bef\u00fcllt (CSV aus Checkboxen) -->
+              <input type="hidden" name="keyword_sets" id="sens_keyword_sets_hidden"
+                     value="{{ _sens_sets | join(',') }}">
+              <small class="hint">{{ _('rpt_sensitive_keyword_sets_hint') }}</small>
+            </div>
+
+            <div class="form-group">
+              <label>{{ _('rpt_sensitive_custom_keywords') }}</label>
+              <input type="text" name="custom_keywords"
+                     value="{{ _sens_custom | join(', ') }}"
+                     placeholder="{{ _('rpt_sensitive_custom_keywords_placeholder') }}">
+              <small class="hint">{{ _('rpt_sensitive_custom_keywords_hint') }}</small>
+            </div>
+
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="fmt-item" style="font-size:.9em;">
+                <input type="checkbox" name="include_scans" value="1"
+                       {{ 'checked' if _sens_scans else '' }}>
+                {{ _('rpt_sensitive_include_scans') }}
+              </label>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -258,7 +303,8 @@
             <label>{{ _('rpt_recipients') }}</label>
             <input type="text" name="recipients"
                    value="{{ report.recipients | join(', ') if report.recipients else '' }}"
-                   placeholder="max@firma.de, erika@firma.de">
+                   placeholder='max@firma.de, "Max Mustermann" <max@firma.de>'>
+            <small class="hint">{{ _('rpt_recipients_hint') }}</small>
           </div>
 
           <div class="form-group">
@@ -270,15 +316,36 @@
 
           <div class="form-group">
             <label>{{ _('rpt_logo') }}</label>
-            <input type="url" name="logo_url" id="logoUrlInput"
-                   value="{{ report.get('layout',{}).get('logo_url','') }}"
-                   placeholder="https://..."
-                   oninput="updateLogoPreview(this.value)">
+            {% set _logo_b64 = report.get('layout',{}).get('logo_base64','') %}
+            {% set _logo_mime = report.get('layout',{}).get('logo_mime','image/png') %}
+            {% set _logo_url  = report.get('layout',{}).get('logo_url','') %}
+            {% if _logo_b64 %}
+              {% set _logo_src = 'data:' + _logo_mime + ';base64,' + _logo_b64 %}
+            {% else %}
+              {% set _logo_src = _logo_url %}
+            {% endif %}
+
+            <input type="file" id="logoFileInput" accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp"
+                   onchange="handleLogoSelect(this)">
+
+            <!-- Hidden Felder: werden vom JS bef\u00fcllt oder behalten den Bestand -->
+            <input type="hidden" name="logo_base64" id="logoBase64Field" value="{{ _logo_b64 }}">
+            <input type="hidden" name="logo_mime"   id="logoMimeField"   value="{{ _logo_mime }}">
+            <input type="hidden" name="logo_url"    id="logoUrlField"    value="{{ _logo_url }}">
+            <input type="hidden" name="logo_remove" id="logoRemoveField" value="">
+
             <small class="hint">{{ _('rpt_logo_hint') }}</small>
-            <img id="logoPreview" class="logo-preview"
-                 src="{{ report.get('layout',{}).get('logo_url','') }}"
-                 alt="Logo preview"
-                 onerror="this.style.display='none'">
+
+            <div id="logoPreviewWrap" style="margin-top:10px; {{ 'display:none;' if not _logo_src else '' }}">
+              <img id="logoPreview" class="logo-preview"
+                   src="{{ _logo_src }}"
+                   alt="Logo preview"
+                   style="display:{{ 'inline-block' if _logo_src else 'none' }}"
+                   onerror="this.style.display='none'">
+              <button type="button" class="btn btn-secondary btn-sm"
+                      style="margin-left:10px;vertical-align:middle;"
+                      onclick="removeLogo()">{{ _('rpt_logo_remove') }}</button>
+            </div>
           </div>
 
           <div class="form-group">
@@ -364,12 +431,27 @@ const I18N = {
 };
 
 const QP_GROUPS = {
-  "print_stats":  ["qp-print_stats"],
-  "trend":        ["qp-print_stats"],
-  "cost_report":  ["qp-cost_report"],
-  "top_users":    ["qp-top_users"],
-  "top_printers": ["qp-top_users"],
-  "anomalies":    ["qp-anomalies"],
+  // Stufe 1
+  "print_stats":          ["qp-print_stats"],
+  "trend":                ["qp-print_stats"],
+  "cost_report":          ["qp-cost_report"],
+  "top_users":            ["qp-top_users"],
+  "top_printers":         ["qp-top_users"],
+  "anomalies":            ["qp-anomalies"],
+  // Stufe 2 \u2014 nutzen Preset-qp \u00fcber preset_qp_json, daher keine Widgets
+  "printer_history":      [],
+  "device_readings":      [],
+  "job_history":          [],
+  "queue_stats":          [],
+  "user_detail":          [],
+  "user_copy_detail":     [],
+  "user_scan_detail":     [],
+  "workstation_overview": [],
+  "workstation_detail":   [],
+  "tree_meter":           [],
+  "service_desk":         [],
+  // v3.8.0
+  "sensitive_documents":  ["qp-sensitive_documents"],
 };
 
 function switchQueryType(val) {
@@ -429,14 +511,63 @@ function syncCustomDate(which) {
   document.getElementById(which + "_date_hidden").value = val || "";
 }
 
-function updateLogoPreview(url) {
-  const img = document.getElementById("logoPreview");
-  if (url && url.startsWith("http")) {
-    img.src = url;
-    img.style.display = "block";
-  } else {
-    img.style.display = "none";
+// ── Logo-Upload (Client-Side Base64) ─────────────────────────────────────
+// Maximale Dateigr\u00f6\u00dfe f\u00fcr das Logo (roh, vor Base64):
+// 512 KB reichen f\u00fcr jedes sinnvolle Report-Logo; base64 ~= 683 KB < 1 MB Form-Limit
+const LOGO_MAX_BYTES = 512 * 1024;
+
+function handleLogoSelect(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  if (!/^image\//.test(file.type)) {
+    alert((I18N && I18N.logo_err_type) || "Bitte eine Bilddatei w\u00e4hlen (PNG/JPG/SVG).");
+    input.value = "";
+    return;
   }
+  if (file.size > LOGO_MAX_BYTES) {
+    alert((I18N && I18N.logo_err_size) || "Datei zu gro\u00df (max. 512 KB).");
+    input.value = "";
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    // ev.target.result = "data:image/png;base64,iVBOR..."
+    const dataUri = String(ev.target.result || "");
+    const m = dataUri.match(/^data:([^;]+);base64,(.+)$/);
+    if (!m) return;
+    const mime = m[1];
+    const b64  = m[2];
+    document.getElementById("logoBase64Field").value = b64;
+    document.getElementById("logoMimeField").value   = mime;
+    // Neu hochgeladenes Logo ersetzt die alte URL
+    document.getElementById("logoUrlField").value    = "";
+    document.getElementById("logoRemoveField").value = "";
+
+    const img = document.getElementById("logoPreview");
+    const wrap = document.getElementById("logoPreviewWrap");
+    img.src = dataUri;
+    img.style.display = "inline-block";
+    wrap.style.display = "";
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeLogo() {
+  document.getElementById("logoBase64Field").value = "";
+  document.getElementById("logoMimeField").value   = "image/png";
+  document.getElementById("logoUrlField").value    = "";
+  document.getElementById("logoRemoveField").value = "1";
+  document.getElementById("logoFileInput").value   = "";
+  document.getElementById("logoPreviewWrap").style.display = "none";
+  document.getElementById("logoPreview").style.display = "none";
+}
+
+function prepareLogoBeforeSubmit() {
+  // Defensiv: falls User weder File gew\u00e4hlt noch Remove geklickt hat,
+  // einfach die bestehenden Hidden-Werte \u00fcbernehmen (kein Handling n\u00f6tig).
+  return true;
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -449,8 +580,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (el) el.addEventListener("input", () => syncCustomDate(w));
   });
 
-  const logoUrl = document.getElementById("logoUrlInput").value;
-  if (logoUrl) updateLogoPreview(logoUrl);
+  // Logo-Preview: Bestand wird schon beim Render gesetzt (siehe Template),
+  // hier nichts weiter zu tun — handleLogoSelect \u00fcbernimmt neue Uploads.
 
   document.querySelector("form").addEventListener("submit", () => {
     ["start", "end"].forEach(w => {
@@ -462,6 +593,13 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById(w + "_date_hidden").value = preset;
       }
     });
+
+    // v3.8.0 — sensitive_documents: Checkbox-Auswahl in Hidden-CSV schreiben
+    const cbNodes = document.querySelectorAll('input[name="keyword_sets_cb"]:checked');
+    const hidden = document.getElementById("sens_keyword_sets_hidden");
+    if (hidden) {
+      hidden.value = Array.from(cbNodes).map(cb => cb.value).join(",");
+    }
   });
 });
 </script>

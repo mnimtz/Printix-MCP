@@ -143,10 +143,38 @@ def init_db() -> None:
             conn.execute("ALTER TABLE tenants ADD COLUMN alert_min_level TEXT NOT NULL DEFAULT 'ERROR'")
         if "mail_from_name" not in existing_t:
             conn.execute("ALTER TABLE tenants ADD COLUMN mail_from_name TEXT NOT NULL DEFAULT ''")
-        if "notify_events" not in existing_t:
-            conn.execute("ALTER TABLE tenants ADD COLUMN notify_events TEXT NOT NULL DEFAULT '[\"log_error\"]'")
-        if "poller_state" not in existing_t:
-            conn.execute("ALTER TABLE tenants ADD COLUMN poller_state TEXT NOT NULL DEFAULT '{}'")
+    # Sichere Migration für audit_log (v3.9.0): Objekttyp + Objekt-ID für strukturierten Audit-Trail
+    with _conn() as conn:
+        existing_a = {r[1] for r in conn.execute("PRAGMA table_info(audit_log)").fetchall()}
+        if "object_type" not in existing_a:
+            conn.execute("ALTER TABLE audit_log ADD COLUMN object_type TEXT NOT NULL DEFAULT ''")
+        if "object_id" not in existing_a:
+            conn.execute("ALTER TABLE audit_log ADD COLUMN object_id TEXT NOT NULL DEFAULT ''")
+        if "tenant_id" not in existing_a:
+            conn.execute("ALTER TABLE audit_log ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log (created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log (tenant_id, created_at DESC)")
+    # Feature-Requests / Ticketsystem (v3.9.0+)
+    with _conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS feature_requests (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticket_no   TEXT NOT NULL UNIQUE,
+                user_id     TEXT,
+                user_email  TEXT NOT NULL DEFAULT '',
+                tenant_id   TEXT NOT NULL DEFAULT '',
+                title       TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                category    TEXT NOT NULL DEFAULT 'feature',
+                status      TEXT NOT NULL DEFAULT 'new',
+                priority    TEXT NOT NULL DEFAULT 'normal',
+                admin_note  TEXT NOT NULL DEFAULT '',
+                created_at  TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_feature_requests_status ON feature_requests (status, created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_feature_requests_user ON feature_requests (user_id, created_at DESC)")
     logger.info("DB initialisiert: %s", DB_PATH)
 
 
@@ -597,8 +625,6 @@ def get_tenant_full_by_user_id(user_id: str) -> Optional[dict]:
         "mail_from_name":      d.get("mail_from_name", ""),
         "alert_recipients":    d.get("alert_recipients", ""),
         "alert_min_level":     d.get("alert_min_level", "ERROR"),
-        "notify_events":       d.get("notify_events", '["log_error"]'),
-        "poller_state":        d.get("poller_state", "{}"),
     }
 
 
@@ -623,7 +649,6 @@ def update_tenant_credentials(
     mail_from_name: Optional[str] = None,
     alert_recipients: Optional[str] = None,
     alert_min_level: Optional[str] = None,
-    notify_events: Optional[str] = None,
 ) -> bool:
     """
     Aktualisiert Tenant-Credentials (nur gesetzte Felder).
@@ -655,7 +680,6 @@ def update_tenant_credentials(
     _add("mail_from_name",       mail_from_name)
     _add("alert_recipients",     alert_recipients)
     _add("alert_min_level",      alert_min_level)
-    _add("notify_events",        notify_events)
 
     if not parts:
         return True
@@ -666,16 +690,6 @@ def update_tenant_credentials(
             f"UPDATE tenants SET {', '.join(parts)} WHERE user_id=?", params
         )
     return cur.rowcount > 0
-
-
-def update_poller_state(user_id: str, state: dict) -> None:
-    """Speichert den Poller-Cache (letzte bekannte Drucker/Benutzer-IDs) für einen Tenant."""
-    import json
-    with _conn() as conn:
-        conn.execute(
-            "UPDATE tenants SET poller_state=? WHERE user_id=?",
-            (json.dumps(state, ensure_ascii=False), user_id)
-        )
 
 
 def regenerate_oauth_secret(user_id: str) -> Optional[str]:
@@ -763,12 +777,30 @@ def _tenant_decrypted(d: dict) -> dict:
 
 # ─── Audit Log ────────────────────────────────────────────────────────────────
 
-def audit(user_id: Optional[str], action: str, details: str = "") -> None:
+def audit(
+    user_id: Optional[str],
+    action: str,
+    details: str = "",
+    object_type: str = "",
+    object_id: str = "",
+    tenant_id: str = "",
+) -> None:
+    """Schreibt einen Audit-Log-Eintrag.
+
+    Rückwärts-kompatibel mit der ursprünglichen 3-Argument-Signatur (v3.8.x).
+    Neue optional Felder (v3.9.0): object_type, object_id, tenant_id für den
+    strukturierten Admin-Audit-Trail-Report.
+    """
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO audit_log (user_id, action, details, created_at) VALUES (?,?,?,?)",
-            (user_id, action, details, _now()),
+            "INSERT INTO audit_log (user_id, action, details, created_at, object_type, object_id, tenant_id) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (user_id, action, details, _now(), object_type or "", object_id or "", tenant_id or ""),
         )
+
+
+# Alias für klarere Semantik in neuen Call-Sites
+audit_write = audit
 
 
 def get_audit_log(limit: int = 200) -> list:
@@ -780,6 +812,169 @@ def get_audit_log(limit: int = 200) -> list:
             ORDER BY a.created_at DESC LIMIT ?
         """, (limit,)).fetchall()
         return [dict(r) for r in rows]
+
+
+def query_audit_log_range(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    tenant_id: str = "",
+    action_prefix: str = "",
+    limit: int = 1000,
+) -> list:
+    """Strukturierter Audit-Log-Query für den Report-Engine.
+
+    start_date/end_date: ISO-Datum (YYYY-MM-DD), inklusiv
+    tenant_id: wenn gesetzt, nur Einträge dieses Mandanten
+    action_prefix: wenn gesetzt, nur Aktionen die damit beginnen (z.B. 'create_', 'delete_')
+    """
+    where = []
+    params: list = []
+    if start_date:
+        where.append("a.created_at >= ?")
+        params.append(f"{start_date}T00:00:00+00:00")
+    if end_date:
+        where.append("a.created_at <= ?")
+        params.append(f"{end_date}T23:59:59+00:00")
+    if tenant_id:
+        where.append("a.tenant_id = ?")
+        params.append(tenant_id)
+    if action_prefix:
+        where.append("a.action LIKE ?")
+        params.append(f"{action_prefix}%")
+    wsql = ("WHERE " + " AND ".join(where)) if where else ""
+    params.append(limit)
+    with _conn() as conn:
+        rows = conn.execute(f"""
+            SELECT a.id, a.created_at AS timestamp, a.user_id, u.username AS actor,
+                   a.action, a.object_type, a.object_id, a.details, a.tenant_id
+            FROM audit_log a
+            LEFT JOIN users u ON u.id = a.user_id
+            {wsql}
+            ORDER BY a.created_at DESC
+            LIMIT ?
+        """, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ─── Feature-Request / Ticketsystem (v3.9.0) ─────────────────────────────────
+
+def _next_ticket_no() -> str:
+    """Erzeugt eine fortlaufende Ticket-Nummer im Format FR-YYYYMM-NNNN."""
+    import datetime as _dt
+    ym = _dt.datetime.now(timezone.utc).strftime("%Y%m")
+    prefix = f"FR-{ym}-"
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT ticket_no FROM feature_requests WHERE ticket_no LIKE ? "
+            "ORDER BY ticket_no DESC LIMIT 1",
+            (f"{prefix}%",),
+        ).fetchone()
+    if row:
+        try:
+            n = int(row[0].split("-")[-1]) + 1
+        except Exception:
+            n = 1
+    else:
+        n = 1
+    return f"{prefix}{n:04d}"
+
+
+def create_feature_request(
+    user_id: Optional[str],
+    user_email: str,
+    title: str,
+    description: str = "",
+    category: str = "feature",
+    tenant_id: str = "",
+) -> dict:
+    """Legt einen neuen Feature-Request an und liefert das erstellte Ticket."""
+    ticket_no = _next_ticket_no()
+    now = _now()
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO feature_requests (ticket_no, user_id, user_email, tenant_id, "
+            "title, description, category, status, priority, admin_note, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                ticket_no, user_id or "", user_email or "", tenant_id or "",
+                title.strip(), (description or "").strip(), (category or "feature").strip(),
+                "new", "normal", "", now, now,
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM feature_requests WHERE ticket_no = ?", (ticket_no,)
+        ).fetchone()
+    return dict(row) if row else {}
+
+
+def list_feature_requests(
+    user_id: Optional[str] = None,
+    status: str = "",
+    limit: int = 500,
+) -> list:
+    """Listet Feature-Requests.
+
+    user_id: wenn gesetzt, nur die Tickets dieses Users (für Nicht-Admins).
+    status: wenn gesetzt, nur Tickets mit diesem Status.
+    """
+    where = []
+    params: list = []
+    if user_id:
+        where.append("user_id = ?")
+        params.append(user_id)
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    wsql = ("WHERE " + " AND ".join(where)) if where else ""
+    params.append(limit)
+    with _conn() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM feature_requests {wsql} ORDER BY created_at DESC LIMIT ?",
+            tuple(params),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_feature_request(ticket_id: int) -> Optional[dict]:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM feature_requests WHERE id = ?", (ticket_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def update_feature_request_status(
+    ticket_id: int,
+    status: str,
+    admin_note: str = "",
+    priority: str = "",
+) -> bool:
+    """Admin-Update eines Tickets. Status: new, planned, in_progress, done, rejected, later."""
+    valid = {"new", "planned", "in_progress", "done", "rejected", "later"}
+    if status not in valid:
+        return False
+    with _conn() as conn:
+        if priority:
+            conn.execute(
+                "UPDATE feature_requests SET status = ?, admin_note = ?, priority = ?, updated_at = ? WHERE id = ?",
+                (status, admin_note or "", priority, _now(), ticket_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE feature_requests SET status = ?, admin_note = ?, updated_at = ? WHERE id = ?",
+                (status, admin_note or "", _now(), ticket_id),
+            )
+        r = conn.execute("SELECT 1 FROM feature_requests WHERE id = ?", (ticket_id,)).fetchone()
+    return bool(r)
+
+
+def count_feature_requests_by_status() -> dict:
+    """Zählt Tickets pro Status-Bucket — fürs Admin-Badge."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS n FROM feature_requests GROUP BY status"
+        ).fetchall()
+    return {r[0]: r[1] for r in rows}
 
 
 # ─── Hilfsfunktionen ──────────────────────────────────────────────────────────

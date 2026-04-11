@@ -14,7 +14,6 @@ Routen:
   GET  /reports/{id}/edit         → Template bearbeiten
   POST /reports/{id}/edit         → Template speichern (Update)
   POST /reports/{id}/run          → Report sofort ausführen
-  GET  /reports/{id}/preview      → Report-Vorschau (HTML, kein Mail-Versand)
   POST /reports/{id}/delete       → Template löschen
 """
 
@@ -26,17 +25,57 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from reporting.email_parser import parse_and_validate
+
 logger = logging.getLogger("printix.reports")
 
 # Query-Typen mit Labels
+# Reihenfolge bestimmt die Anzeige im <select>-Feld des Report-Formulars.
+# Stufe 1 (6 Typen) + Stufe 2 (11 Typen) = 17 unterst\u00fctzte Query-Typen.
+# ACHTUNG: Bei Erweiterung auch i18n-Keys rpt_type_* und rpt_eng_title_* erg\u00e4nzen.
 QUERY_TYPE_LABELS = {
-    "print_stats":  "Druckvolumen-Statistik",
-    "cost_report":  "Kostenanalyse",
-    "top_users":    "Top-Benutzer",
-    "top_printers": "Top-Drucker",
-    "anomalies":    "Anomalie-Erkennung",
-    "trend":        "Drucktrend",
+    # Stufe 1 \u2014 Original (v1.x)
+    "print_stats":          "Druckvolumen-Statistik",
+    "cost_report":          "Kostenanalyse",
+    "top_users":            "Top-Benutzer",
+    "top_printers":         "Top-Drucker",
+    "anomalies":            "Anomalie-Erkennung",
+    "trend":                "Drucktrend",
+    # Stufe 2 \u2014 PowerBI-Parity (v3.7.9+)
+    "printer_history":      "Drucker-Verlauf",
+    "device_readings":      "Drucker Service-Status",
+    "job_history":          "Job-Verlauf",
+    "queue_stats":          "Druckregeln-\u00dcbersicht",
+    "user_detail":          "Benutzer Druckdetails",
+    "user_copy_detail":     "Benutzer Kopier-Details",
+    "user_scan_detail":     "Benutzer Scan-Details",
+    "workstation_overview": "Workstation-\u00dcbersicht",
+    "workstation_detail":   "Workstation-Details",
+    "tree_meter":           "Nachhaltigkeits-Report",
+    "service_desk":         "Service Desk Report",
+    # Stufe 2 \u2014 v3.8.0 (Compliance)
+    "sensitive_documents":  "Sensible Dokumente",
+    # Stufe 2 \u2014 v3.8.1 (Visual)
+    "hour_dow_heatmap":     "Nutzung Stunde \u00d7 Wochentag",
+    # Stufe 2 \u2014 v3.9.0 (Audit & Governance)
+    "audit_log":            "Admin-Audit-Trail",
+    "off_hours_print":      "Druck au\u00dferhalb Gesch\u00e4ftszeiten",
 }
+
+# Query-Typen die nicht durch das Standard-Formular (group_by/limit/cost)
+# abgedeckt werden. F\u00fcr diese wird das Preset-qp komplett \u00fcbernommen und
+# nur start_date/end_date aus dem Formular \u00fcberschrieben.
+STUFE2_QUERY_TYPES = frozenset({
+    "printer_history", "device_readings", "job_history", "queue_stats",
+    "user_detail", "user_copy_detail", "user_scan_detail",
+    "workstation_overview", "workstation_detail", "tree_meter", "service_desk",
+    # v3.8.0
+    "sensitive_documents",
+    # v3.8.1
+    "hour_dow_heatmap",
+    # v3.9.0
+    "audit_log", "off_hours_print",
+})
 
 # Frequenz-Labels
 FREQ_LABELS = {
@@ -73,11 +112,20 @@ def register_reports_routes(
         kind = request.session.pop("flash_kind", "success")
         return msg, kind
 
-    def _reporting_available(tenant: dict = None) -> bool:
+    def _reporting_available(tenant: dict | None = None) -> bool:
+        """
+        Prüft ob die SQL-Konfiguration vorhanden ist.
+        Setzt vorher den ContextVar aus dem übergebenen Tenant — die Web-Routen
+        haben keinen automatischen Middleware-Pfad dafür (BearerAuthMiddleware
+        läuft nur im MCP-Server-Prozess).
+        """
         try:
             from reporting.sql_client import is_configured, set_config_from_tenant
             if tenant:
-                set_config_from_tenant(tenant)
+                try:
+                    set_config_from_tenant(tenant)
+                except Exception:
+                    pass
             return is_configured()
         except Exception:
             return False
@@ -92,6 +140,134 @@ def register_reports_routes(
             return t or {}
         except Exception:
             return {}
+
+    def _resolve_logo(logo_remove: str, logo_base64: str,
+                      logo_mime: str, logo_url: str) -> tuple[str, str, str]:
+        """
+        Entscheidet anhand der vom Form-POST gelieferten Werte, welches Logo
+        gespeichert wird. Reihenfolge:
+          1. logo_remove=1          → alles leer (Logo entfernen)
+          2. neue Base64-Daten      → Base64+MIME speichern, URL leeren
+          3. sonst Legacy-URL       → nur URL
+        Liefert (base64, mime, url) fertig zum Speichern in layout.
+        """
+        if logo_remove and logo_remove.strip() == "1":
+            return ("", "image/png", "")
+
+        b64  = (logo_base64 or "").strip()
+        mime = (logo_mime   or "image/png").strip() or "image/png"
+        url  = (logo_url    or "").strip()
+
+        if b64:
+            # Neu hochgeladenes Logo hat Vorrang; URL wird verworfen, damit
+            # der Legacy-Pfad im Engine-Renderer nicht als Fallback greift.
+            # Safety: mime muss image/* sein
+            if not mime.startswith("image/"):
+                mime = "image/png"
+            # Safety: Base64-Gr\u00f6\u00dfen-Cap (Rohbytes \u2248 0.75 \u00d7 len(b64))
+            approx_raw = int(len(b64) * 0.75)
+            if approx_raw > 1024 * 1024:   # 1 MB hart
+                logger.warning("Logo-Upload abgelehnt: %d bytes > 1MB", approx_raw)
+                return ("", "image/png", "")
+            return (b64, mime, "")
+
+        return ("", "image/png", url)
+
+    def _parse_csv_list(raw: str) -> list[str]:
+        """Hilft bei Komma/Semikolon/Whitespace-getrennten Listen (v3.8.0)."""
+        if not raw:
+            return []
+        import re as _re
+        parts = _re.split(r"[,;\n]+", raw)
+        return [p.strip() for p in parts if p and p.strip()]
+
+    def _merge_query_params(
+        query_type: str,
+        start_date: str,
+        end_date: str,
+        group_by: str,
+        limit: str,
+        cost_per_sheet: str,
+        cost_per_mono: str,
+        cost_per_color: str,
+        preset_qp_json: str,
+        existing_qp: Optional[dict] = None,
+        keyword_sets: str = "",
+        custom_keywords: str = "",
+        include_scans: str = "",
+    ) -> dict[str, Any]:
+        """
+        Baut ein sauberes query_params-Dict f\u00fcr ein Template.
+
+        Stufe 1 (print_stats, cost_report, top_*, trend, anomalies) wird
+        ausschlie\u00dflich aus den Formularfeldern bef\u00fcllt.
+
+        Stufe 2 (printer_history, service_desk, workstation_*, \u2026) hat
+        erweiterte Parameter die das Standard-Formular nicht abbildet
+        (workstation_id, status_filter, sheets_per_tree, \u2026). F\u00fcr diese wird
+        das Preset-qp aus dem Hidden-Field \u00fcbernommen und nur start_date/
+        end_date aus dem Formular \u00fcberschrieben.
+
+        existing_qp (beim Edit) hat Vorrang \u00fcber preset_qp_json, damit
+        Benutzer-\u00c4nderungen nicht verloren gehen.
+        """
+        qp: dict[str, Any] = {}
+
+        # Basis: bestehendes qp (Edit-Pfad) oder preset qp (Neu-Pfad)
+        base: dict[str, Any] = {}
+        if existing_qp:
+            base = dict(existing_qp)
+        elif preset_qp_json:
+            try:
+                parsed = json.loads(preset_qp_json)
+                if isinstance(parsed, dict):
+                    base = parsed
+            except Exception as e:
+                logger.warning("preset_qp_json nicht parsebar: %s", e)
+
+        qp.update(base)
+
+        # Start/Ende kommen immer vom Formular
+        qp["start_date"] = start_date
+        qp["end_date"]   = end_date
+
+        # Stufe 1: sichtbare Widgets \u00fcberschreiben explizit
+        if query_type in ("print_stats", "trend"):
+            qp["group_by"] = group_by
+        elif query_type == "cost_report":
+            qp["group_by"]       = group_by
+            qp["cost_per_sheet"] = float(cost_per_sheet or 0.01)
+            qp["cost_per_mono"]  = float(cost_per_mono  or 0.02)
+            qp["cost_per_color"] = float(cost_per_color or 0.08)
+        elif query_type in ("top_users", "top_printers"):
+            qp["limit"] = int(limit or 10)
+        elif query_type in STUFE2_QUERY_TYPES:
+            # Stufe 2: group_by darf aus dem Formular \u00fcbernommen werden, wenn
+            # das Preset das Feld \u00fcberhaupt kennt \u2014 sonst entfernen.
+            if "group_by" in qp and group_by:
+                qp["group_by"] = group_by
+
+            # v3.8.0 \u2014 sensitive_documents: Keyword-Sets + Freitext-Keywords
+            # kommen aus dedizierten Form-Feldern und \u00fcberschreiben ggf. die
+            # Default-Listen aus preset_qp_json.
+            if query_type == "sensitive_documents":
+                if keyword_sets:
+                    qp["keyword_sets"] = _parse_csv_list(keyword_sets)
+                elif "keyword_sets" not in qp:
+                    qp["keyword_sets"] = []
+                if custom_keywords:
+                    qp["custom_keywords"] = _parse_csv_list(custom_keywords)
+                elif "custom_keywords" not in qp:
+                    qp["custom_keywords"] = []
+                # include_scans als "1"/""-Checkbox; wenn Feld \u00fcberhaupt nicht
+                # gesendet wurde (weil Template noch kein UI-Feld hat), Default
+                # aus preset belassen.
+                if include_scans != "":
+                    qp["include_scans"] = include_scans == "1"
+                elif "include_scans" not in qp:
+                    qp["include_scans"] = True
+
+        return qp
 
     def _schedule_label(schedule: Optional[dict]) -> str:
         if not schedule:
@@ -199,6 +375,9 @@ def register_reports_routes(
         recipients:    str  = Form(default=""),
         company_name:  str  = Form(default=""),
         logo_url:      str  = Form(default=""),
+        logo_base64:   str  = Form(default=""),
+        logo_mime:     str  = Form(default="image/png"),
+        logo_remove:   str  = Form(default=""),
         primary_color: str  = Form(default="#0078D4"),
         footer_text:   str  = Form(default=""),
         fmt_html:      str  = Form(default=""),
@@ -210,6 +389,11 @@ def register_reports_routes(
         freq:          str  = Form(default="monthly"),
         sched_day:     str  = Form(default="1"),
         sched_time:    str  = Form(default="08:00"),
+        preset_qp_json: str = Form(default=""),
+        # v3.8.0 \u2014 sensitive_documents Form-Felder
+        keyword_sets:    str = Form(default=""),
+        custom_keywords: str = Form(default=""),
+        include_scans:   str = Form(default=""),
     ):
         user = require_login(request)
         if not user:
@@ -226,17 +410,18 @@ def register_reports_routes(
         if not output_formats:
             output_formats = ["html"]
 
-        # Query-Parameter je nach Typ
-        qp: dict[str, Any] = {"start_date": start_date, "end_date": end_date}
-        if query_type in ("print_stats", "trend"):
-            qp["group_by"] = group_by
-        elif query_type == "cost_report":
-            qp["group_by"]        = group_by
-            qp["cost_per_sheet"]  = float(cost_per_sheet or 0.01)
-            qp["cost_per_mono"]   = float(cost_per_mono  or 0.02)
-            qp["cost_per_color"]  = float(cost_per_color or 0.08)
-        elif query_type in ("top_users", "top_printers"):
-            qp["limit"] = int(limit or 10)
+        # Query-Parameter je nach Typ (Stufe 1 + Stufe 2) \u2014 siehe _merge_query_params
+        qp = _merge_query_params(
+            query_type=query_type,
+            start_date=start_date, end_date=end_date,
+            group_by=group_by, limit=limit,
+            cost_per_sheet=cost_per_sheet, cost_per_mono=cost_per_mono,
+            cost_per_color=cost_per_color,
+            preset_qp_json=preset_qp_json,
+            keyword_sets=keyword_sets,
+            custom_keywords=custom_keywords,
+            include_scans=include_scans,
+        )
 
         # Schedule
         schedule = None
@@ -247,11 +432,39 @@ def register_reports_routes(
                 "time":      sched_time or "08:00",
             }
 
-        # Empfänger-Liste bereinigen
-        recip = [r.strip() for r in recipients.replace(";", ",").split(",") if r.strip()]
+        # Empfänger-Liste parsen + validieren
+        # Unterstützt: "max@x.de", "Max <max@x.de>", '"Nimtz, Marcus" <m@x.de>'
+        # Separator: Komma oder Semikolon (außerhalb von Quotes/Angle-Brackets)
+        recip, recip_errors = parse_and_validate(recipients)
+        if recip_errors:
+            return templates.TemplateResponse("reports_form.html", {
+                "request":    request,
+                "user":       user,
+                "tenant":     _get_tenant(user),
+                "report":     {
+                    "name": name, "query_type": query_type,
+                    "recipients": [recipients],  # zurück ins Feld
+                    "mail_subject": mail_subject,
+                },
+                "is_edit":    False,
+                "preset_key": "",
+                "error":      "Ungültige Empfänger: " + "; ".join(recip_errors)
+                              + ". Format: name@firma.de oder Max Mustermann <name@firma.de>",
+                "query_type_labels": QUERY_TYPE_LABELS,
+                **tc,
+            })
 
         from reporting.template_store import save_template
         from reporting.scheduler import schedule_report, unschedule_report
+
+        # Logo: Entweder bleibt leer (logo_remove=1), oder Base64 aus Upload,
+        # oder Legacy-URL als Fallback. Base64 hat Vorrang, URL nur wenn kein Bild.
+        _lb64, _lmime, _lurl = _resolve_logo(
+            logo_remove=logo_remove,
+            logo_base64=logo_base64,
+            logo_mime=logo_mime,
+            logo_url=logo_url,
+        )
 
         try:
             template = save_template(
@@ -265,8 +478,9 @@ def register_reports_routes(
                     "primary_color": primary_color or "#0078D4",
                     "company_name":  company_name,
                     "footer_text":   footer_text,
-                    "logo_url":      logo_url.strip() if logo_url else "",
-                    "logo_base64":   "",
+                    "logo_url":      _lurl,
+                    "logo_base64":   _lb64,
+                    "logo_mime":     _lmime,
                 },
                 schedule=schedule,
                 owner_user_id=user["id"],
@@ -340,6 +554,9 @@ def register_reports_routes(
         recipients:    str  = Form(default=""),
         company_name:  str  = Form(default=""),
         logo_url:      str  = Form(default=""),
+        logo_base64:   str  = Form(default=""),
+        logo_mime:     str  = Form(default="image/png"),
+        logo_remove:   str  = Form(default=""),
         primary_color: str  = Form(default="#0078D4"),
         footer_text:   str  = Form(default=""),
         fmt_html:      str  = Form(default=""),
@@ -351,6 +568,11 @@ def register_reports_routes(
         freq:          str  = Form(default="monthly"),
         sched_day:     str  = Form(default="1"),
         sched_time:    str  = Form(default="08:00"),
+        preset_qp_json: str = Form(default=""),
+        # v3.8.0 \u2014 sensitive_documents Form-Felder
+        keyword_sets:    str = Form(default=""),
+        custom_keywords: str = Form(default=""),
+        include_scans:   str = Form(default=""),
     ):
         user = require_login(request)
         if not user:
@@ -374,16 +596,21 @@ def register_reports_routes(
         if not output_formats:
             output_formats = ["html"]
 
-        qp: dict[str, Any] = {"start_date": start_date, "end_date": end_date}
-        if query_type in ("print_stats", "trend"):
-            qp["group_by"] = group_by
-        elif query_type == "cost_report":
-            qp["group_by"]        = group_by
-            qp["cost_per_sheet"]  = float(cost_per_sheet or 0.01)
-            qp["cost_per_mono"]   = float(cost_per_mono  or 0.02)
-            qp["cost_per_color"]  = float(cost_per_color or 0.08)
-        elif query_type in ("top_users", "top_printers"):
-            qp["limit"] = int(limit or 10)
+        # qp: Edit \u2014 bestehende query_params als Basis, Stufe-2-Parameter wie
+        # workstation_id bleiben so erhalten auch wenn der Form-Request nur die
+        # Standardfelder liefert.
+        qp = _merge_query_params(
+            query_type=query_type,
+            start_date=start_date, end_date=end_date,
+            group_by=group_by, limit=limit,
+            cost_per_sheet=cost_per_sheet, cost_per_mono=cost_per_mono,
+            cost_per_color=cost_per_color,
+            preset_qp_json=preset_qp_json,
+            existing_qp=existing.get("query_params", {}),
+            keyword_sets=keyword_sets,
+            custom_keywords=custom_keywords,
+            include_scans=include_scans,
+        )
 
         schedule = None
         if schedule_enabled:
@@ -393,7 +620,30 @@ def register_reports_routes(
                 "time":      sched_time or "08:00",
             }
 
-        recip = [r.strip() for r in recipients.replace(";", ",").split(",") if r.strip()]
+        # Empfänger-Liste parsen + validieren (robust gegen 'Name <email>' Format)
+        recip, recip_errors = parse_and_validate(recipients)
+        if recip_errors:
+            return templates.TemplateResponse("reports_form.html", {
+                "request":    request,
+                "user":       user,
+                "tenant":     _get_tenant(user),
+                "report":     existing,
+                "is_edit":    True,
+                "preset_key": "",
+                "error":      "Ungültige Empfänger: " + "; ".join(recip_errors)
+                              + ". Format: name@firma.de oder Max Mustermann <name@firma.de>",
+                "query_type_labels": QUERY_TYPE_LABELS,
+                **tc,
+            })
+
+        # Logo: neuer Upload überschreibt Bestand; leerer Upload → Bestand behalten;
+        # logo_remove=1 → beides löschen.
+        _lb64, _lmime, _lurl = _resolve_logo(
+            logo_remove=logo_remove,
+            logo_base64=logo_base64,
+            logo_mime=logo_mime,
+            logo_url=logo_url,
+        )
 
         # Layout aus bestehendem Template übernehmen, nur geänderte Felder überschreiben
         layout = dict(existing.get("layout", {}))
@@ -401,7 +651,9 @@ def register_reports_routes(
             "primary_color": primary_color or "#0078D4",
             "company_name":  company_name,
             "footer_text":   footer_text,
-            "logo_url":      logo_url.strip() if logo_url else "",
+            "logo_url":      _lurl,
+            "logo_base64":   _lb64,
+            "logo_mime":     _lmime,
         })
 
         try:
@@ -479,6 +731,7 @@ def register_reports_routes(
         user = require_login(request)
         if not user:
             return _redirect_login()
+        tc = t_ctx(request)  # v3.7.10: für lang-Passthrough an generate_report
 
         from reporting.template_store import get_template
         report = get_template(report_id)
@@ -496,7 +749,7 @@ def register_reports_routes(
                 status_code=503,
             )
 
-        if not _reporting_available(tenant):
+        if not _reporting_available():
             return HTMLResponse(
                 "<h2>Kein SQL-Server konfiguriert</h2>"
                 "<p>Bitte SQL-Credentials in den <a href='/settings'>Einstellungen</a> eintragen.</p>",
@@ -527,6 +780,8 @@ def register_reports_routes(
                 period=f'{qp.get("start_date","?")} – {qp.get("end_date","?")}',
                 layout=layout,
                 output_formats=["html"],
+                query_params=qp,
+                lang=tc.get("lang"),  # v3.7.10: Spalten-Labels in UI-Sprache übersetzen
             ).get("html", "<p>Keine Daten.</p>")
 
             # Vorschau-Banner oben anhängen
@@ -575,4 +830,4 @@ def register_reports_routes(
 
         return RedirectResponse("/reports", status_code=302)
 
-    logger.info("Reports-Routen registriert (/reports, /reports/new, /reports/{id}/edit|run|preview|delete)")
+    logger.info("Reports-Routen registriert (/reports, /reports/new, /reports/{id}/edit|run|delete)")

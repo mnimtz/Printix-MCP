@@ -1,13 +1,5 @@
 {% extends "base.html" %}
 {% block title %}{{ _('admin_title') }} — Printix MCP{% endblock %}
-{% block extra_head %}
-<style>
-  /* Admin-Seiten: breiter Container */
-  .container { max-width: 1140px; }
-  .card { padding: 28px 28px; }
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="container">
   <div class="card" style="margin-bottom:20px;">
@@ -44,7 +36,6 @@
   <!-- Server-Info -->
   <div class="card">
     <div class="section-title" style="margin-bottom:12px;">Server-Info</div>
-    <div style="overflow-x:auto">
     <table>
       <tr>
         <th style="width:180px;">MCP (claude.ai)</th>
@@ -68,7 +59,6 @@
       <tr><th>OAuth Token</th><td><code>{{ base_url }}/oauth/token</code></td></tr>
       <tr><th>Health-Check</th><td><code>{{ base_url }}/health</code></td></tr>
     </table>
-    </div>
   </div>
 </div>
 {% endblock %}

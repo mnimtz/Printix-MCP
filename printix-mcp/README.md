@@ -1,134 +1,288 @@
 # Printix MCP Server — Home Assistant Add-on
 
-**Version 3.0.0** | Multi-Tenant MCP Server für die Printix Cloud Print API
+**Version 3.9.0** · Multi-Tenant MCP Server for the Printix Cloud Print API
 
-Verbindet KI-Assistenten (Claude, ChatGPT) über das **Model Context Protocol (MCP)** mit der Printix Cloud — direkt aus Home Assistant heraus. Ab v3.0.0 inklusive vollständiger Report-Verwaltung im Browser und mobilem UI.
+A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix Cloud Print API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Manage printers, users, print jobs, and generate detailed reports — all through natural language in your AI chat.
 
 ---
 
 ## Features
 
-### 🖨️ Druckverwaltung via KI-Chat
-- Drucker auflisten, Status abfragen, SNMP konfigurieren
-- Druckjobs verwalten (auflisten, löschen, Besitzer ändern, direkt einreichen)
-- Benutzer, Gruppen, Netzwerke, Standorte verwalten
-- ID-Codes generieren, Karten registrieren / löschen / suchen
-- Workstations abfragen
+### 🖨️ Printix Management via AI Chat
 
-### 📊 Reports & Automatisierungen _(neu in v3.0.0)_
-- **Web-UI**: Report-Templates direkt im Browser erstellen, bearbeiten, ausführen
-- **18 Presets**: Basierend auf dem offiziellen Printix PowerBI-Template (v2025.4)
-- **7 sofort nutzbare Presets**: Druckvolumen, Trend, Top-Drucker, Standorte, Top-Benutzer, Kostenanalyse, Anomalie-Erkennung
-- **Ausgabeformate**: HTML (E-Mail-Body), CSV, JSON
-- **Zeitpläne**: Täglich / wöchentlich / monatlich — vollständig im Browser konfigurierbar
-- **KI-Integration**: Claude kann Reports direkt per `printix_save_report_template` anlegen — sie erscheinen sofort in der Web-UI
+Control your Printix environment directly from any MCP-compatible AI assistant:
 
-### 📱 Responsives UI _(neu in v3.0.0)_
-- Hamburger-Menü für Smartphones und Tablets (≤ 768 px)
-- Alle Seiten für mobile Geräte optimiert
-- iOS-Zoom-Fix bei Eingabefeldern
+- **Printers** — list printers, check status, view details
+- **Print Jobs** — list, delete, reassign jobs to different owners
+- **Users** — list users, create guest users, manage ID cards
+- **Groups** — create, update, delete user groups
+- **Networks & Sites** — manage Printix networks and site configurations
+- **Workstations** — list connected workstations
+- **ID Cards** — register cards, search by card number, delete cards
+- **SNMP Configurations** — create and manage SNMP configs
+- **Print Submission** — submit print jobs programmatically
 
-### 🌐 Multi-Tenant
-Jeder Benutzer verwaltet seine eigenen Printix-Zugangsdaten. Mehrere Tenants gleichzeitig unterstützt.
+### 📊 Reports & Automation (since v3.0.0)
 
-### 🌍 12 Sprachen
-Deutsch, Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Niederländisch, Polnisch, Russisch, Japanisch, Österreichisch, Schwiizerdütsch
+Create, manage and schedule print reporting directly in the browser — no AI chat required:
+
+- **18 Report Presets** based on the official Printix PowerBI template (v2025.4) — **all 18 immediately executable**
+- **17 SQL query types**: print stats, trends, cost, top users/printers, anomalies, printer history, device readings, job history, queue stats, user/copy/scan details, workstations, tree meter, service desk
+- **Output formats**: HTML (email body), CSV, JSON, PDF, XLSX
+- **Scheduled delivery**: daily, weekly, monthly — configured entirely in the browser
+- **Email delivery** via Resend API (configurable per tenant)
+- **Dynamic date ranges**: last week, last month, last quarter, last year, custom range
+
+### 🎭 Demo Data Generator (since v3.5.0)
+
+Generate realistic Printix print data directly in your Azure SQL database for demos, PoCs and testing:
+
+- **Preset selection**: Small Business, Mid-Market, or Enterprise — pre-fills all parameters
+- **Custom configuration**: define users, printers, queues, time period and site names manually
+- **Progress overlay**: animated real-time progress during generation
+- **Session management**: view, compare and delete individual demo datasets
+- **Reporting Views**: `setup_schema()` creates a `reporting.*` schema with 8 SQL views (`v_tracking_data`, `v_jobs`, `v_users`, `v_printers`, `v_networks`, `v_jobs_scan`, `v_jobs_copy`, `v_jobs_copy_details`) — demo data is automatically included in all BI reports
+
+### 🌐 Multi-Tenant Architecture
+
+Each user manages their own Printix OAuth2 credentials independently. Multiple tenants can use the same server instance simultaneously. All credentials are stored encrypted in a local SQLite database.
+
+### 🌍 12 UI Languages
+
+The web interface is fully localized in 12 languages:
+
+| Code | Language |
+|------|----------|
+| `de` | German (Hochdeutsch) |
+| `en` | English |
+| `fr` | French |
+| `it` | Italian |
+| `es` | Spanish |
+| `nl` | Dutch |
+| `no` | Norwegian |
+| `sv` | Swedish |
+| `bar` | Bavarian dialect |
+| `hessisch` | Hessian dialect |
+| `oesterreichisch` | Austrian German |
+| `schwiizerdütsch` | Swiss German |
 
 ---
 
-## Voraussetzungen
+## Requirements
 
-- Home Assistant mit SSH-Zugang
-- Printix Cloud-Account mit API-Zugang
-- Printix OAuth2 Credentials (Tenant-ID, Client-ID, Client-Secret)
-- **Optional**: Printix BI SQL Server (für Reports & Statistiken)
-- **Optional**: Resend API-Key (für E-Mail-Versand von Reports)
+- **Home Assistant** (any recent version)
+- **Printix Cloud account** with API access
+- **Printix OAuth2 credentials** — Tenant ID, Client ID, Client Secret (Print API)
+- **Optional**: Printix Card API credentials (for card management)
+- **Optional**: Azure SQL / SQL Server (for Reports and Demo Data)
+- **Optional**: [Resend](https://resend.com) API key (for scheduled email delivery)
 
 ---
 
 ## Installation
 
-1. Repository zu Home Assistant hinzufügen
-2. Add-on „Printix MCP Server" installieren
-3. Add-on starten
-4. Web-Oberfläche öffnen (Port 8080) und Konto registrieren
-5. Printix OAuth2 Credentials eingeben (Einstellungen → Printix API)
-6. Optional: SQL-Server-Zugangsdaten für Reports eintragen (Einstellungen → BI-Datenbank)
-7. Claude über die MCP-URL aus der Web-Oberfläche verbinden
+### Via Home Assistant Add-on Store
+
+1. Open **Settings → Add-ons → Add-on Store** in Home Assistant
+2. Click the three-dot menu (⋮) → **Repositories**
+3. Add the repository URL: `https://github.com/mnimtz/Printix-MCP`
+4. Find **Printix MCP Server** in the list and click **Install**
+5. Start the add-on
+6. Click **Open Web UI** or navigate to `http://<your-ha-ip>:8080`
+
+### First-Time Setup
+
+1. Open the web interface at `http://<your-ha-ip>:8080`
+2. Click **Register** and create your admin account
+3. Go to **Settings** and enter your Printix OAuth2 credentials
+4. Copy your **MCP Bearer Token** from the Settings page
+5. Connect your AI assistant using the MCP endpoint (see below)
 
 ---
 
-## Web-Oberfläche
+## Web Interface
 
-| URL | Beschreibung |
+| URL | Description |
 |-----|-------------|
-| `/` | Startseite / Weiterleitung |
-| `/register` | Neues Konto registrieren |
-| `/dashboard` | Benutzer-Dashboard mit MCP-URL |
-| `/reports` | **Reports & Automatisierungen** |
-| `/settings` | Credentials, SQL-Server, Mail-API |
-| `/help` | MCP-Verbindungsanleitung |
+| `http://<your-ha-ip>:8080/` | Home / redirect to dashboard |
+| `http://<your-ha-ip>:8080/register` | Register a new account |
+| `http://<your-ha-ip>:8080/dashboard` | User dashboard |
+| `http://<your-ha-ip>:8080/settings` | Manage credentials & preferences |
+| `http://<your-ha-ip>:8080/reports` | Reports & automation |
+| `http://<your-ha-ip>:8080/tenant/printers` | Printer list (live from Printix API) |
+| `http://<your-ha-ip>:8080/tenant/queues` | Print queue list |
+| `http://<your-ha-ip>:8080/tenant/users` | User list |
+| `http://<your-ha-ip>:8080/tenant/demo` | Demo data generator |
+| `http://<your-ha-ip>:8080/help` | MCP connection guide |
 
 ---
 
-## MCP-Verbindung
+## Connecting an AI Assistant
 
-**Streamable HTTP (empfohlen, für Claude Desktop / claude.ai):**
-```
-http://<HA-IP>:8765/mcp
-```
+### MCP Endpoint (HTTP Streaming)
 
-**SSE (für ältere Clients):**
 ```
-http://<HA-IP>:8765/sse
+http://<your-ha-ip>:8765/mcp
 ```
 
-OAuth2 Bearer Token aus der Web-Oberfläche unter **Dashboard** kopieren.
+### SSE Endpoint (for legacy clients)
+
+```
+http://<your-ha-ip>:8765/sse
+```
+
+### Authentication
+
+Use the **Bearer Token** from the web interface under **Settings**. Pass it as an HTTP header:
+
+```
+Authorization: Bearer <your-token>
+```
+
+### Claude (claude.ai / Claude Desktop)
+
+In Claude's MCP settings, add a new server:
+
+```json
+{
+  "name": "Printix",
+  "url": "http://<your-ha-ip>:8765/mcp",
+  "headers": {
+    "Authorization": "Bearer <your-token>"
+  }
+}
+```
+
+Once connected, you can ask Claude things like:
+- *"List all printers at the main office"*
+- *"Show me the top 5 users by print volume this month"*
+- *"Generate a demo dataset for a mid-market company"*
+- *"Run the monthly cost analysis report and send it to my email"*
 
 ---
 
-## MCP-Tools (Übersicht)
+## Available MCP Tools
 
-| Kategorie | Tools |
-|-----------|-------|
-| Status | `printix_status`, `printix_reporting_status` |
-| Drucker | `printix_list_printers`, `printix_get_printer` |
-| Jobs | `printix_list_jobs`, `printix_get_job`, `printix_delete_job`, `printix_submit_job`, `printix_change_job_owner` |
-| Benutzer | `printix_list_users`, `printix_get_user`, `printix_create_user`, `printix_delete_user` |
-| Gruppen | `printix_list_groups`, `printix_get_group`, `printix_create_group`, `printix_delete_group` |
-| Netzwerke | `printix_list_networks`, `printix_get_network`, `printix_create_network`, `printix_update_network`, `printix_delete_network` |
-| Standorte | `printix_list_sites`, `printix_get_site`, `printix_create_site`, `printix_update_site`, `printix_delete_site` |
-| Karten | `printix_list_cards`, `printix_register_card`, `printix_delete_card`, `printix_search_card`, `printix_generate_id_code` |
-| Workstations | `printix_list_workstations`, `printix_get_workstation` |
-| SNMP | `printix_list_snmp_configs`, `printix_get_snmp_config`, `printix_create_snmp_config`, `printix_delete_snmp_config` |
-| Reports | `printix_save_report_template`, `printix_get_report_template`, `printix_list_report_templates`, `printix_delete_report_template` |
-| Report-Ausführung | `printix_run_report_now`, `printix_schedule_report`, `printix_list_schedules`, `printix_update_schedule`, `printix_delete_schedule` |
-| Statistiken | `printix_query_print_stats`, `printix_query_cost_report`, `printix_query_top_users`, `printix_query_top_printers`, `printix_query_trend`, `printix_query_anomalies` |
+The add-on exposes the following tools to connected AI assistants:
+
+| Tool | Description |
+|------|-------------|
+| `printix_list_printers` | List all printers |
+| `printix_get_printer` | Get printer details |
+| `printix_list_jobs` | List print jobs |
+| `printix_get_job` | Get job details |
+| `printix_delete_job` | Delete a print job |
+| `printix_change_job_owner` | Reassign a job to a different user |
+| `printix_list_users` | List all users |
+| `printix_get_user` | Get user details |
+| `printix_create_user` | Create a guest user |
+| `printix_delete_user` | Delete a user |
+| `printix_list_cards` | List ID cards |
+| `printix_register_card` | Register a new ID card |
+| `printix_delete_card` | Delete an ID card |
+| `printix_search_card` | Search cards by number |
+| `printix_generate_id_code` | Generate an ID code |
+| `printix_list_groups` | List user groups |
+| `printix_get_group` | Get group details |
+| `printix_create_group` | Create a group |
+| `printix_delete_group` | Delete a group |
+| `printix_list_networks` | List Printix networks |
+| `printix_list_sites` | List sites |
+| `printix_list_workstations` | List workstations |
+| `printix_list_snmp_configs` | List SNMP configurations |
+| `printix_query_print_stats` | Query print statistics |
+| `printix_query_top_printers` | Top printers by volume |
+| `printix_query_top_users` | Top users by volume |
+| `printix_query_trend` | Print volume trend |
+| `printix_query_cost_report` | Cost analysis |
+| `printix_query_anomalies` | Anomaly detection |
+| `printix_query_printer_history` | Printer job history over time |
+| `printix_query_device_readings` | Device activity & usage readings |
+| `printix_query_job_history` | Full job list, paginated & filterable |
+| `printix_query_queue_stats` | Paper format, color & duplex distribution |
+| `printix_query_user_detail` | Per-user print detail over time |
+| `printix_query_user_copy_detail` | Per-user copy detail |
+| `printix_query_user_scan_detail` | Per-user scan detail |
+| `printix_query_workstation_overview` | All workstations with print volume |
+| `printix_query_workstation_detail` | Single workstation history |
+| `printix_query_tree_meter` | Duplex savings in trees (sustainability) |
+| `printix_query_service_desk` | Failed/cancelled jobs for IT service desk |
+| `printix_run_report_now` | Run a saved report template |
+| `printix_status` | Check add-on status |
+
+---
+
+## Ports
+
+| Port | Protocol | Description |
+|------|----------|-------------|
+| `8080` | HTTP | Web management interface |
+| `8765` | HTTP | MCP server (SSE + HTTP streaming) |
+
+Both ports must be accessible from your AI assistant. If using Claude Desktop on the same network, the Home Assistant IP is sufficient. For cloud-based AI services, expose the ports through a reverse proxy with TLS.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                 Home Assistant Add-on               │
+│                                                     │
+│  ┌──────────────────┐    ┌──────────────────────┐  │
+│  │   Web UI :8080   │    │   MCP Server :8765   │  │
+│  │  (FastAPI/Jinja2)│    │  (SSE + HTTP stream) │  │
+│  └────────┬─────────┘    └──────────┬───────────┘  │
+│           │                          │               │
+│           └──────────┬───────────────┘               │
+│                      ▼                               │
+│            ┌─────────────────┐                       │
+│            │   SQLite DB     │                       │
+│            │  /data/*.db     │                       │
+│            └────────┬────────┘                       │
+└─────────────────────┼───────────────────────────────┘
+                      │
+          ┌───────────┼───────────┐
+          ▼           ▼           ▼
+   Printix API    Azure SQL    Resend API
+   (Print/Card/  (Reports &   (Email
+    Workstation)  Demo Data)   Delivery)
+```
+
+**Data flow:**
+- Web UI and MCP server share the same SQLite database for credentials and configuration
+- Printix API calls use OAuth2 (client credentials flow) — tokens are cached and refreshed automatically
+- Azure SQL is optional and only required for Reports and Demo Data features
+- All user data is stored locally on your Home Assistant instance
+
+---
+
+## Configuration
+
+The add-on is configured entirely through the web interface. No manual YAML configuration is required. Credentials are stored encrypted in `/data/printix_multi.db`.
+
+For advanced scenarios, the following environment variables can be set via the HA add-on options:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WEB_PORT` | `8080` | Web UI port |
+| `MCP_PORT` | `8765` | MCP server port |
+| `LOG_LEVEL` | `INFO` | Logging verbosity |
 
 ---
 
 ## Changelog
 
-Vollständiges Changelog: [CHANGELOG.md](CHANGELOG.md)
+See [CHANGELOG.md](CHANGELOG.md) for a full version history.
 
-### v3.0.0 (2026-04-09)
-- **NEU**: Reports & Automatisierungen — vollständige Web-UI für Report-Templates
-- **NEU**: 18 Presets aus dem Printix PowerBI-Template v2025.4 (7 sofort verfügbar, 11 in v3.1)
-- **NEU**: Responsives UI mit Hamburger-Menü für Smartphones und Tablets
-- **NEU**: KI-Agent-Integration — Claude erstellt Reports direkt via `printix_save_report_template`
-- Vollständige i18n in 12 Sprachen für alle neuen UI-Bereiche
-
-### v2.13.0
-- Multi-Tenant OAuth2, Dual Transport (HTTP + SSE), alle API-Bugfixes (Golden Master)
+**v3.7.0** — Report Designer Stufe 2: 11 new query types, all 18 presets available, demo generation fix  
+**v3.6.0** — Report Designer Stufe 1: CSS charts, XLSX/PDF output, report preview  
+**v3.5.1** — Schema fix (demo.* vs dbo.*), rollback-all button, batch_size 2000  
+**v3.5.0** — Demo Data Generator, reporting SQL views, full i18n for all demo UI  
+**v3.0.0** — Reports & automation, 18 presets, browser-based management  
 
 ---
 
-## Dokumentation
+## License
 
-Vollständige technische Dokumentation: [DOCS.md](DOCS.md)
-
----
-
-## Lizenz
-
-MIT License — © 2026 Marcus Nimtz / Tungsten Automation
+MIT License — © 2026 [Marcus Nimtz](https://github.com/mnimtz) / Tungsten Automation

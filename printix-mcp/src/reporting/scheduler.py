@@ -221,20 +221,14 @@ def _run_report_job(report_id: str) -> None:
     params = _resolve_dynamic_dates(params)
 
     try:
-        query_fn = {
-            "print_stats":   query_tools.query_print_stats,
-            "cost_report":   query_tools.query_cost_report,
-            "top_users":     query_tools.query_top_users,
-            "top_printers":  query_tools.query_top_printers,
-            "anomalies":     query_tools.query_anomalies,
-            "trend":         query_tools.query_trend,
-        }.get(query_type)
-
-        if not query_fn:
-            logger.error("Unbekannter Query-Typ: %s", query_type)
+        # v3.7.9: run_query dispatcht Stufe 1 + Stufe 2 (17 Query-Typen).
+        # Vorher waren nur 6 Typen hardcoded, Schedules f\u00fcr Stufe-2-Reports
+        # (service_desk, workstation_*, printer_history \u2026) sind still gescheitert.
+        try:
+            data = query_tools.run_query(query_type=query_type, **params)
+        except ValueError as ve:
+            logger.error("Unbekannter Query-Typ im Schedule: %s", ve)
             return
-
-        data = query_fn(**params)
         period = f"{params.get('start_date','?')} - {params.get('end_date','?')}"
 
         outputs = generate_report(
@@ -244,6 +238,7 @@ def _run_report_job(report_id: str) -> None:
             layout=layout,
             output_formats=formats,
             currency=layout.get("currency", "EUR"),
+            query_params=params,
         )
 
         html_body   = outputs.get("html", "<p>Report generiert.</p>")
@@ -362,19 +357,10 @@ def run_report_now(
         owner_user_id = template.get("owner_user_id", "")
         mail_api_key, mail_from = _load_tenant_mail_credentials(owner_user_id)
 
-    query_fn = {
-        "print_stats":  query_tools.query_print_stats,
-        "cost_report":  query_tools.query_cost_report,
-        "top_users":    query_tools.query_top_users,
-        "top_printers": query_tools.query_top_printers,
-        "anomalies":    query_tools.query_anomalies,
-        "trend":        query_tools.query_trend,
-    }.get(query_type)
-
-    if not query_fn:
-        raise ValueError(f"Unbekannter Query-Typ: {query_type}")
-
-    data   = query_fn(**params)
+    # v3.7.9: run_query dispatcht Stufe 1 + Stufe 2 (17 Query-Typen).
+    # Vorher waren nur 6 Typen hardcoded; "Jetzt senden" f\u00fcr Stufe-2-Reports
+    # (service_desk, workstation_*, printer_history \u2026) brach vorher ab.
+    data   = query_tools.run_query(query_type=query_type, **params)
     period = f"{params.get('start_date','?')} - {params.get('end_date','?')}"
 
     outputs = generate_report(
@@ -384,6 +370,7 @@ def run_report_now(
         layout=layout,
         output_formats=formats,
         currency=layout.get("currency", "EUR"),
+        query_params=params,
     )
 
     mail_sent = False

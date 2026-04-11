@@ -3,9 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
   <title>{% block title %}Printix MCP{% endblock %}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -34,15 +31,12 @@
     }
     .nav-links a {
       color: rgba(255,255,255,.8); text-decoration: none;
-      font-size: .83em; padding: 5px 8px; border-radius: 6px;
+      font-size: .875em; padding: 6px 10px; border-radius: 6px;
       transition: background .15s, color .15s; white-space: nowrap;
     }
     .nav-links a:hover { color: #fff; background: rgba(255,255,255,.12); }
-    /* Admin link — gold badge style */
-    .nav-admin { color: #fbbf24 !important; background: rgba(251,191,36,.12) !important; font-weight: 600; }
-    .nav-admin:hover { background: rgba(251,191,36,.25) !important; color: #fbbf24 !important; }
 
-    /* Hamburger button - mobile only */
+    /* Hamburger button — mobile only */
     .hamburger {
       display: none; background: none; border: none; cursor: pointer;
       padding: 8px; color: #fff; flex-direction: column; gap: 5px;
@@ -58,7 +52,7 @@
     .hamburger.open span:nth-child(2) { opacity: 0; }
     .hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
 
-    /* Mobile drawer */
+    /* Mobile drawer — rendered below sticky nav */
     .mobile-menu {
       display: none; position: fixed; top: 56px; left: 0; right: 0;
       background: #1a3454; box-shadow: 0 6px 24px rgba(0,0,0,.35);
@@ -73,7 +67,9 @@
       transition: background .15s;
     }
     .mobile-menu a:hover { background: rgba(255,255,255,.1); color: #fff; }
-    .drawer-divider { height: 1px; background: rgba(255,255,255,.12); margin: 8px 0; }
+    .mobile-menu .drawer-divider {
+      height: 1px; background: rgba(255,255,255,.12); margin: 8px 0;
+    }
     .mobile-lang-section { padding: 10px 20px 6px; }
     .mobile-lang-section > small {
       display: block; font-size: .72em; color: rgba(255,255,255,.45);
@@ -86,10 +82,12 @@
       font-size: .82em !important; color: rgba(255,255,255,.8) !important;
       border-bottom: none !important; transition: background .15s;
     }
-    .mobile-lang-grid a.active { background: #2563eb; color: #fff !important; font-weight: 700; }
+    .mobile-lang-grid a.active {
+      background: #2563eb; color: #fff !important; font-weight: 700;
+    }
     .mobile-lang-grid a:hover { background: rgba(255,255,255,.2); }
 
-    /* Language Switcher - desktop */
+    /* Language Switcher — desktop */
     .lang-switcher { position: relative; }
     .lang-btn {
       background: rgba(255,255,255,.12); border: none; color: rgba(255,255,255,.9);
@@ -102,8 +100,10 @@
       padding-top: 6px; z-index: 999;
     }
     .lang-dropdown-inner {
-      background: #fff; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.15);
-      overflow: hidden; min-width: 140px; max-height: 320px; overflow-y: auto;
+      background: #fff; border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.15);
+      overflow: hidden; min-width: 140px;
+      max-height: 320px; overflow-y: auto;
     }
     .lang-dropdown.open { display: block; }
     .lang-dropdown a {
@@ -145,14 +145,14 @@
       text-decoration: none; white-space: nowrap; gap: 6px;
       -webkit-tap-highlight-color: transparent;
     }
-    .btn-primary  { background: #2563eb; color: #fff; }
-    .btn-primary:hover  { background: #1d4ed8; box-shadow: 0 2px 8px rgba(37,99,235,.3); }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; box-shadow: 0 2px 8px rgba(37,99,235,.3); }
     .btn-secondary { background: #f1f5f9; color: #374151; }
     .btn-secondary:hover { background: #e2e8f0; }
-    .btn-danger   { background: #ef4444; color: #fff; }
-    .btn-danger:hover   { background: #dc2626; }
-    .btn-success  { background: #16a34a; color: #fff; }
-    .btn-success:hover  { background: #15803d; }
+    .btn-danger { background: #ef4444; color: #fff; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-success { background: #16a34a; color: #fff; }
+    .btn-success:hover { background: #15803d; }
     .btn-sm { padding: 6px 14px; font-size: .85em; }
 
     /* ── Alerts ──────────────────────────────────────────────────────────── */
@@ -163,7 +163,6 @@
     .alert-warning { background: #fef9c3; border: 1px solid #fde047; color: #854d0e; }
 
     /* ── Tables ──────────────────────────────────────────────────────────── */
-    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     table { width: 100%; border-collapse: collapse; font-size: .9em; }
     th {
       text-align: left; padding: 10px 14px; background: #f8fafc; color: #6b7280;
@@ -173,6 +172,8 @@
     td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: #f8fafc; }
+    /* Table scroll wrapper (use on wide tables) */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 8px; }
 
     /* ── Badges ──────────────────────────────────────────────────────────── */
     .badge {
@@ -202,7 +203,7 @@
     .divider { height: 1px; background: #e5e7eb; margin: 24px 0; }
 
     /* ── Step Indicator ──────────────────────────────────────────────────── */
-    .steps { display: flex; align-items: center; margin-bottom: 32px; }
+    .steps { display: flex; align-items: center; margin-bottom: 32px; gap: 0; }
     .step-item { display: flex; align-items: center; flex: 1; min-width: 0; }
     .step-circle {
       width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
@@ -226,26 +227,26 @@
 
     /* ── Responsive ──────────────────────────────────────────────────────── */
     @media (max-width: 768px) {
-      /* Show hamburger, hide desktop nav */
-      .hamburger     { display: flex; }
-      .nav-links     { display: none; }
-      .lang-switcher { display: none; }
+      /* Show hamburger, hide desktop links & lang switcher */
+      .hamburger         { display: flex; }
+      .nav-links         { display: none; }
+      .lang-switcher     { display: none; }
 
       /* Layout */
       .container { padding: 0 12px; margin: 16px auto; }
       .card      { padding: 20px 16px; border-radius: 10px; }
 
-      /* Table horizontal scroll */
-      table { min-width: 460px; font-size: .85em; }
+      /* Horizontal-scroll tables */
+      table { min-width: 500px; font-size: .85em; }
       td, th { padding: 8px 10px; }
 
-      /* Prevent iOS zoom on inputs */
+      /* Prevent iOS font-size zoom on inputs */
       input[type=text], input[type=password], input[type=email],
       input[type=number], input[type=time], select, textarea {
         font-size: 16px;
       }
 
-      /* Hide step labels on small screens */
+      /* Step labels hidden on small screens */
       .step-label { display: none; }
     }
 
@@ -268,13 +269,14 @@
       <!-- Desktop links -->
       <div class="nav-links">
         {% if user %}
-          {% if user.is_admin %}<a href="/admin" class="nav-admin">⚙️ {{ _('nav_admin') }}</a>{% endif %}
+          {% if user.is_admin %}<a href="/admin">{{ _('nav_admin') }}</a>{% endif %}
           <a href="/dashboard">{{ _('nav_dashboard') }}</a>
           <a href="/settings">{{ _('nav_settings') }}</a>
           <a href="/tenant/printers">{{ _('nav_tenant') }}</a>
           <a href="/reports">{{ _('nav_reports') }}</a>
           <a href="/logs">{{ _('nav_logs') }}</a>
           <a href="/help">{{ _('nav_help') }}</a>
+          <a href="/feedback">{{ _('nav_feedback') }}{% if user.is_admin and feedback_new_count %} <span class="nav-badge">{{ feedback_new_count }}</span>{% endif %}</a>
           <a href="/logout">{{ _('nav_logout') }}</a>
         {% else %}
           <a href="/login">{{ _('nav_login') }}</a>
@@ -299,8 +301,8 @@
       </div>
 
       <!-- Hamburger button (mobile) -->
-      <button class="hamburger" id="hamburger" aria-label="Menü" aria-expanded="false"
-              onclick="toggleMobileMenu()">
+      <button class="hamburger" id="hamburger" aria-label="Menü öffnen"
+              aria-expanded="false" onclick="toggleMobileMenu()">
         <span></span><span></span><span></span>
       </button>
     </div>
@@ -310,20 +312,23 @@
   <div class="mobile-menu" id="mobileMenu" aria-hidden="true">
     {% if user %}
       {% if user.is_admin %}
-        <a href="/admin"    onclick="closeMobileMenu()">⚙️ {{ _('nav_admin') }}</a>
+        <a href="/admin" onclick="closeMobileMenu()">⚙️ {{ _('nav_admin') }}</a>
       {% endif %}
-      <a href="/dashboard"        onclick="closeMobileMenu()">🏠 {{ _('nav_dashboard') }}</a>
-      <a href="/settings"         onclick="closeMobileMenu()">🔧 {{ _('nav_settings') }}</a>
-      <a href="/tenant/printers"  onclick="closeMobileMenu()">🖨️ {{ _('nav_tenant') }}</a>
-      <a href="/reports"          onclick="closeMobileMenu()">📊 {{ _('nav_reports') }}</a>
-      <a href="/logs"             onclick="closeMobileMenu()">📋 {{ _('nav_logs') }}</a>
-      <a href="/help"             onclick="closeMobileMenu()">❓ {{ _('nav_help') }}</a>
-      <a href="/logout"           onclick="closeMobileMenu()">🚪 {{ _('nav_logout') }}</a>
+      <a href="/dashboard" onclick="closeMobileMenu()">🏠 {{ _('nav_dashboard') }}</a>
+      <a href="/settings"  onclick="closeMobileMenu()">⚙️ {{ _('nav_settings') }}</a>
+      <a href="/tenant/printers" onclick="closeMobileMenu()">🖨️ {{ _('nav_tenant') }}</a>
+      <a href="/reports"   onclick="closeMobileMenu()">📊 {{ _('nav_reports') }}</a>
+      <a href="/logs"      onclick="closeMobileMenu()">📋 {{ _('nav_logs') }}</a>
+      <a href="/help"      onclick="closeMobileMenu()">❓ {{ _('nav_help') }}</a>
+      <a href="/feedback"  onclick="closeMobileMenu()">💬 {{ _('nav_feedback') }}{% if user.is_admin and feedback_new_count %} <span class="nav-badge">{{ feedback_new_count }}</span>{% endif %}</a>
+      <a href="/logout"    onclick="closeMobileMenu()">🚪 {{ _('nav_logout') }}</a>
     {% else %}
       <a href="/login"    onclick="closeMobileMenu()">🔑 {{ _('nav_login') }}</a>
       <a href="/register" onclick="closeMobileMenu()">📝 {{ _('nav_register') }}</a>
     {% endif %}
+
     <div class="drawer-divider"></div>
+
     <div class="mobile-lang-section">
       <small>🌐 Sprache / Language</small>
       <div class="mobile-lang-grid">
@@ -360,6 +365,7 @@
       btn.setAttribute('aria-expanded', 'false');
       menu.setAttribute('aria-hidden', 'true');
     }
+    // Close on outside click
     document.addEventListener('click', function(e) {
       const menu = document.getElementById('mobileMenu');
       const btn  = document.getElementById('hamburger');
@@ -368,6 +374,7 @@
         closeMobileMenu();
       }
     });
+    // Close on Escape
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') closeMobileMenu();
     });

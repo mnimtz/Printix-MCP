@@ -279,24 +279,22 @@ Das Formular ist in 4 Abschnitte unterteilt:
 ### Preset-Bibliothek
 
 Die Preset-Bibliothek enthält 18 vordefinierte Vorlagen basierend auf dem offiziellen
-Printix PowerBI-Template (v2025.4). Presets sind nach Kategorien gruppiert:
+Printix PowerBI-Template (v2025.4). **Alle 18 Presets sind sofort ausführbar** (seit v3.7.0):
 
 | Kategorie | Presets |
 |-----------|---------|
-| Überblick | Monatlicher Drucküberblick |
-| Trend | Wöchentlicher Drucktrend |
-| Drucker | Drucker-Übersicht, Drucker-Verlauf* |
-| Standort | Standort-Übersicht |
-| Benutzer | Benutzer-Übersicht, Druckdetails*, Kopier-Details*, Scan-Details* |
-| Kosten | Monatliche Kostenanalyse |
-| Analyse | Anomalie-Erkennung |
-| Service | Drucker Service-Status*, Service Desk* |
-| Infrastruktur | Workstation-Übersicht*, Workstation-Details* |
-| Nachhaltigkeit | Tree-O-Meter (CO₂)* |
-| Verwaltung | Druckregeln-Übersicht* |
-| Jobs | Job-Verlauf* |
-
-*) Presets mit * sind für v3.1 geplant (erscheinen als „Bald verfügbar")
+| Überblick | ✅ Monatlicher Drucküberblick |
+| Trend | ✅ Wöchentlicher Drucktrend |
+| Drucker | ✅ Drucker-Übersicht, ✅ Drucker-Verlauf |
+| Standort | ✅ Standort-Übersicht |
+| Benutzer | ✅ Benutzer-Übersicht, ✅ Druckdetails, ✅ Kopier-Details, ✅ Scan-Details |
+| Kosten | ✅ Monatliche Kostenanalyse |
+| Analyse | ✅ Anomalie-Erkennung |
+| Service | ✅ Drucker Service-Status, ✅ Service Desk |
+| Infrastruktur | ✅ Workstation-Übersicht, ✅ Workstation-Details |
+| Nachhaltigkeit | ✅ Tree-O-Meter |
+| Verwaltung | ✅ Druckregeln-Übersicht |
+| Jobs | ✅ Job-Verlauf |
 
 ### Voraussetzungen
 
