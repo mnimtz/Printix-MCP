@@ -1,5 +1,52 @@
 # Changelog
 
+## 3.9.1 (2026-04-11) — „Security & Performance Hardening"
+
+> **Sicherheits- und Performance-Release.** Keine neuen Features, keine Schema-Änderungen
+> außer einer additiven Spalte für den Bearer-Token-Index. Update wird dringend empfohlen.
+
+### Security — OAuth 2.0 Authorization-Code-Flow (RFC 6749)
+- **CRITICAL** — `src/oauth.py` `_authorize_get()` / `_authorize_post()`: Der vom Client gelieferte `redirect_uri` wurde ungeprüft in Templates und Redirects übernommen. Ein Angreifer konnte damit den Autorisierungs-Code auf eine eigene Domain umlenken (Open-Redirect / Authorization-Code-Exfiltration). Fix: harte Whitelist der erlaubten Hosts (`claude.ai`, `chat.openai.com`, `chatgpt.com`, `localhost`, `127.0.0.1`, `::1`) + erzwungenes `https` für externe Hosts. Erweiterbar über `MCP_ALLOWED_REDIRECT_HOSTS` (Komma-separiert).
+- **CRITICAL** — `src/oauth.py` `_token()`: Der `/oauth/token`-Endpunkt prüfte nicht, ob der beim Code-Tausch übergebene `redirect_uri` identisch zu dem beim Autorisierungs-Request war (RFC 6749 §4.1.3). Fix: strikter Vergleich, bei Mismatch HTTP 400 `invalid_grant`.
+- **HIGH** — `src/oauth.py` `_authorize_get()`: `client_id`, `redirect_uri` und `state` wurden ungefiltert in die Consent-HTML-Seite gerendert (Reflected XSS). Fix: alle Template-Werte über `html.escape(..., quote=True)` geführt; Redirects bauen die Query-String-Parameter via `urllib.parse.urlencode`.
+
+### Security — Web-UI
+- **MEDIUM** — `src/web/app.py` `lang_set()`: Die Sprachauswahl nutzte den ungeprüften `Referer`-Header als Redirect-Ziel → Open-Redirect. Fix: Referer wird mit `urlparse` zerlegt, es wird nur zurückgesprungen, wenn `netloc` leer (relativ) oder identisch zum Request-Host ist; sonst Fallback auf `/`.
+- **MEDIUM** — `templates/admin_users.html`, `templates/tenant_demo.html`, `templates/reports_list.html`: JS-Kontext-Escape. `confirm('{{ value }} ?')` war anfällig, wenn Benutzernamen/Demo-Tags/Report-Namen ein `'` oder Backslash enthielten (Quote-Break → Script-Injection). Fix: Werte werden per `data-*`-Attribut übergeben (normale HTML-Attribut-Escape, also bullet-proof) und im `onclick` nur noch über `this.dataset.xxx` gelesen.
+- **LOW** — `src/web/app.py`: 4 Flash-Redirects (`tenant_user_add_card`, `tenant_demo_generate`, `tenant_demo_delete`, `tenant_demo_rollback_all`) bauten `errmsg=…` per f-String zusammen → bei Fehlernachrichten mit `&`, `#` oder `?` zerlegte sich die Query-String. Fix: konsistent `urllib.parse.quote_plus`.
+
+### Security — Auth-Middleware
+- **LOW** — `src/auth.py` `_unauthorized()`: JSON-Body wurde per f-String gebaut. Bei künftigen Aufrufen mit Sonderzeichen in der Nachricht hätte das kaputtes JSON produziert. Fix: `json.dumps` + UTF-8-Encoding.
+
+### Performance — Bearer-Token-Lookup (O(N) → O(1))
+- **HIGH** — `src/db.py` `get_tenant_by_bearer_token()` scanne bisher bei jedem authentifizierten Request die komplette `tenants`-Tabelle und entschlüsselte pro Zeile den gespeicherten Token mit Fernet (CPU-lastig). Bei wachsender Tenant-Zahl wurde das für jeden einzelnen MCP-Tool-Call zum Bottleneck.
+  - Additive Migration: neue indizierte Spalte `tenants.bearer_token_hash` (SHA-256 hex-digest), `CREATE INDEX IF NOT EXISTS idx_tenants_bearer_hash`.
+  - `_bearer_hash()`-Helper; `create_tenant()` und `_create_empty_tenant()` schreiben den Hash mit; `init_db()` backfillt bestehende Zeilen einmalig.
+  - `get_tenant_by_bearer_token()` nutzt jetzt den Index (Fast-Path) und fällt nur bei Legacy-Rows ohne Hash auf den alten Scan zurück — bei erfolgreichem Treffer wird der Hash direkt nachgeschrieben (selbstheilend).
+  - Zusätzlich: vorher wurden Fernet-Decrypt-Fehler mit `except: continue` geschluckt → jetzt werden sie als `logger.warning` mit Tenant-ID geloggt, damit korrupte Rows sichtbar sind.
+
+### Chore — Aufräumen
+- Entfernt: 5 verwaiste Patch-Migrations-Skripte aus früheren Releases (~688 LOC toter Code), die im laufenden Image nie importiert wurden:
+  - `src/reporting/patch_rollback_all.py`
+  - `src/reporting/patch_stufe2.py`
+  - `src/web/patch_app_rollback_all.py`
+  - `src/web/patch_i18n_rollback_all.py`
+  - `src/web/patch_template_rollback_all.py`
+
+### Touched Files
+- `src/oauth.py` — Redirect-URI-Whitelist, Template-Escape, Token-Endpoint-Binding (~80 geänderte Zeilen).
+- `src/web/app.py` — Same-Host-Referer-Check in `lang_set()`, 4 × `quote_plus` in Flash-Redirects.
+- `src/web/templates/admin_users.html`, `tenant_demo.html`, `reports_list.html` — `data-*`-Attribut-Pattern.
+- `src/db.py` — `bearer_token_hash`-Spalte + Index + Migration + Fast-Path-Lookup + Error-Logging.
+- `src/auth.py` — `json.dumps` für 401-Response.
+- `config.yaml`, `run.sh`, `src/server.py`, `README.md` — v3.9.0 → v3.9.1.
+- 5 × gelöschte `patch_*.py`-Dateien.
+
+### Upgrade-Hinweise
+- Backwards-kompatibel. Keine manuellen Schritte nötig: Die `bearer_token_hash`-Spalte wird beim Start automatisch angelegt und für alle bestehenden Tenants befüllt.
+- Wer eine öffentliche Instanz mit eigenen Clients betreibt und weitere Redirect-Hosts braucht, setzt in der Add-on-Konfiguration die Umgebungsvariable `MCP_ALLOWED_REDIRECT_HOSTS="claude.ai,chat.openai.com,chatgpt.com,meine-domain.de"`.
+
+
 ## 3.9.0 (2026-04-11) — „Audit & Governance + Feedback-Ticketsystem"
 
 ### Feature — Admin-Audit-Trail mit strukturiertem Objekttyp/-ID
