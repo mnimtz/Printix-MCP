@@ -462,6 +462,15 @@ class OAuthMiddleware:
                                           "error_description": "Code ungültig"})
             return
 
+        # RFC 6749 §4.1.3: "ensure that the authorization code was issued to the
+        # authenticated confidential client". Defense-in-depth zusätzlich zum
+        # Tenant-Check, falls die client_id→tenant Zuordnung jemals nicht-1:1 wird.
+        if code_data.get("client_id") != client_id:
+            logger.warning("OAuth: Code wurde für andere client_id ausgestellt")
+            await self._json(send, 400, {"error": "invalid_grant",
+                                          "error_description": "Code ungültig"})
+            return
+
         # RFC 6749 §4.1.3: redirect_uri im Token-Request MUSS identisch zu der
         # im Authorization-Request sein. Sonst kann ein Angreifer einen fremden
         # Code via anderer redirect_uri einlösen.
