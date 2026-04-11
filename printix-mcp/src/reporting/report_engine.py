@@ -383,7 +383,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     <tbody>
       {%- for row in section.rows %}
       <tr>
-        {%- for cell in row %}<td>{{ cell|safe }}</td>{% endfor %}
+        {%- for cell in row %}<td>{{ cell }}</td>{% endfor %}
       </tr>
       {%- endfor %}
     </tbody>
@@ -1494,7 +1494,12 @@ def render_html(
     # Density → CSS-Werte
     d_pad, d_gap, d_cell = _derive_density(layout.get("density", "normal"))
 
-    env = Environment(loader=BaseLoader())
+    # v3.9.2 — autoescape=True. Tabellenzellen werden damit automatisch
+    # HTML-escaped (vorher konnte ein Dateiname wie '<img src=x onerror=…>'
+    # in einem HTML-Report Skripte ausführen). SVG-Charts werden weiterhin
+    # mit '| safe' gerendert, weil sie engine-intern erzeugt werden und
+    # vertrauenswürdig sind.
+    env = Environment(loader=BaseLoader(), autoescape=True)
     template = env.from_string(_HTML_TEMPLATE)
     return template.render(
         # i18n
@@ -1544,12 +1549,17 @@ def render_html(
 
 
 def _plain_html_fallback(title, period, report_data, layout) -> str:
-    lines = [f"<html><body><h1>{title}</h1><p>{period}</p>"]
+    """v3.9.2 — alle dynamischen Werte werden über html.escape() geführt,
+    damit ein Dateiname/Username mit '<' oder Anführungszeichen den
+    Plain-HTML-Fallback nicht in einen XSS-Vektor verwandelt."""
+    import html as _h
+    e = lambda v: _h.escape("" if v is None else str(v), quote=True)
+    lines = [f"<html><body><h1>{e(title)}</h1><p>{e(period)}</p>"]
     for section in report_data.get("sections", []):
-        lines.append(f"<h2>{section['title']}</h2><table border='1'>")
-        lines.append("<tr>" + "".join(f"<th>{c}</th>" for c in section["columns"]) + "</tr>")
-        for row in section["rows"]:
-            lines.append("<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>")
+        lines.append(f"<h2>{e(section.get('title', ''))}</h2><table border='1'>")
+        lines.append("<tr>" + "".join(f"<th>{e(c)}</th>" for c in section.get("columns", [])) + "</tr>")
+        for row in section.get("rows", []):
+            lines.append("<tr>" + "".join(f"<td>{e(cell)}</td>" for cell in row) + "</tr>")
         lines.append("</table>")
     lines.append("</body></html>")
     return "\n".join(lines)

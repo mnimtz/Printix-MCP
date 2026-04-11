@@ -1590,53 +1590,52 @@ def query_off_hours_print(
     Liefert eine Zeitreihe mit Tages-Summe der Off-Hours-Jobs sowie ein
     Gesamt-Split (in-hours vs off-hours).
     """
+    tenant_id = get_tenant_id()
     _jobs_tbl = _V('jobs')
-    where = ["t.tenant_id = ?", "j.finished_at >= ?", "j.finished_at <= ?"]
-    params_extra: list = []
-    if site_id:
-        where.append("j.site_id = ?")
-        params_extra.append(site_id)
-    if user_email:
-        where.append("j.user_email = ?")
-        params_extra.append(user_email)
 
     # Off-hours condition: hour outside business window OR weekend (DOW 1=Sun,7=Sat with DATEFIRST 7)
     weekend_clause = ""
     if include_weekends_as_off_hours:
-        weekend_clause = " OR DATEPART(weekday, j.finished_at) IN (1, 7)"
+        weekend_clause = " OR DATEPART(weekday, j.submit_time) IN (1, 7)"
     off_cond = (
-        f"(DATEPART(hour, j.finished_at) < {int(business_start_hour)} "
-        f"OR DATEPART(hour, j.finished_at) >= {int(business_end_hour)}"
+        f"(DATEPART(hour, j.submit_time) < {int(business_start_hour)} "
+        f"OR DATEPART(hour, j.submit_time) >= {int(business_end_hour)}"
         f"{weekend_clause})"
     )
+
+    join_extra = ""
+    where_extra = ""
+    params_extra: list = []
+    if site_id:
+        join_extra += f" INNER JOIN {_V('printers')} p ON p.id = j.printer_id AND p.tenant_id = j.tenant_id"
+        where_extra += " AND p.network_id = ?"
+        params_extra.append(site_id)
+    if user_email:
+        join_extra += f" INNER JOIN {_V('users')} u ON u.id = j.tenant_user_id AND u.tenant_id = j.tenant_id"
+        where_extra += " AND u.email = ?"
+        params_extra.append(user_email)
 
     sql = f"""
         SET DATEFIRST 7;
         SELECT
-            CONVERT(date, j.finished_at) AS day,
+            CONVERT(date, j.submit_time)                     AS day,
             SUM(CASE WHEN {off_cond} THEN 1 ELSE 0 END)      AS off_hours_jobs,
             SUM(CASE WHEN {off_cond} THEN 0 ELSE 1 END)      AS in_hours_jobs,
             COUNT(*)                                         AS total_jobs
         FROM {_jobs_tbl} j
-        INNER JOIN reporting.v_tenants t ON t.tenant_id = ?
-        WHERE j.finished_at >= ? AND j.finished_at <= ?
-        {"AND j.site_id = ?" if site_id else ""}
-        {"AND j.user_email = ?" if user_email else ""}
-        GROUP BY CONVERT(date, j.finished_at)
+        {join_extra}
+        WHERE j.tenant_id = ?
+          AND j.submit_time >= ?
+          AND j.submit_time <  DATEADD(day, 1, CAST(? AS DATE))
+          {where_extra}
+        GROUP BY CONVERT(date, j.submit_time)
         ORDER BY day
     """
-    # params order: tenant_id, start, end, [site], [user]
-    try:
-        from .sql_client import get_tenant_id as _get_tid
-        _tid = _get_tid() or ""
-    except Exception:
-        _tid = ""
-    params = (_tid, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
+    params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
     try:
         return query_fetchall(sql, params)
-    except Exception:
-        # Fallback: simple version without SET DATEFIRST / CTE if driver complains
-        return []
+    except Exception as exc:
+        return [{"error": str(exc)[:200]}]
 
 
 def _filter_kwargs_to_sig(fn, kwargs: dict) -> dict:
