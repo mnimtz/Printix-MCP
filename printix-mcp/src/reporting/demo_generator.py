@@ -963,6 +963,7 @@ def generate_demo_dataset(
     demo_tag: str = "",
     jobs_per_user_day: float = 3.0,
     seed: Optional[int] = None,
+    preset: str = "custom",
 ) -> dict:
     """
     Generiert ein vollständiges Demo-Dataset und schreibt es in die konfigurierte Azure SQL.
@@ -1046,9 +1047,11 @@ def generate_demo_dataset(
 
     params_json = json.dumps({
         "user_count": user_count, "printer_count": printer_count,
+        "queue_count": queue_count,
         "months": months, "languages": languages, "sites": sites,
         "jobs_per_user_day": jobs_per_user_day, "seed": seed,
         "start": start_dt.isoformat(), "end": end_dt.isoformat(),
+        "preset": preset,
     })
     execute_write(
         "INSERT INTO demo.demo_sessions "

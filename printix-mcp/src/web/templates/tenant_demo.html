@@ -108,31 +108,27 @@
       </div>
     </div>
 
-    {% if error == "no_sql" %}
+    {% if not has_sql %}
     <div class="alert alert-warning">⚠️ {{ _('demo_no_sql') }}</div>
-    {% elif error %}
-    <div class="alert alert-error">❌ {{ error }}</div>
     {% endif %}
 
-    {% if flash == "schema_ok" %}
+    {% if flash == "schema_ok" or flash == "setup_ok" %}
     <div class="alert alert-success">✅ {{ _('demo_schema_ok') }}</div>
     {% elif flash == "generate_ok" or flash == "generated" %}
     <div class="alert alert-success">✅ {{ _('demo_generate_ok') }}</div>
-    {% elif flash == "rollback_ok" %}
+    {% elif flash == "rollback_ok" or flash == "deleted" %}
     <div class="alert alert-success">✅ {{ _('demo_rollback_ok') }}</div>
     {% elif flash == "error" %}
     <div class="alert alert-error">❌ {{ flash_msg or 'Error' }}</div>
     {% endif %}
 
-    <!-- Schema-Init (nur wenn noch nicht vorhanden) -->
-    {% if not schema_ready %}
-    <div class="alert alert-info" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+    <!-- Schema-Init (Anzeige wird per JS gesteuert sobald sessions-XHR fertig ist) -->
+    <div id="schemaInitBox" class="alert alert-info" style="display:none;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
       <span>ℹ️ {{ _('demo_schema_info') }}</span>
       <form method="post" action="/tenant/demo/setup" style="margin:0;">
         <button type="submit" class="btn btn-primary btn-sm">⚙️ {{ _('demo_btn_setup') }}</button>
       </form>
     </div>
-    {% endif %}
 
     <div class="divider"></div>
 
@@ -286,17 +282,15 @@
         </div>
       </div>
 
-      <!-- Generate Button -->
+      <!-- Generate Button (initial disabled, wird per JS aktiviert wenn schema_ready=true) -->
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:16px;">
         <button type="button" class="btn btn-success" id="generateBtn"
-                {% if not schema_ready %}disabled title="{{ _('demo_schema_info') }}"{% endif %}
+                disabled title="{{ _('demo_schema_info') }}"
                 onclick="startProgress()">
           <span class="spinner">⏳</span>
           <span class="btn-text">🚀 {{ _('demo_btn_generate') }}</span>
         </button>
-        {% if not schema_ready %}
-        <span style="font-size:.82em;color:#9ca3af;">{{ _('demo_schema_info') }}</span>
-        {% endif %}
+        <span id="schemaInfoHint" style="font-size:.82em;color:#9ca3af;">{{ _('demo_schema_info') }}</span>
       </div>
 
       <!-- Datenmenge-Schätzung + Warnhinweis -->
@@ -319,61 +313,40 @@
 
     <div class="divider"></div>
 
-    <!-- ── Bestehende Sessions ────────────────────────────────────────── -->
+    <!-- ── Bestehende Sessions (per XHR aus /tenant/demo/sessions) ─── -->
     <h3 class="section-title" style="margin-bottom:12px;">📊 {{ _('demo_sessions_title') }}</h3>
 
-    {% if sessions %}
-    <div style="overflow-x:auto;">
-      <table class="sessions-table">
-        <thead>
-          <tr>
-            <th>{{ _('demo_col_tag') }}</th>
-            <th>{{ _('demo_col_preset') }}</th>
-            <th>{{ _('demo_col_created') }}</th>
-            <th class="num-cell">{{ _('demo_col_users') }}</th>
-            <th class="num-cell">{{ _('demo_col_printers') }}</th>
-            <th class="num-cell">{{ _('demo_col_queues') }}</th>
-            <th class="num-cell">{{ _('demo_col_print_jobs') }}</th>
-            <th class="num-cell">{{ _('demo_col_scan_jobs') }}</th>
-            <th class="num-cell">{{ _('demo_col_copy_jobs') }}</th>
-            <th>{{ _('demo_col_actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for s in sessions %}
-          <tr>
-            <td><span class="tag-badge">{{ s.demo_tag }}</span></td>
-            <td>
-              {% set ps = s.preset | default('custom') %}
-              <span class="preset-badge {{ ps }}">
-                {% if ps == 'small' %}🏪{% elif ps == 'medium' %}🏢{% elif ps == 'large' %}🏭{% else %}⚙️{% endif %}
-                {{ ps }}
-              </span>
-            </td>
-            <td style="color:#6b7280;font-size:.85em;">{{ s.created_at | string | truncate(16, True, '') }}</td>
-            <td class="num-cell">{{ s.user_count }}</td>
-            <td class="num-cell">{{ s.printer_count }}</td>
-            <td class="num-cell">{{ s.queue_count | default(0) }}</td>
-            <td class="num-cell">{{ s.print_job_count | default(0) }}</td>
-            <td class="num-cell">{{ s.scan_job_count | default(0) }}</td>
-            <td class="num-cell">{{ s.copy_job_count | default(0) }}</td>
-            <td>
-              <form method="post" action="/tenant/demo/rollback" style="margin:0;"
-                    data-demo-tag="{{ s.demo_tag }}"
-                    data-confirm-msg="{{ _('demo_confirm_rollback') }}"
-                    onsubmit="return confirm(this.dataset.confirmMsg + ' [' + this.dataset.demoTag + ']')">
-                <input type="hidden" name="demo_tag" value="{{ s.demo_tag }}">
-                <button type="submit" class="btn btn-danger btn-sm">🗑️ {{ _('demo_btn_rollback') }}</button>
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div id="sessionsContainer">
+      <p id="sessionsLoading" style="color:#9ca3af;font-size:.9em;">⏳ {{ _('demo_loading') if _('demo_loading') != 'demo_loading' else 'Loading…' }}</p>
     </div>
-    {% else %}
-    <p style="color:#9ca3af;font-size:.9em;">{{ _('demo_no_sessions') }}</p>
-    {% endif %}
+
+    <template id="sessionsTableTemplate">
+      <div style="overflow-x:auto;">
+        <table class="sessions-table">
+          <thead>
+            <tr>
+              <th>{{ _('demo_col_tag') }}</th>
+              <th>{{ _('demo_col_preset') }}</th>
+              <th>{{ _('demo_col_created') }}</th>
+              <th class="num-cell">{{ _('demo_col_users') }}</th>
+              <th class="num-cell">{{ _('demo_col_printers') }}</th>
+              <th class="num-cell">{{ _('demo_col_queues') }}</th>
+              <th class="num-cell">{{ _('demo_col_print_jobs') }}</th>
+              <th class="num-cell">{{ _('demo_col_scan_jobs') }}</th>
+              <th class="num-cell">{{ _('demo_col_copy_jobs') }}</th>
+              <th>{{ _('demo_col_actions') }}</th>
+            </tr>
+          </thead>
+          <tbody id="sessionsTbody"></tbody>
+        </table>
+      </div>
+    </template>
+
+    <p id="sessionsEmpty" style="display:none;color:#9ca3af;font-size:.9em;">{{ _('demo_no_sessions') }}</p>
+
+    <!-- i18n-Brücke für Confirm-Dialoge im JS-Renderer (vermeidet JS-Injection) -->
+    <span id="i18nDemoRollback" data-msg="{{ _('demo_btn_rollback') }}" style="display:none;"></span>
+    <span id="i18nDemoConfirmRollback" data-msg="{{ _('demo_confirm_rollback') }}" style="display:none;"></span>
 
     {%- set _confirm_rollback_all = _('demo_confirm_rollback_all') %}
     <div style="margin-top:24px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
@@ -573,6 +546,135 @@ function startProgress(doSubmit) {
       .catch(function() { setTimeout(poll, 5000); });
   }
   setTimeout(poll, 3000);
+})();
+
+// ── Sessions-Liste asynchron laden + schema_ready feststellen ────────────
+// Hauptzweck: Die Demo-Seite rendert SOFORT, ohne auf Azure SQL zu warten
+// (Serverless Auto-Pause Wake-up = 30–60s). Erst nach dem Page-Render
+// fragt der Browser /tenant/demo/sessions ab. So sieht der User keine
+// Wartezeit beim Erstaufruf.
+(function() {
+  function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, function(c) {
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function presetIcon(p) {
+    if (p === 'small')  return '🏪';
+    if (p === 'medium') return '🏢';
+    if (p === 'large')  return '🏭';
+    return '⚙️';
+  }
+
+  function renderSessions(data) {
+    var loading = document.getElementById('sessionsLoading');
+    if (loading) loading.style.display = 'none';
+
+    var schemaBox = document.getElementById('schemaInitBox');
+    var btn       = document.getElementById('generateBtn');
+    var hint      = document.getElementById('schemaInfoHint');
+    var emptyMsg  = document.getElementById('sessionsEmpty');
+    var container = document.getElementById('sessionsContainer');
+
+    var schemaReady = !!data.schema_ready;
+    if (schemaReady) {
+      if (btn)       { btn.disabled = false; btn.removeAttribute('title'); }
+      if (hint)      hint.style.display = 'none';
+      if (schemaBox) schemaBox.style.display = 'none';
+    } else {
+      if (schemaBox) schemaBox.style.display = 'flex';
+    }
+
+    var sessions = data.sessions || [];
+    if (!sessions.length) {
+      if (emptyMsg) emptyMsg.style.display = 'block';
+      return;
+    }
+
+    // Tabelle aus dem <template>-Element clonen
+    var tpl = document.getElementById('sessionsTableTemplate');
+    if (!tpl) return;
+    var clone = tpl.content.cloneNode(true);
+    container.appendChild(clone);
+
+    var tbody = document.getElementById('sessionsTbody');
+    var rollbackLabel  = (document.getElementById('i18nDemoRollback')?.dataset.msg) || 'Rollback';
+    var confirmMsg     = (document.getElementById('i18nDemoConfirmRollback')?.dataset.msg) || 'Delete this demo session?';
+
+    sessions.forEach(function(s) {
+      var tr = document.createElement('tr');
+      var preset = (s.preset || 'custom');
+      var created = (s.created_at || '').substring(0, 16);
+      tr.innerHTML =
+        '<td><span class="tag-badge">' + escapeHtml(s.demo_tag) + '</span></td>' +
+        '<td><span class="preset-badge ' + escapeHtml(preset) + '">' +
+          presetIcon(preset) + ' ' + escapeHtml(preset) + '</span></td>' +
+        '<td style="color:#6b7280;font-size:.85em;">' + escapeHtml(created) + '</td>' +
+        '<td class="num-cell">' + escapeHtml(s.user_count || 0) + '</td>' +
+        '<td class="num-cell">' + escapeHtml(s.printer_count || 0) + '</td>' +
+        '<td class="num-cell">' + escapeHtml(s.queue_count || 0) + '</td>' +
+        '<td class="num-cell">' + escapeHtml(s.print_job_count || 0) + '</td>' +
+        '<td class="num-cell">' + escapeHtml(s.scan_job_count || 0) + '</td>' +
+        '<td class="num-cell">' + escapeHtml(s.copy_job_count || 0) + '</td>' +
+        '<td></td>';
+      // Rollback-Form: data-* + dataset-Lookup im onsubmit, vermeidet
+      // jegliche JS-Injection via demo_tag.
+      var actionsTd = tr.lastElementChild;
+      var form = document.createElement('form');
+      form.method = 'post';
+      form.action = '/tenant/demo/rollback';
+      form.style.margin = '0';
+      form.dataset.demoTag    = s.demo_tag || '';
+      form.dataset.confirmMsg = confirmMsg;
+      form.onsubmit = function() {
+        return confirm(this.dataset.confirmMsg + ' [' + this.dataset.demoTag + ']');
+      };
+      var hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'demo_tag';
+      hidden.value = s.demo_tag || '';
+      form.appendChild(hidden);
+      var rbBtn = document.createElement('button');
+      rbBtn.type = 'submit';
+      rbBtn.className = 'btn btn-danger btn-sm';
+      rbBtn.textContent = '🗑️ ' + rollbackLabel;
+      form.appendChild(rbBtn);
+      actionsTd.appendChild(form);
+      tbody.appendChild(tr);
+    });
+  }
+
+  function loadSessions() {
+    var basePath = window.location.pathname.split('?')[0];
+    fetch(basePath + '/sessions', { credentials: 'same-origin' })
+      .then(function(r) { return r.json().catch(function() { return {}; }); })
+      .then(function(data) {
+        if (!data || data.error) {
+          var loading = document.getElementById('sessionsLoading');
+          if (loading) loading.textContent = '⚠️ ' + (data && data.error ? data.error : 'Sessions konnten nicht geladen werden.');
+          return;
+        }
+        if (data.has_sql === false) {
+          // SQL gar nicht konfiguriert — Sessions/Schema-Box bleiben unsichtbar
+          var loading = document.getElementById('sessionsLoading');
+          if (loading) loading.style.display = 'none';
+          return;
+        }
+        renderSessions(data);
+      })
+      .catch(function(e) {
+        var loading = document.getElementById('sessionsLoading');
+        if (loading) loading.textContent = '⚠️ Sessions konnten nicht geladen werden.';
+      });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadSessions);
+  } else {
+    loadSessions();
+  }
 })();
 </script>
 {% endblock %}

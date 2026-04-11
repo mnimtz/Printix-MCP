@@ -1458,47 +1458,135 @@ def create_app(session_secret: str) -> FastAPI:
 
     @app.get("/tenant/demo", response_class=HTMLResponse)
     async def tenant_demo(request: Request):
+        """
+        Demo-Übersicht.
+
+        v3.9.2: Rendert die Seite SOFORT ohne Azure SQL-Aufruf — die
+        Session-Liste und das schema_ready-Flag werden per JS aus
+        /tenant/demo/sessions nachgeladen. Damit verschwindet der
+        30–60s lange Erstaufruf bei Azure SQL Serverless (Auto-Pause-
+        Wake-up). Spätere Aufrufe sind ebenfalls instant, die SQL-Last
+        verlagert sich in den XHR-Endpunkt.
+        """
         user = require_login(request)
-        if user is None: return RedirectResponse("/login", status_code=302)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
         tc = t_ctx(request)
-        sessions = []
-        has_sql  = False
         flash     = request.query_params.get("flash")
         flash_msg = request.query_params.get("errmsg", request.query_params.get("flash_msg", ""))
         job_id    = request.query_params.get("job_id", "")
+        # Schneller Check: ist überhaupt SQL konfiguriert? — kein Roundtrip,
+        # nur ein Lookup im Tenant-Datensatz aus der lokalen SQLite.
+        has_sql = False
         try:
             from db import get_tenant_full_by_user_id
-            from reporting.sql_client import set_config_from_tenant, is_configured
-            from reporting.demo_generator import setup_schema as _setup  # noqa: ensure importable
             tenant = get_tenant_full_by_user_id(user["id"])
-            if tenant and tenant.get("sql_server"):
-                tok = set_config_from_tenant(tenant)
-                has_sql = is_configured()
-                if has_sql:
-                    # Perf v3.7.8: Query l\u00e4uft in einem Thread damit der Event Loop
-                    # nicht blockiert w\u00e4hrend Azure SQL antwortet. TOP 20 begrenzt die
-                    # Ergebnismenge — \u00e4ltere Sessions sind ohnehin uninteressant und der
-                    # User kann sie \u00fcber die L\u00f6sch-API aufr\u00e4umen.
-                    import asyncio as _aio
-                    from reporting.sql_client import query_fetchall
-                    rows = await _aio.to_thread(
-                        query_fetchall,
-                        "SELECT TOP 20 session_id, tenant_id, demo_tag, created_at, "
-                        "user_count, printer_count, print_job_count, status "
-                        "FROM dbo.demo_sessions WHERE tenant_id = ? "
-                        "ORDER BY created_at DESC",
-                        (tenant.get("printix_tenant_id", ""),)
-                    )
-                    sessions = rows or []
+            has_sql = bool(tenant and tenant.get("sql_server"))
         except Exception as e:
-            logger.warning("tenant_demo list error: %s", e)
+            logger.warning("tenant_demo tenant lookup error: %s", e)
         return templates.TemplateResponse("tenant_demo.html", {
             "request": request, "user": user,
-            "has_sql": has_sql, "sessions": sessions,
+            "has_sql": has_sql,
+            # sessions + schema_ready werden per XHR nachgeladen
+            "sessions": None,
+            "schema_ready": None,
             "flash": flash, "flash_msg": flash_msg,
             "job_id": job_id,
             "form_defaults": {}, "active_tab": "demo", **tc,
         })
+
+    # ── In-Memory-Cache für Demo-Sessions (per Tenant, 30s TTL) ──────────
+    # Hauptzweck: zweiter Aufruf der Demo-Seite spart einen Azure-SQL-RTT.
+    # Größe ist beschränkt auf wenige Tenants — kein Memory-Leak.
+    _demo_session_cache: dict = {}  # tenant_id -> (expires_ts, payload)
+
+    @app.get("/tenant/demo/sessions")
+    async def tenant_demo_sessions(request: Request):
+        """
+        Liefert {schema_ready, sessions} als JSON. Wird vom Demo-Template
+        per fetch() aufgerufen, sodass die Seite ohne Azure SQL gerendert
+        werden kann.
+        """
+        user = require_login(request)
+        if user is None:
+            return JSONResponse({"error": "not_logged_in"}, status_code=401)
+        try:
+            from db import get_tenant_full_by_user_id
+            from reporting.sql_client import set_config_from_tenant, is_configured
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if not tenant or not tenant.get("sql_server"):
+                return JSONResponse({"schema_ready": False, "sessions": [], "has_sql": False})
+            set_config_from_tenant(tenant)
+            if not is_configured():
+                return JSONResponse({"schema_ready": False, "sessions": [], "has_sql": False})
+
+            tid = tenant.get("printix_tenant_id", "")
+            cached = _demo_session_cache.get(tid)
+            if cached and cached[0] > _time.time():
+                return JSONResponse(cached[1])
+
+            import asyncio as _aio
+            from reporting.sql_client import query_fetchall
+            try:
+                rows = await _aio.to_thread(
+                    query_fetchall,
+                    # WICHTIG: demo.* (nicht dbo.*) — der Generator legt die
+                    # Tabellen im 'demo'-Schema an (siehe demo_generator.py).
+                    "SELECT TOP 20 session_id, tenant_id, demo_tag, created_at, "
+                    "user_count, printer_count, network_count, "
+                    "print_job_count, scan_job_count, copy_job_count, "
+                    "status, params_json "
+                    "FROM demo.demo_sessions WHERE tenant_id = ? "
+                    "ORDER BY created_at DESC",
+                    (tid,),
+                )
+                schema_ready = True
+                sessions = rows or []
+            except Exception as ex:
+                # "Invalid object name 'demo.demo_sessions'" → Schema noch
+                # nicht eingerichtet. Das ist KEIN Fehler, sondern der
+                # Initial-Zustand: User soll den Setup-Button sehen.
+                msg = str(ex)
+                if "Invalid object name" in msg or "demo.demo_sessions" in msg:
+                    schema_ready = False
+                    sessions = []
+                else:
+                    logger.warning("tenant_demo_sessions SQL error: %s", ex)
+                    return JSONResponse({"error": str(ex)[:200], "has_sql": True}, status_code=500)
+
+            # ISO-Strings für JSON
+            def _ser(s):
+                out = dict(s)
+                if out.get("created_at") is not None:
+                    out["created_at"] = str(out["created_at"])
+                # preset aus params_json extrahieren (falls vorhanden)
+                pj = out.get("params_json") or ""
+                try:
+                    import json as _j
+                    pdata = _j.loads(pj) if pj else {}
+                    out["preset"] = pdata.get("preset", "custom")
+                    out["queue_count"] = pdata.get("queue_count", 0)
+                except Exception:
+                    out["preset"] = "custom"
+                    out["queue_count"] = 0
+                # params_json selbst nicht ans Frontend schicken
+                out.pop("params_json", None)
+                return out
+
+            payload = {
+                "has_sql": True,
+                "schema_ready": schema_ready,
+                "sessions": [_ser(s) for s in sessions],
+            }
+            _demo_session_cache[tid] = (_time.time() + 30, payload)
+            return JSONResponse(payload)
+        except Exception as e:
+            logger.warning("tenant_demo_sessions error: %s", e)
+            return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+    def _demo_cache_invalidate(tenant_id: str) -> None:
+        """Aufruf nach generate / delete / rollback, damit der nächste GET frisch lädt."""
+        _demo_session_cache.pop(tenant_id, None)
 
     @app.post("/tenant/demo/setup", response_class=HTMLResponse)
     async def tenant_demo_setup(request: Request):
@@ -1545,6 +1633,9 @@ def create_app(session_secret: str) -> FastAPI:
             sites_raw     = form_data.get("sites", "")
             sites         = [s.strip() for s in sites_raw.split(",") if s.strip()] or ["Hauptsitz"]
             demo_tag      = (form_data.get("demo_tag") or "").strip()[:80]
+            preset        = (form_data.get("preset") or "custom").strip()[:20]
+            if preset not in ("small", "medium", "large", "custom"):
+                preset = "custom"
             tid = get_tenant_id()
             # Hintergrund-Task: sofort Redirect, Browser pollt /tenant/demo/status
             # SUBPROCESS-Isolation: pyodbc/FreeTDS Segfaults töten nicht den Web-Server
@@ -1572,6 +1663,7 @@ def create_app(session_secret: str) -> FastAPI:
                         "languages":         languages,
                         "sites":             sites,
                         "demo_tag":          demo_tag or f"Demo {__import__('datetime').date.today()}",
+                        "preset":            preset,
                     }
                     env = dict(_os.environ)
                     env["DEMO_TENANT_CONFIG"] = _json.dumps(tenant_config)
@@ -1594,6 +1686,8 @@ def create_app(session_secret: str) -> FastAPI:
                             _demo_jobs[job_id] = {"status": "error", "error": str(result["error"])[:200]}
                         else:
                             _demo_jobs[job_id] = {"status": "done", "session_id": result.get("session_id", "")}
+                            # Cache invalidieren, damit die Sessions-Liste sofort aktualisiert wird
+                            _demo_cache_invalidate(tid)
                     else:
                         # Subprocess fehlgeschlagen (auch Segfault = exit -11)
                         err = ""
@@ -1628,8 +1722,19 @@ def create_app(session_secret: str) -> FastAPI:
 
     @app.post("/tenant/demo/delete/{session_id}", response_class=HTMLResponse)
     async def tenant_demo_delete(request: Request, session_id: str):
+        """
+        Löscht alle Demo-Datenzeilen einer einzelnen Session.
+
+        v3.9.2 — Bug-Fix: vorher wurden Tabellen aus dem `dbo.*`-Schema
+        gelöscht, der Generator schreibt aber nach `demo.*`. Außerdem
+        wurde `execute_write` mit `[(a,b)]` aufgerufen statt mit `(a,b)` —
+        das hätte zur Laufzeit „wrong number of parameters" geworfen.
+        Beide Bugs sind hier behoben, plus jobs_copy_details wird in
+        DERSELBEN Verbindung VOR jobs_copy gelöscht (Reihenfolge wichtig).
+        """
         user = require_login(request)
-        if user is None: return RedirectResponse("/login", status_code=302)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
         try:
             from db import get_tenant_full_by_user_id
             from reporting.sql_client import set_config_from_tenant, get_tenant_id, execute_write
@@ -1638,35 +1743,81 @@ def create_app(session_secret: str) -> FastAPI:
                 return RedirectResponse("/tenant/demo?flash=error", status_code=302)
             set_config_from_tenant(tenant)
             tid = get_tenant_id()
-            # Mark session as deleted and remove demo data rows
-            execute_write(
-                "UPDATE dbo.demo_sessions SET status='deleted' WHERE session_id=? AND tenant_id=?",
-                [(session_id, tid)]
-            )
-            # Purge demo rows from all tables for this session
-            for tbl in ("tracking_data","jobs","jobs_scan","jobs_copy","users","printers","networks"):
-                try:
-                    execute_write(
-                        f"DELETE FROM dbo.{tbl} WHERE demo_session_id=? AND tenant_id=?",
-                        [(session_id, tid)]
-                    )
-                except Exception:
-                    pass
-            # jobs_copy_details linked via job_id - purge via subquery
+            # 1) jobs_copy_details ZUERST (FK-Reihenfolge auch wenn keine
+            #    explizite Constraint existiert — bei Subquery muss jobs_copy
+            #    noch da sein, damit der Lookup klappt).
             try:
                 execute_write(
-                    "DELETE FROM dbo.jobs_copy_details WHERE job_id IN "
-                    "(SELECT id FROM dbo.jobs_copy WHERE demo_session_id=? AND tenant_id=?)",
-                    [(session_id, tid)]
+                    "DELETE FROM demo.jobs_copy_details WHERE job_id IN "
+                    "(SELECT id FROM demo.jobs_copy WHERE demo_session_id=? AND tenant_id=?)",
+                    (session_id, tid),
                 )
-            except Exception:
-                pass
+            except Exception as ex:
+                logger.warning("delete jobs_copy_details: %s", ex)
+            # 2) Restliche Daten-Tabellen
+            for tbl in ("tracking_data", "jobs", "jobs_scan", "jobs_copy",
+                        "users", "printers", "networks"):
+                try:
+                    execute_write(
+                        f"DELETE FROM demo.{tbl} WHERE demo_session_id=? AND tenant_id=?",
+                        (session_id, tid),
+                    )
+                except Exception as ex:
+                    logger.warning("delete demo.%s: %s", tbl, ex)
+            # 3) Session-Eintrag selbst
+            try:
+                execute_write(
+                    "DELETE FROM demo.demo_sessions WHERE session_id=? AND tenant_id=?",
+                    (session_id, tid),
+                )
+            except Exception as ex:
+                logger.warning("delete demo.demo_sessions: %s", ex)
+            _demo_cache_invalidate(tid)
             return RedirectResponse("/tenant/demo?flash=deleted", status_code=302)
         except Exception as e:
             logger.error("tenant_demo_delete error: %s", e)
             from urllib.parse import quote_plus as _qp
             return RedirectResponse(
                 f"/tenant/demo?flash=error&errmsg={_qp(str(e)[:100])}",
+                status_code=302,
+            )
+
+    @app.post("/tenant/demo/rollback", response_class=HTMLResponse)
+    async def tenant_demo_rollback(request: Request):
+        """
+        Rollback per demo_tag — löscht ALLE Sessions mit dem angegebenen Tag.
+
+        v3.9.2: Diese Route fehlte, das Template (tenant_demo.html) hat aber
+        per <form action="/tenant/demo/rollback"> auf sie gepostet → 404.
+        Das hat den Per-Session-Rollback-Button komplett unbrauchbar gemacht.
+        """
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_tenant_full_by_user_id
+            from reporting.sql_client import set_config_from_tenant, get_tenant_id
+            from reporting.demo_generator import rollback_demo
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if not tenant or not tenant.get("sql_server"):
+                return RedirectResponse("/tenant/demo?flash=error&flash_msg=no_sql", status_code=302)
+            set_config_from_tenant(tenant)
+            form_data = await request.form()
+            demo_tag = (form_data.get("demo_tag") or "").strip()[:80]
+            if not demo_tag:
+                return RedirectResponse("/tenant/demo?flash=error&flash_msg=missing_tag",
+                                        status_code=302)
+            tid = get_tenant_id()
+            result = await _asyncio.to_thread(rollback_demo, tid, demo_tag)
+            logger.info("Demo-Rollback (tag=%s): %d Zeilen gelöscht",
+                        demo_tag, result.get("total_deleted", 0))
+            _demo_cache_invalidate(tid)
+            return RedirectResponse("/tenant/demo?flash=rollback_ok", status_code=302)
+        except Exception as e:
+            logger.error("tenant_demo_rollback error: %s", e)
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(
+                f"/tenant/demo?flash=error&flash_msg={_qp(str(e)[:120])}",
                 status_code=302,
             )
 
