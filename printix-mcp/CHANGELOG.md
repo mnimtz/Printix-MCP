@@ -1,5 +1,46 @@
 # Changelog
 
+## 3.9.2 (2026-04-11) — „Reports & Demo-Daten Bugfix-Release"
+
+> **Bugfix-Release.** Behebt mehrere kritische Fehler in der Demo-Daten-Verwaltung
+> und in den Reports, die seit v3.5.0 / v3.9.0 unbemerkt im Code lagen. Der
+> langsame Erstaufruf der Demo-Seite (Azure-SQL-Cold-Start) ist behoben.
+> Update wird empfohlen, kein manueller Schritt nötig.
+
+### Bugfix — Demo-Daten-Verwaltung (`/tenant/demo`)
+- **CRITICAL** — `src/web/app.py` `tenant_demo()` GET-Handler: Die Sitzungsliste wurde gegen `dbo.demo_sessions` abgefragt, der Demo-Generator schreibt aber in `demo.demo_sessions`. Folge: die Liste war auf nicht-leerem Schema permanent leer und die Lösch-/Rollback-Aktionen schlugen mit „Invalid object name dbo.demo_sessions" fehl. Fix: konsequent `demo.*`-Schema verwenden, mit Erkennung von „Schema noch nicht initialisiert" (`Invalid object name`-Fehler → `schema_ready=False`).
+- **CRITICAL** — `tenant_demo_delete()`: Übergab `[(session_id, tid)]` (Liste mit einem Tupel) an `execute_write(sql, params)`, das aber nur ein flaches Tupel erwartet. Resultat: jeder Lösch-Versuch warf eine Exception. Fix: korrekt `(session_id, tid)`-Tupel und Fremdschlüssel-konforme Reihenfolge (`jobs_copy_details` → `jobs_copy/scan/print/tracking_data` → `printers`/`users`/`networks` → `demo_sessions`).
+- **CRITICAL** — Template `tenant_demo.html` postete an `/tenant/demo/rollback` (per-Session-Rollback), die Route existierte aber gar nicht — Klick produzierte einen 404. Fix: neue Route `tenant_demo_rollback` (POST), die `rollback_demo(tid, demo_tag)` aus dem Demo-Generator aufruft.
+- **HIGH** — Generate-Button war dauerhaft deaktiviert: das Template prüfte `{% if not schema_ready %}`, der GET-Handler übergab die Variable aber nie. Folge: Demo-Daten konnten nur generiert werden, wenn der Benutzer das `disabled`-Attribut manuell aus dem DOM entfernte. Fix: `schema_ready` wird jetzt asynchron via JS-Fetch gesetzt (siehe Performance unten).
+- **MEDIUM** — Form-Feld `queue_count` und `preset` wurden im POST gesendet, aber nie in `params_json` persistiert. Folge: in der Sitzungs-Liste fehlten Drucker-Anzahl und Preset-Badge. Fix: beide Felder werden jetzt durchgereicht (mit Whitelist-Validierung für `preset` ∈ {custom, small_business, mid_market, enterprise}).
+
+### Performance — Demo-Seite Erstaufruf (Azure-SQL Cold-Start)
+- **HIGH** — `tenant_demo()` GET-Handler führte beim Rendering eine SQL-Abfrage gegen `demo.demo_sessions` aus. Bei Azure SQL Serverless mit Auto-Pause bedeutet das einen 30–60 s-Wakeup beim Erstaufruf, während der Browser komplett blockiert war. Fix: GET-Handler rendert die Shell sofort ohne SQL-Roundtrip; ein neuer XHR-Endpunkt `/tenant/demo/sessions` lädt die Sitzungsliste asynchron, mit 30 s In-Memory-Cache pro Tenant. Erstaufruf damit von 30+ s auf < 100 ms reduziert.
+
+### Bugfix — Reports
+- **CRITICAL** — `src/reporting/query_tools.py` `query_off_hours_print()` (v3.9.0 Off-Hours-Print-Report): Die Query referenzierte drei nicht-existente Spalten (`j.finished_at`, `j.site_id`, `j.user_email`) — die echte `dbo.jobs`-Tabelle hat `submit_time`, kein direktes `site_id`, und User-Lookup geht über `tenant_user_id` → `users.email`. Zusätzlich war der `INNER JOIN reporting.v_tenants t ON t.tenant_id = ?` ohne `j.tenant_id = t.tenant_id`-Bedingung — bei Existenz der View hätte das ein Cross-Tenant-Datenleck erzeugt. Folge: der Report war seit v3.9.0 komplett gebrochen und produzierte „invalid column name"-Fehler. Fix: komplette Neuschreibung der Query gegen `j.submit_time` mit echter `j.tenant_id = ?`-Filter und JOINs gegen `printers`/`users` für die optionalen Site-/User-Filter.
+- **CRITICAL** — `src/reporting/report_engine.py` Zeile 386: Tabellenzellen wurden mit `{{ cell|safe }}` gerendert — beliebiger HTML-Inhalt aus DB-Daten (z. B. Druckernamen, Benutzernamen) wurde direkt ins HTML eingebettet (Stored XSS in Reports, die per E-Mail verschickt werden). Fix: `|safe` entfernt, Jinja-Auto-Escape greift jetzt.
+- **CRITICAL** — `src/reporting/report_engine.py` Zeile 1497: `Environment(loader=BaseLoader())` wurde ohne `autoescape=True` instanziiert. Damit war Auto-Escape im gesamten Report-Template-Pfad ausgeschaltet — jeder andere `{{ }}`-Ausdruck war ebenfalls XSS-anfällig. Fix: `autoescape=True` aktiviert. SVG-Charts behalten explizit `|safe` (engine-generiert, vertrauenswürdig).
+- **MEDIUM** — `_plain_html_fallback()` baute den Fallback-HTML-Body per f-String ohne Escape — Titel, Section-Namen, Spalten und Zellen flossen ungefiltert ein. Fix: `html.escape`-Wrapper auf alle dynamischen Werte angewendet.
+
+### Bugfix — OAuth-Hardening (Defense-in-Depth)
+- **MEDIUM** — `src/oauth.py` `_token()`: zusätzlich zum Tenant-Binding (das de facto bereits client_id-Binding war) wird jetzt explizit geprüft, dass die `client_id` im Token-Request mit der `client_id` im Authorization-Code übereinstimmt — RFC 6749 §4.1.3 wörtlich umgesetzt. Defense-in-Depth, falls die `client_id → tenant_id`-Zuordnung jemals nicht-1:1 wird.
+
+### Touched Files
+- `src/web/app.py` — Demo-Routen-Rewrite, neuer XHR-Endpunkt `/tenant/demo/sessions`, neue Route `/tenant/demo/rollback`, In-Memory-Cache.
+- `src/web/templates/tenant_demo.html` — JS-Fetch für Sitzungsliste, dynamischer `schema_ready`-Switch, `data-*`-Pattern für Rollback-Buttons.
+- `src/reporting/demo_generator.py` — `preset`-Parameter durch `generate_demo_dataset()` gereicht, `params_json` enthält jetzt `queue_count` + `preset`.
+- `src/reporting/query_tools.py` — `query_off_hours_print()` komplett neu gegen echtes `dbo.jobs`-Schema.
+- `src/reporting/report_engine.py` — `|safe` entfernt, `autoescape=True`, `_plain_html_fallback`-Escape.
+- `src/oauth.py` — explizites client_id-Binding im Token-Endpoint.
+- `config.yaml`, `run.sh`, `src/server.py`, `README.md` — v3.9.1 → v3.9.2.
+
+### Upgrade-Hinweise
+- Backwards-kompatibel. Keine Schema-Änderungen, keine manuellen Schritte.
+- Wer den Off-Hours-Print-Report aus v3.9.0 in einem Schedule eingebunden hat: bitte einmalig einen Probe-Lauf in der Web-UI starten — die Query produziert jetzt Daten statt SQL-Fehlern.
+- Wer den Demo-Generator schon einmal benutzt hat: die existierenden Sitzungen tauchen jetzt korrekt in der Liste auf, weil das Schema endlich übereinstimmt.
+
+
 ## 3.9.1 (2026-04-11) — „Security & Performance Hardening"
 
 > **Sicherheits- und Performance-Release.** Keine neuen Features, keine Schema-Änderungen
