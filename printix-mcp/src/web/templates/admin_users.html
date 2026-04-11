@@ -68,7 +68,9 @@
               {% if u.status == 'approved' %}
               <form method="post" action="/admin/users/{{ u.id }}/disable" style="display:inline; margin-left:4px;">
                 <button type="submit" class="btn btn-danger btn-sm"
-                  onclick="return confirm('{{ u.username }} {{ _('admin_status_suspended') | lower }}?')">
+                  data-username="{{ u.username }}"
+                  data-suspend-label=" {{ _('admin_status_suspended') | lower }}?"
+                  onclick="return confirm(this.dataset.username + this.dataset.suspendLabel)">
                   ✗ {{ _('admin_suspend') }}
                 </button>
               </form>

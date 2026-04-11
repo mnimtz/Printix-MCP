@@ -135,8 +135,20 @@ def create_app(session_secret: str) -> FastAPI:
     async def switch_language(code: str, request: Request):
         if code in SUPPORTED_LANGUAGES:
             request.session["lang"] = code
-        referer = request.headers.get("referer", "/")
-        return RedirectResponse(referer, status_code=302)
+        # Open-Redirect-Schutz: Referer-Header darf nur zurückführen, wenn er
+        # same-origin ist. Andernfalls fallen wir auf "/" zurück.
+        referer = request.headers.get("referer", "")
+        safe_target = "/"
+        if referer:
+            try:
+                from urllib.parse import urlparse
+                ref = urlparse(referer)
+                if not ref.netloc or ref.netloc == request.url.netloc:
+                    # Relative Pfade oder gleiche Origin akzeptieren
+                    safe_target = referer
+            except Exception:
+                safe_target = "/"
+        return RedirectResponse(safe_target, status_code=302)
 
     # ── Root ──────────────────────────────────────────────────────────────────
 
@@ -1355,8 +1367,10 @@ def create_app(session_secret: str) -> FastAPI:
             )
         except Exception as e:
             logger.error("tenant_user_add_card error: %s", e)
+            from urllib.parse import quote_plus as _qp
             return RedirectResponse(
-                f"/tenant/users/{printix_user_id}?flash=error&errmsg={str(e)[:80]}", status_code=302
+                f"/tenant/users/{printix_user_id}?flash=error&errmsg={_qp(str(e)[:80])}",
+                status_code=302,
             )
 
     @app.post("/tenant/users/{printix_user_id}/delete-card")
@@ -1606,7 +1620,11 @@ def create_app(session_secret: str) -> FastAPI:
             return RedirectResponse(f"/tenant/demo?job_id={job_id}", status_code=302)
         except Exception as e:
             logger.error("tenant_demo_generate error: %s", e)
-            return RedirectResponse(f"/tenant/demo?flash=error&errmsg={str(e)[:100]}", status_code=302)
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(
+                f"/tenant/demo?flash=error&errmsg={_qp(str(e)[:100])}",
+                status_code=302,
+            )
 
     @app.post("/tenant/demo/delete/{session_id}", response_class=HTMLResponse)
     async def tenant_demo_delete(request: Request, session_id: str):
@@ -1646,7 +1664,11 @@ def create_app(session_secret: str) -> FastAPI:
             return RedirectResponse("/tenant/demo?flash=deleted", status_code=302)
         except Exception as e:
             logger.error("tenant_demo_delete error: %s", e)
-            return RedirectResponse(f"/tenant/demo?flash=error&errmsg={str(e)[:100]}", status_code=302)
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(
+                f"/tenant/demo?flash=error&errmsg={_qp(str(e)[:100])}",
+                status_code=302,
+            )
 
 
     @app.post("/tenant/demo/rollback-all", response_class=HTMLResponse)
@@ -1672,7 +1694,11 @@ def create_app(session_secret: str) -> FastAPI:
             return RedirectResponse("/tenant/demo?flash=rollback_ok", status_code=302)
         except Exception as e:
             logger.error("tenant_demo_rollback_all error: %s", e)
-            return RedirectResponse(f"/tenant/demo?flash=error&flash_msg={str(e)[:120]}", status_code=302)
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(
+                f"/tenant/demo?flash=error&flash_msg={_qp(str(e)[:120])}",
+                status_code=302,
+            )
 
     # ── Reports-Register (v3.0.0) ─────────────────────────────────────────────
     try:

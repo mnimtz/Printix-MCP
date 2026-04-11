@@ -110,7 +110,9 @@
             <a href="/reports/{{ t.report_id }}/edit" class="btn btn-secondary btn-sm" title="{{ _('rpt_edit_title') }}">✏</a>
             <!-- Delete -->
             <form class="run-form" method="post" action="/reports/{{ t.report_id }}/delete"
-                  onsubmit="return confirm('{{ _('rpt_delete_confirm') }}'.replace('?', ' \'' + {{ t.name | tojson }} + '\'?'));">
+                  data-report-name="{{ t.name }}"
+                  data-confirm-msg="{{ _('rpt_delete_confirm') }}"
+                  onsubmit="return confirm(this.dataset.confirmMsg.replace('?', ' \'' + this.dataset.reportName + '\'?'));">
               <button type="submit" class="btn btn-danger btn-sm" title="{{ _('rpt_delete_title') }}">🗑</button>
             </form>
           </td>

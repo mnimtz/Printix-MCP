@@ -359,7 +359,9 @@
             <td class="num-cell">{{ s.copy_job_count | default(0) }}</td>
             <td>
               <form method="post" action="/tenant/demo/rollback" style="margin:0;"
-                    onsubmit="return confirm('{{ _('demo_confirm_rollback') }} [{{ s.demo_tag }}]')">
+                    data-demo-tag="{{ s.demo_tag }}"
+                    data-confirm-msg="{{ _('demo_confirm_rollback') }}"
+                    onsubmit="return confirm(this.dataset.confirmMsg + ' [' + this.dataset.demoTag + ']')">
                 <input type="hidden" name="demo_tag" value="{{ s.demo_tag }}">
                 <button type="submit" class="btn btn-danger btn-sm">🗑️ {{ _('demo_btn_rollback') }}</button>
               </form>
