@@ -1,5 +1,5 @@
 """
-Printix MCP Server — Home Assistant Add-on v4.4.8 (Multi-Tenant)
+Printix MCP Server — Home Assistant Add-on v4.4.9 (Multi-Tenant)
 =================================================================
 Model Context Protocol server for the Printix Cloud Print API.
 
@@ -51,11 +51,13 @@ for _noisy in (
     "urllib3.connectionpool",
     "httpx",
     "httpcore",
-    "uvicorn.access",
     "python_multipart",
     "python_multipart.multipart",
 ):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+# uvicorn.access bleibt auf INFO — wichtig für Debugging eingehender Requests
+# (v4.4.9: war vorher auf WARNING unterdrückt → Webhooks unsichtbar)
 
 logger = logging.getLogger("printix.mcp")
 logger.info("Log-Level: %s", LOG_LEVEL)
@@ -2312,9 +2314,11 @@ class DualTransportApp:
             return
 
         path = scope.get("path", "")
+        method = scope.get("method", "?")
         if path == "/mcp" or path.startswith("/mcp/"):
             await self.http_app(scope, receive, send)
         elif path.startswith("/capture/webhook/") or path.startswith("/capture/debug"):
+            logger.info("▶ CAPTURE REQUEST: %s %s", method, path)
             await self._handle_capture(scope, receive, send)
         else:
             await self.sse_app(scope, receive, send)

@@ -1,5 +1,5 @@
 """
-Capture Webhook Handler — Kanonische Verarbeitung (v4.4.6)
+Capture Webhook Handler — Kanonische Verarbeitung (v4.4.9)
 ==========================================================
 Einziger Ort für die Webhook-Logik. Wird aufgerufen von:
   - web/capture_routes.py (Web-UI Port 8080)
@@ -53,7 +53,7 @@ async def handle_webhook(
 
     # ── Nur POST akzeptieren ─────────────────────────────────────────────────
     if method != "POST":
-        return 405, {"error": "Method not allowed"}
+        return 405, {"errorMessage": "Method not allowed"}
 
     # ── 1. Profil laden ──────────────────────────────────────────────────────
     from db import get_capture_profile_for_webhook, add_capture_log
@@ -63,7 +63,7 @@ async def handle_webhook(
     profile = get_capture_profile_for_webhook(profile_id)
     if not profile:
         logger.warning("[%s] Profil nicht gefunden: %s", source, profile_id)
-        return 404, {"error": "Unknown profile"}
+        return 404, {"errorMessage": "Unknown profile"}
 
     tenant_id = profile["tenant_id"]
     profile_name = profile.get("name", "?")
@@ -80,7 +80,7 @@ async def handle_webhook(
         logger.warning("[%s] HMAC fehlgeschlagen für Profil %s", source, profile_id[:8])
         add_capture_log(tenant_id, profile_id, profile_name,
                         "signature_failed", "error", "HMAC signature verification failed")
-        return 401, {"error": "Signature verification failed"}
+        return 401, {"errorMessage": "Signature verification failed"}
 
     logger.info("[%s] HMAC: OK (secret=%s)", source,
                 "configured" if secret_key else "none")
@@ -94,7 +94,7 @@ async def handle_webhook(
         add_capture_log(tenant_id, profile_id, profile_name,
                         "parse_error", "error",
                         f"Invalid JSON ({len(body_bytes)} bytes): {e}")
-        return 400, {"error": "Invalid JSON"}
+        return 400, {"errorMessage": "Invalid JSON"}
 
     logger.info("[%s] Body: %d bytes, keys=%s",
                 source, len(body_bytes), list(body.keys()))
@@ -120,7 +120,7 @@ async def handle_webhook(
         add_capture_log(tenant_id, profile_id, profile_name,
                         event_type, "error",
                         f"No document URL in payload. Keys: {list(body.keys())}")
-        return 400, {"error": "No document URL found in payload"}
+        return 400, {"errorMessage": "No document URL found in payload"}
 
     # ── 5. Plugin laden und Dokument verarbeiten ─────────────────────────────
     from capture.base_plugin import create_plugin_instance
@@ -130,7 +130,7 @@ async def handle_webhook(
         logger.error("[%s] Plugin '%s' nicht gefunden", source, plugin_type)
         add_capture_log(tenant_id, profile_id, profile_name,
                         event_type, "error", f"Unknown plugin: {plugin_type}")
-        return 500, {"error": f"Unknown plugin: {plugin_type}"}
+        return 500, {"errorMessage": f"Unknown plugin: {plugin_type}"}
 
     logger.info("[%s] Plugin geladen: %s (%s)", source, plugin.plugin_name, plugin_type)
 

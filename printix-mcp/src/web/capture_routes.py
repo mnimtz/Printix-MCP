@@ -1,5 +1,5 @@
 """
-Capture Store Routes — Web-UI für Capture-Profil-Verwaltung (v4.4.0)
+Capture Store Routes — Web-UI für Capture-Profil-Verwaltung (v4.4.9)
 ====================================================================
 Registriert alle /capture-Routen in der FastAPI-App.
 
