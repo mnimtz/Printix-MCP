@@ -47,19 +47,24 @@ def register_capture_routes(
         from db import get_tenant_by_user_id
         return get_tenant_by_user_id(user["id"])
 
-    def _get_webhook_base(request: Request) -> str:
-        """Webhook Base-URL: public_url (HTTPS) > request URL."""
+    def _get_webhook_base(request: Request) -> tuple:
+        """
+        Webhook Base-URL: MCP_PUBLIC_URL (env) > public_url (DB) > request URL.
+        Returns (base_url, is_configured) — is_configured=False means fallback.
+        """
         import os
-        wb = os.environ.get("MCP_PUBLIC_URL", "").rstrip("/")
-        if not wb:
-            try:
-                from db import get_setting
-                wb = get_setting("public_url", "").rstrip("/")
-            except Exception:
-                pass
-        if not wb:
-            wb = f"{request.url.scheme}://{request.url.netloc}"
-        return wb
+        wb = os.environ.get("MCP_PUBLIC_URL", "").strip().rstrip("/")
+        if wb:
+            return wb, True
+        try:
+            from db import get_setting
+            wb = get_setting("public_url", "").strip().rstrip("/")
+        except Exception:
+            pass
+        if wb:
+            return wb, True
+        # Fallback: request URL — wahrscheinlich FALSCH für Webhooks
+        return f"{request.url.scheme}://{request.url.netloc}", False
 
     # ── GET /capture — Store Overview ───────────────────────────────────────
 
@@ -104,7 +109,8 @@ def register_capture_routes(
             "plugins": plugin_info,
             "profiles_count": len(profiles),
             "active_count": sum(1 for p in profiles if p["is_active"]),
-            "webhook_base": _get_webhook_base(request),
+            "webhook_base": _get_webhook_base(request)[0],
+            "webhook_base_configured": _get_webhook_base(request)[1],
         })
         return templates.TemplateResponse("capture_store.html", ctx)
 
@@ -141,7 +147,7 @@ def register_capture_routes(
             "config_fields": plugin_instance.config_schema(),
             "config_values": {},
             "error": "",
-            "webhook_base": _get_webhook_base(request),
+            "webhook_base": _get_webhook_base(request)[0],
         })
         return templates.TemplateResponse("capture_form.html", ctx)
 
@@ -188,7 +194,7 @@ def register_capture_routes(
                 "config_fields": plugin_instance.config_schema(),
                 "config_values": config,
                 "error": "Name is required",
-                "webhook_base": _get_webhook_base(request),
+                "webhook_base": _get_webhook_base(request)[0],
             })
             return templates.TemplateResponse("capture_form.html", ctx)
 
@@ -254,7 +260,7 @@ def register_capture_routes(
             "config_fields": plugin_instance.config_schema(),
             "config_values": config_values,
             "error": "",
-            "webhook_base": _get_webhook_base(request),
+            "webhook_base": _get_webhook_base(request)[0],
         })
         return templates.TemplateResponse("capture_form.html", ctx)
 

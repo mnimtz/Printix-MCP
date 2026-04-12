@@ -130,6 +130,23 @@
     <p>{{ _('cap_subtitle') }}</p>
   </div>
 
+  {% if not webhook_base_configured %}
+  <!-- Warning: public_url not configured -->
+  <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: flex-start; gap: 12px;">
+    <span style="font-size: 1.4em;">⚠️</span>
+    <div>
+      <strong style="color: #92400e;">Webhook-URL nicht konfiguriert</strong>
+      <p style="color: #78350f; font-size: .88em; margin: 4px 0 0;">
+        Die angezeigte Webhook-URL ist ein Fallback und vermutlich <strong>falsch</strong>.
+        Bitte unter <a href="/admin/settings" style="color: #92400e; text-decoration: underline;">Admin-Einstellungen</a>
+        die <code>public_url</code> auf die <strong>MCP-Server-URL</strong> setzen
+        (z.B. <code>https://mcp.example.com</code>).
+        Die Capture Webhooks laufen auf dem MCP-Port, nicht auf dem Web-UI-Port.
+      </p>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- KPI Bar -->
   <div class="cap-kpi">
     <div class="cap-kpi-tile">

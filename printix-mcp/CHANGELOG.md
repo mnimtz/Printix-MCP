@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.4.5 (2026-04-12) — Webhook-URL Warnung + korrekte Anzeige
+
+### Fix — Webhook Base-URL im Capture Store
+- `_get_webhook_base()` gibt jetzt `(url, is_configured)` Tuple zurück
+- **Warnung** auf der Capture Store Seite wenn `public_url` nicht konfiguriert ist
+- Erklärt dem Benutzer: Webhook-URLs müssen auf den MCP-Port zeigen
+- Link zu Admin-Einstellungen zum Konfigurieren der `public_url`
+
 ## 4.4.4 (2026-04-12) — Capture Webhook auf MCP-Port
 
 ### Fix — Webhook auf falschem Port
