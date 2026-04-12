@@ -1348,6 +1348,14 @@ def printix_save_report_template(
     logo_base64: str = "",
     logo_mime: str = "image/png",
     logo_url: str = "",
+    theme_id: str = "",
+    chart_type: str = "",
+    header_variant: str = "",
+    density: str = "",
+    font_family: str = "",
+    currency: str = "",
+    show_env_impact: str = "",
+    logo_position: str = "",
 ) -> str:
     """
     Speichert eine vollständige Report-Definition als wiederverwendbares Template.
@@ -1356,13 +1364,21 @@ def printix_save_report_template(
     Query-Parameter, Layout, Schedule und Empfänger.
     Bei Angabe einer report_id wird ein bestehendes Template überschrieben.
 
+    TIPP: Nutze zuerst printix_list_design_options() um verfügbare Themes,
+    Chart-Typen, Fonts etc. zu sehen. Mit printix_preview_report() kannst
+    du das Design testen bevor du es als Template speicherst.
+
     Args:
         name:               Lesbarer Name, z.B. "Monatlicher Kostenreport Controlling"
-        query_type:         print_stats | cost_report | top_users | top_printers | anomalies | trend
+        query_type:         print_stats | cost_report | top_users | top_printers | anomalies | trend | hour_dow_heatmap
+                            sowie Stufe-2-Typen: printer_history | device_readings | job_history |
+                            user_activity | sensitive_documents | dept_comparison | waste_analysis |
+                            color_vs_bw | duplex_analysis | paper_size | service_desk |
+                            fleet_utilization | sustainability | peak_hours | cost_allocation
         query_params:       JSON-String mit Query-Parametern, z.B. '{"start_date":"last_month_start","end_date":"last_month_end","group_by":"month"}'
         recipients:         Kommagetrennte E-Mail-Adressen, z.B. "controller@firma.de,cfo@firma.de"
         mail_subject:       Betreffzeile, z.B. "Druckkosten {month} {year}"
-        output_formats:     Kommagetrennte Formate: html,csv,json (default: html)
+        output_formats:     Kommagetrennte Formate: html,csv,json,pdf,xlsx (default: html)
         schedule_frequency: Leer = kein Schedule | monthly | weekly | daily
         schedule_day:       Bei monthly: Tag 1-28. Bei weekly: 0=Mo...6=So (default: 1)
         schedule_time:      Uhrzeit der Ausführung HH:MM (default: 08:00)
@@ -1375,6 +1391,17 @@ def printix_save_report_template(
                             für den Report-Header. Max. 1 MB Rohgröße. Hat Vorrang vor logo_url.
         logo_mime:          MIME-Type des Base64-Logos, z.B. image/png, image/jpeg (default: image/png)
         logo_url:           Alternativ: externe URL zu einem Logo-Bild (nur wenn logo_base64 leer)
+        theme_id:           Design-Theme: corporate_blue | modern_teal | executive_slate |
+                            warm_sunset | forest_green | royal_purple | minimalist_gray
+                            (leer = corporate_blue). Setzt automatisch passende Farben.
+        chart_type:         Bevorzugter Chart-Typ: bar | line | donut | heatmap | sparkline
+                            (leer = automatische Wahl je nach Report-Typ)
+        header_variant:     Header-Stil: left | center | banner (default: left)
+        density:            Tabellen-Dichte: compact | normal | comfortable (default: normal)
+        font_family:        Schriftart: arial | helvetica | verdana | georgia | courier (default: arial)
+        currency:           Währung: EUR | USD | GBP | CHF (default: EUR)
+        show_env_impact:    Umwelt-Impact-Sektion anzeigen: true | false (default: false)
+        logo_position:      Logo-Position im Header: left | right | center (default: right)
     """
     if not _REPORTING_AVAILABLE:
         return _ok({"error": "Reporting-Modul nicht verfügbar."})
@@ -1420,6 +1447,23 @@ def printix_save_report_template(
         "logo_mime":     _lmime,
         "logo_url":      _lurl,
     }
+    # v4.2.0: Erweiterte Design-Parameter
+    if theme_id:
+        layout["theme_id"] = theme_id
+    if chart_type:
+        layout["chart_style"] = chart_type  # maps to design_presets key
+    if header_variant:
+        layout["header_variant"] = header_variant
+    if density:
+        layout["density"] = density
+    if font_family:
+        layout["font_family"] = font_family
+    if currency:
+        layout["currency"] = currency
+    if show_env_impact:
+        layout["show_env_impact"] = show_env_impact.lower() in ("true", "1", "yes", "ja")
+    if logo_position:
+        layout["logo_position"] = logo_position
 
     try:
         # owner_user_id aus Tenant-Kontext holen — nötig damit der Scheduler
@@ -1786,6 +1830,314 @@ def printix_update_schedule(
         return _ok({"error": str(e)})
 
 
+# ─── Reporting: Design & Preview ─────────────────────────────────────────────
+
+@mcp.tool()
+def printix_list_design_options() -> str:
+    """
+    Listet alle verfügbaren Design-Optionen für Report-Templates:
+    Themes, Chart-Typen, Fonts, Header-Varianten, Dichte-Stufen, Währungen.
+
+    Nutze diese Informationen beim Erstellen oder Bearbeiten von Report-Templates,
+    um dem Benutzer passende Optionen vorzuschlagen.
+
+    Beispiel-Workflow:
+      1. printix_list_design_options() → zeigt alle Themes
+      2. Benutzer wählt "executive_slate" als Theme
+      3. printix_save_report_template(..., theme_id="executive_slate") → speichert
+    """
+    if not _REPORTING_AVAILABLE:
+        return _ok({"error": "Reporting-Modul nicht verfügbar."})
+
+    from reporting.design_presets import (
+        THEMES, FONTS, HEADER_VARIANTS, CHART_STYLES, CURRENCIES, DEFAULT_LAYOUT,
+    )
+
+    themes = {}
+    for key, t in THEMES.items():
+        themes[key] = {
+            "name": t["name"],
+            "primary_color": t["primary_color"],
+            "accent_color": t["accent_color"],
+            "background_color": t["background_color"],
+        }
+
+    fonts = [{"key": f["key"], "name": f.get("name", f["key"])} for f in FONTS]
+
+    return _ok({
+        "themes": themes,
+        "chart_types": [
+            {"key": "auto",     "description": "Automatisch — Engine wählt basierend auf Daten"},
+            {"key": "bar",      "description": "Horizontale Balkendiagramme"},
+            {"key": "line",     "description": "Liniendiagramm mit Fläche (ideal für Zeitreihen)"},
+            {"key": "donut",    "description": "Kreisdiagramm (ideal für Anteile/Prozent)"},
+            {"key": "heatmap",  "description": "Heatmap (ideal für Stunde×Wochentag-Daten)"},
+            {"key": "sparkline","description": "Mini-Trend-Linien in KPI-Karten"},
+        ],
+        "chart_styles": [cs["key"] for cs in CHART_STYLES],
+        "fonts": fonts,
+        "header_variants": [hv["key"] for hv in HEADER_VARIANTS],
+        "densities": ["compact", "normal", "airy"],
+        "currencies": [{"key": c["key"], "symbol": c["symbol"]} for c in CURRENCIES],
+        "logo_positions": ["left", "right", "center"],
+        "default_layout": DEFAULT_LAYOUT,
+        "available_query_types": [
+            "print_stats", "cost_report", "top_users", "top_printers",
+            "anomalies", "trend", "hour_dow_heatmap",
+            "printer_history", "device_readings", "job_history", "queue_stats",
+            "user_detail", "user_copy_detail", "user_scan_detail",
+            "workstation_overview", "workstation_detail",
+            "tree_meter", "service_desk", "sensitive_documents",
+            "off_hours_print", "audit_log",
+        ],
+    })
+
+
+@mcp.tool()
+def printix_preview_report(
+    query_type: str,
+    start_date: str = "last_month_start",
+    end_date: str = "last_month_end",
+    query_params_json: str = "",
+    theme_id: str = "",
+    primary_color: str = "",
+    chart_type: str = "auto",
+    company_name: str = "",
+    header_variant: str = "",
+    density: str = "",
+    font_family: str = "",
+    logo_base64: str = "",
+    logo_mime: str = "image/png",
+    footer_text: str = "",
+    currency: str = "",
+    show_env_impact: bool = False,
+    output_format: str = "html",
+    report_id: str = "",
+) -> str:
+    """
+    Erzeugt eine Report-Vorschau OHNE E-Mail-Versand — ideal zum iterativen
+    Design im AI-Chat. Gibt den vollständigen Report als HTML (mit eingebetteten
+    SVG-Charts) oder als JSON-Datenstruktur zurück.
+
+    Zwei Modi:
+      1. Ad-hoc: query_type + Datumsbereich angeben → Daten frisch abfragen
+      2. Template: report_id angeben → gespeichertes Template als Basis
+
+    Bei Ad-hoc wird ein kompletter Report gerendert inkl. KPIs, Charts und Tabellen.
+
+    Workflow für AI-gesteuertes Report-Design:
+      1. printix_list_design_options() → verfügbare Themes etc.
+      2. printix_preview_report(query_type="print_stats", theme_id="executive_slate")
+         → Vorschau ansehen
+      3. "Kannst du die Farbe auf Grün ändern?" → printix_preview_report(..., primary_color="#1BA17D")
+      4. Zufrieden? → printix_save_report_template(...) zum Speichern
+
+    Args:
+        query_type:        Report-Typ (print_stats, cost_report, top_users, etc.)
+        start_date:        Start-Datum oder Preset (last_month_start, this_year_start, etc.)
+        end_date:          End-Datum oder Preset
+        query_params_json: Zusätzliche Query-Parameter als JSON-String
+                           z.B. '{"group_by":"month","site_id":"123"}'
+        theme_id:          Theme (corporate_blue, executive_slate, dark_mode, etc.)
+        primary_color:     Überschreibt die Theme-Primärfarbe (Hex, z.B. #0078D4)
+        chart_type:        Bevorzugter Chart-Typ: auto | bar | line | donut | heatmap
+        company_name:      Firmenname im Header
+        header_variant:    left | center | banner | minimal
+        density:           compact | normal | airy
+        font_family:       arial | georgia | roboto | fira_code | etc.
+        logo_base64:       Base64-kodiertes Logo (ohne data:-Prefix)
+        logo_mime:         MIME-Type des Logos (default: image/png)
+        footer_text:       Fußzeile
+        currency:          EUR | USD | GBP | CHF
+        show_env_impact:   Umwelt-Auswirkung anzeigen (Papier, Bäume, CO₂)
+        output_format:     html (Standard, mit Charts) | json (nur Rohdaten)
+        report_id:         Optional — vorhandenes Template als Basis laden
+    """
+    err = _reporting_check()
+    if err:
+        return _ok({"error": err})
+
+    import json as _json
+    from reporting.design_presets import apply_theme, normalize_layout
+
+    # ── Layout bauen ──────────────────────────────────────────────────────────
+    layout = {}
+
+    # Template als Basis laden?
+    template = None
+    if report_id:
+        template = template_store.get_template(report_id)
+        if template:
+            layout = dict(template.get("layout", {}))
+            if not query_type:
+                query_type = template.get("query_type", "print_stats")
+
+    # Explizite Werte überschreiben Template-Werte
+    if theme_id:
+        layout = apply_theme(layout, theme_id)
+    if primary_color:
+        layout["primary_color"] = primary_color
+    if company_name:
+        layout["company_name"] = company_name
+    if header_variant:
+        layout["header_variant"] = header_variant
+    if density:
+        layout["density"] = density
+    if font_family:
+        layout["font_family"] = font_family
+    if footer_text:
+        layout["footer_text"] = footer_text
+    if currency:
+        layout["currency"] = currency
+    if logo_base64:
+        layout["logo_base64"] = logo_base64
+        layout["logo_mime"] = logo_mime
+    if show_env_impact:
+        layout["show_env_impact"] = True
+    if chart_type and chart_type != "auto":
+        layout["preferred_chart_type"] = chart_type
+    layout["charts_enabled"] = True
+
+    layout = normalize_layout(layout)
+
+    # ── Query-Parameter ───────────────────────────────────────────────────────
+    params = {"start_date": start_date, "end_date": end_date}
+    if query_params_json:
+        try:
+            extra = _json.loads(query_params_json)
+            params.update(extra)
+        except Exception:
+            return _ok({"error": f"query_params_json ist kein gültiges JSON: {query_params_json}"})
+
+    # Template-Parameter als Fallback
+    if template and not query_params_json:
+        tp = template.get("query_params", {})
+        for k, v in tp.items():
+            if k not in params:
+                params[k] = v
+
+    # Dynamische Datums-Presets auflösen
+    from reporting.scheduler import _resolve_dynamic_dates
+    params = _resolve_dynamic_dates(params)
+
+    # ── Daten abfragen ────────────────────────────────────────────────────────
+    try:
+        data = query_tools.run_query(query_type=query_type, **params)
+    except Exception as e:
+        return _ok({"error": f"Query fehlgeschlagen: {e}", "query_type": query_type})
+
+    period = f"{params.get('start_date', '?')} — {params.get('end_date', '?')}"
+
+    if output_format == "json":
+        return _ok({
+            "query_type": query_type,
+            "period": period,
+            "row_count": len(data) if isinstance(data, list) else "n/a",
+            "data": data,
+        })
+
+    # ── Report rendern ────────────────────────────────────────────────────────
+    try:
+        outputs = report_engine.generate_report(
+            query_type=query_type,
+            data=data,
+            period=period,
+            layout=layout,
+            output_formats=[output_format],
+            currency=layout.get("currency", "EUR"),
+            query_params=params,
+        )
+    except Exception as e:
+        return _ok({"error": f"Report-Rendering fehlgeschlagen: {e}"})
+
+    html = outputs.get("html", outputs.get(output_format, ""))
+
+    # Für MCP-Antwort: HTML-Größe begrenzen (sehr große Reports > 100KB)
+    if len(html) > 120_000:
+        html = html[:120_000] + "\n<!-- ... (gekürzt, Report zu groß für Chat) -->"
+
+    return _ok({
+        "query_type": query_type,
+        "period": period,
+        "row_count": len(data) if isinstance(data, list) else "n/a",
+        "format": output_format,
+        "html": html,
+        "layout_used": {
+            "theme_id": layout.get("theme_id", ""),
+            "primary_color": layout.get("primary_color", ""),
+            "header_variant": layout.get("header_variant", ""),
+            "density": layout.get("density", ""),
+            "font_family": layout.get("font_family", ""),
+            "chart_type": chart_type,
+            "currency": layout.get("currency", ""),
+        },
+        "hint": "Zufrieden? → printix_save_report_template() zum Speichern als Template.",
+    })
+
+
+@mcp.tool()
+def printix_query_any(
+    query_type: str,
+    start_date: str = "last_month_start",
+    end_date: str = "last_month_end",
+    query_params_json: str = "",
+) -> str:
+    """
+    Universelles Query-Tool für alle 22 Report-Typen (Stufe 1 + 2).
+
+    Ersetzt die Notwendigkeit, für jeden Query-Typ ein eigenes MCP-Tool zu kennen.
+    Gibt die Rohdaten als JSON zurück — ideal für AI-Analyse, Visualisierung
+    oder als Basis für printix_preview_report.
+
+    Verfügbare query_type-Werte:
+      Stufe 1: print_stats, cost_report, top_users, top_printers, anomalies, trend
+      Stufe 2: printer_history, device_readings, job_history, queue_stats,
+               user_detail, user_copy_detail, user_scan_detail,
+               workstation_overview, workstation_detail,
+               tree_meter, service_desk, sensitive_documents,
+               hour_dow_heatmap, off_hours_print, audit_log
+
+    Args:
+        query_type:        Einer der oben genannten Query-Typen
+        start_date:        Start (Datum oder Preset: last_month_start, this_year_start, today, etc.)
+        end_date:          Ende (Datum oder Preset)
+        query_params_json: Weitere Parameter als JSON, z.B.:
+                           '{"group_by":"user","site_id":"abc","top_n":20}'
+                           '{"user_email":"max@firma.de"}'
+                           '{"keyword_sets":"hr,finance","include_scans":true}'
+    """
+    err = _reporting_check()
+    if err:
+        return _ok({"error": err})
+
+    import json as _json
+    from reporting.scheduler import _resolve_dynamic_dates
+
+    params = {"start_date": start_date, "end_date": end_date}
+    if query_params_json:
+        try:
+            extra = _json.loads(query_params_json)
+            params.update(extra)
+        except Exception:
+            return _ok({"error": f"query_params_json ist kein gültiges JSON: {query_params_json}"})
+
+    params = _resolve_dynamic_dates(params)
+
+    try:
+        data = query_tools.run_query(query_type=query_type, **params)
+    except ValueError as e:
+        return _ok({"error": str(e), "hint": "printix_list_design_options() zeigt alle query_types."})
+    except Exception as e:
+        return _ok({"error": f"Query fehlgeschlagen: {e}"})
+
+    return _ok({
+        "query_type": query_type,
+        "period": f"{params.get('start_date','?')} — {params.get('end_date','?')}",
+        "row_count": len(data) if isinstance(data, list) else "n/a",
+        "data": data,
+    })
+
+
 # ─── Demo Data Generator ─────────────────────────────────────────────────────
 
 try:
@@ -1999,7 +2351,7 @@ if __name__ == "__main__":
             logger.warning("Scheduler-Init fehlgeschlagen: %s", _sched_err)
 
     logger.info("╔══════════════════════════════════════════════════════════════╗")
-    logger.info("║        PRINTIX MCP SERVER v4.1.0 — MULTI-TENANT             ║")
+    logger.info("║        PRINTIX MCP SERVER v4.2.0 — MULTI-TENANT             ║")
     logger.info("╠══════════════════════════════════════════════════════════════╣")
     logger.info("║  MCP (claude.ai):  %s/mcp", base)
     logger.info("║  SSE (ChatGPT):    %s/sse", base)

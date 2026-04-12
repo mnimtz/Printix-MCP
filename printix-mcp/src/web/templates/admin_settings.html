@@ -57,32 +57,148 @@
 
         <div id="entra-fields" style="{{ '' if entra.enabled else 'display:none;' }}">
 
-          <!-- Setup-Anleitung -->
-          <div class="alert alert-info" style="font-size:.85em;margin-bottom:16px;">
-            <strong>Einrichtung in 3 Schritten:</strong>
-            <ol style="margin:8px 0 0 16px;line-height:1.8;">
-              <li>Öffne das <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" style="font-weight:700;">Azure Portal → App-Registrierungen → Neue Registrierung</a></li>
-              <li>Name: <strong>Printix MCP</strong>, Unterstützte Kontotypen: <strong>Konten in einem beliebigen Organisationsverzeichnis</strong> (Multi-Tenant)</li>
-              <li>Umleitungs-URI (Web): <code style="user-select:all;">{{ entra_redirect_uri }}</code></li>
-            </ol>
-            <div style="margin-top:8px;">
-              Nach dem Erstellen: <strong>Client-ID</strong> von der Übersichtsseite kopieren,
-              unter <strong>Zertifikate &amp; Geheimnisse → Neuer geheimer Clientschlüssel</strong>
-              ein Secret erstellen und den <strong>Wert</strong> kopieren.
+          <!-- ── Setup-Methode wählen ─────────────────────────────────── -->
+          <div style="display:flex;gap:8px;margin-bottom:16px;">
+            <button type="button" class="btn btn-sm"
+                    id="entra-tab-auto"
+                    onclick="entraShowTab('auto')"
+                    style="flex:1;font-size:.85em;padding:8px 12px;border-radius:8px;
+                           background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;font-weight:600;">
+              ⚡ Automatisch einrichten
+            </button>
+            <button type="button" class="btn btn-sm"
+                    id="entra-tab-manual"
+                    onclick="entraShowTab('manual')"
+                    style="flex:1;font-size:.85em;padding:8px 12px;border-radius:8px;
+                           background:#f9fafb;color:#6b7280;border:1px solid #e5e7eb;font-weight:500;">
+              Manuell konfigurieren
+            </button>
+          </div>
+
+          <!-- ── TAB: Automatisch ─────────────────────────────────────── -->
+          <div id="entra-panel-auto">
+            <div class="alert alert-info" style="font-size:.85em;margin-bottom:16px;">
+              <strong>Automatische Einrichtung per Azure CLI</strong><br>
+              <span style="color:#4b5563;">
+                Führe das folgende Script in PowerShell oder Bash aus.
+                Es erstellt die App-Registrierung automatisch und gibt die Zugangsdaten als JSON aus.
+                <br><em>Voraussetzung:</em>
+                <a href="https://aka.ms/installazurecli" target="_blank" style="font-weight:600;">Azure CLI</a>
+                muss installiert sein.
+              </span>
+            </div>
+
+            <!-- Script Tabs: PowerShell / Bash -->
+            <div style="display:flex;gap:4px;margin-bottom:0;">
+              <button type="button" id="script-tab-ps" class="btn btn-sm"
+                      onclick="entraShowScript('ps')"
+                      style="font-size:.78em;padding:4px 10px;border-radius:6px 6px 0 0;
+                             background:#1e3a5f;color:#fff;border:1px solid #1e3a5f;border-bottom:none;">
+                PowerShell
+              </button>
+              <button type="button" id="script-tab-bash" class="btn btn-sm"
+                      onclick="entraShowScript('bash')"
+                      style="font-size:.78em;padding:4px 10px;border-radius:6px 6px 0 0;
+                             background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-bottom:none;">
+                Bash / Linux
+              </button>
+            </div>
+
+            <div id="script-ps" style="position:relative;">
+              <pre style="background:#1e293b;color:#e2e8f0;padding:14px 40px 14px 14px;border-radius:0 8px 8px 8px;
+                          font-size:.78em;line-height:1.6;overflow-x:auto;margin:0 0 12px 0;white-space:pre-wrap;word-break:break-all;"
+              ><code id="entra-script-ps"># Printix MCP — Entra App automatisch erstellen (PowerShell)
+az login
+$app = az ad app create `
+  --display-name "Printix MCP Server" `
+  --sign-in-audience AzureADMultipleOrgs `
+  --web-redirect-uris "{{ entra_redirect_uri }}" | ConvertFrom-Json
+$secret = az ad app credential reset `
+  --id $app.appId --display-name "Printix MCP" `
+  --years 2 | ConvertFrom-Json
+@{tenant_id=(az account show --query tenantId -o tsv)
+  client_id=$app.appId
+  client_secret=$secret.password} | ConvertTo-Json</code></pre>
+              <button type="button" class="copy-btn"
+                      style="position:absolute;top:6px;right:6px;"
+                      onclick="copyScript('entra-script-ps', this)">⧉</button>
+            </div>
+
+            <div id="script-bash" style="position:relative;display:none;">
+              <pre style="background:#1e293b;color:#e2e8f0;padding:14px 40px 14px 14px;border-radius:0 8px 8px 8px;
+                          font-size:.78em;line-height:1.6;overflow-x:auto;margin:0 0 12px 0;white-space:pre-wrap;word-break:break-all;"
+              ><code id="entra-script-bash"># Printix MCP — Entra App automatisch erstellen (Bash)
+az login
+APP=$(az ad app create \
+  --display-name "Printix MCP Server" \
+  --sign-in-audience AzureADMultipleOrgs \
+  --web-redirect-uris "{{ entra_redirect_uri }}" -o json)
+APP_ID=$(echo "$APP" | jq -r '.appId')
+SECRET=$(az ad app credential reset \
+  --id "$APP_ID" --display-name "Printix MCP" \
+  --years 2 -o json)
+echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\":\"$APP_ID\",\"client_secret\":\"$(echo "$SECRET" | jq -r '.password')\"}"</code></pre>
+              <button type="button" class="copy-btn"
+                      style="position:absolute;top:6px;right:6px;"
+                      onclick="copyScript('entra-script-bash', this)">⧉</button>
+            </div>
+
+            <!-- JSON Paste Feld -->
+            <div class="form-group" style="margin-top:4px;">
+              <label style="font-weight:600;font-size:.9em;">
+                JSON-Ausgabe hier einfügen:
+              </label>
+              <textarea id="entra-auto-json" rows="4"
+                        placeholder='{"tenant_id":"...","client_id":"...","client_secret":"..."}'
+                        style="font-family:monospace;font-size:.82em;width:100%;resize:vertical;
+                               border:2px dashed #d1d5db;border-radius:8px;padding:10px;
+                               background:#fafbfc;transition:border-color .2s;"
+                        onfocus="this.style.borderColor='#2563eb'"
+                        onblur="this.style.borderColor='#d1d5db'"></textarea>
+            </div>
+
+            <button type="button" class="btn btn-primary" style="width:100%;margin-bottom:16px;"
+                    onclick="entraImportJson()">
+              Zugangsdaten übernehmen
+            </button>
+
+            <div id="entra-import-status" style="display:none;margin-bottom:12px;"></div>
+
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+              <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+              <span style="font-size:.78em;color:#9ca3af;">oder weiter mit manueller Eingabe</span>
+              <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+            </div>
+          </div>
+
+          <!-- ── TAB: Manuell (immer sichtbar unter Auto-Tab / exklusiv bei Manual-Tab) ── -->
+          <div id="entra-panel-manual">
+            <div class="alert alert-info" style="font-size:.85em;margin-bottom:16px;" id="entra-manual-guide">
+              <strong>Manuelle Einrichtung in 3 Schritten:</strong>
+              <ol style="margin:8px 0 0 16px;line-height:1.8;">
+                <li>Öffne das <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" style="font-weight:700;">Azure Portal → App-Registrierungen → Neue Registrierung</a></li>
+                <li>Name: <strong>Printix MCP</strong>, Unterstützte Kontotypen: <strong>Konten in einem beliebigen Organisationsverzeichnis</strong> (Multi-Tenant)</li>
+                <li>Umleitungs-URI (Web): <code style="user-select:all;">{{ entra_redirect_uri }}</code></li>
+              </ol>
+              <div style="margin-top:8px;">
+                Nach dem Erstellen: <strong>Client-ID</strong> von der Übersichtsseite kopieren,
+                unter <strong>Zertifikate &amp; Geheimnisse → Neuer geheimer Clientschlüssel</strong>
+                ein Secret erstellen und den <strong>Wert</strong> kopieren.
+              </div>
             </div>
           </div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <div class="form-group">
               <label>Entra Tenant-ID <small style="color:#6b7280;">(Directory-ID)</small></label>
-              <input type="text" name="entra_tenant_id"
+              <input type="text" name="entra_tenant_id" id="entra-f-tenant"
                      value="{{ entra.tenant_id }}"
                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
               <small class="hint">Zu finden im Azure Portal → Entra ID → Übersicht. Leer lassen = „common" (alle Tenants).</small>
             </div>
             <div class="form-group">
               <label>Application (Client) ID</label>
-              <input type="text" name="entra_client_id"
+              <input type="text" name="entra_client_id" id="entra-f-client"
                      value="{{ entra.client_id }}"
                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
             </div>
@@ -90,7 +206,7 @@
 
           <div class="form-group">
             <label>Client Secret</label>
-            <input type="password" name="entra_client_secret" value=""
+            <input type="password" name="entra_client_secret" id="entra-f-secret" value=""
                    placeholder="{{ '(gespeichert — nur ändern wenn nötig)' if entra.has_secret else 'Geheimen Clientschlüssel hier einfügen' }}">
             <small class="hint">Wird verschlüsselt gespeichert. Leer lassen = bestehender Wert bleibt erhalten.</small>
           </div>
@@ -142,4 +258,94 @@
     </form>
   </div>
 </div>
+
+<script>
+/* ── Entra Setup Tab Switching ──────────────────────────────────── */
+function entraShowTab(tab) {
+  var auto = document.getElementById('entra-panel-auto');
+  var manual = document.getElementById('entra-panel-manual');
+  var tabAuto = document.getElementById('entra-tab-auto');
+  var tabManual = document.getElementById('entra-tab-manual');
+  if (tab === 'auto') {
+    auto.style.display = '';
+    manual.style.display = '';
+    tabAuto.style.background = '#eff6ff'; tabAuto.style.color = '#2563eb';
+    tabAuto.style.borderColor = '#bfdbfe'; tabAuto.style.fontWeight = '600';
+    tabManual.style.background = '#f9fafb'; tabManual.style.color = '#6b7280';
+    tabManual.style.borderColor = '#e5e7eb'; tabManual.style.fontWeight = '500';
+  } else {
+    auto.style.display = 'none';
+    manual.style.display = '';
+    tabManual.style.background = '#eff6ff'; tabManual.style.color = '#2563eb';
+    tabManual.style.borderColor = '#bfdbfe'; tabManual.style.fontWeight = '600';
+    tabAuto.style.background = '#f9fafb'; tabAuto.style.color = '#6b7280';
+    tabAuto.style.borderColor = '#e5e7eb'; tabAuto.style.fontWeight = '500';
+  }
+}
+
+/* ── Script Tab (PowerShell / Bash) ─────────────────────────────── */
+function entraShowScript(lang) {
+  var ps = document.getElementById('script-ps');
+  var bash = document.getElementById('script-bash');
+  var tPs = document.getElementById('script-tab-ps');
+  var tBash = document.getElementById('script-tab-bash');
+  if (lang === 'ps') {
+    ps.style.display = ''; bash.style.display = 'none';
+    tPs.style.background = '#1e3a5f'; tPs.style.color = '#fff'; tPs.style.borderColor = '#1e3a5f';
+    tBash.style.background = '#f3f4f6'; tBash.style.color = '#6b7280'; tBash.style.borderColor = '#e5e7eb';
+  } else {
+    ps.style.display = 'none'; bash.style.display = '';
+    tBash.style.background = '#1e3a5f'; tBash.style.color = '#fff'; tBash.style.borderColor = '#1e3a5f';
+    tPs.style.background = '#f3f4f6'; tPs.style.color = '#6b7280'; tPs.style.borderColor = '#e5e7eb';
+  }
+}
+
+/* ── Copy Script ────────────────────────────────────────────────── */
+function copyScript(id, btn) {
+  var el = document.getElementById(id);
+  var text = el.textContent || el.innerText;
+  navigator.clipboard.writeText(text).then(function() {
+    btn.textContent = '✓'; setTimeout(function(){ btn.textContent = '⧉'; }, 2000);
+  });
+}
+
+/* ── JSON Import ────────────────────────────────────────────────── */
+function entraImportJson() {
+  var raw = document.getElementById('entra-auto-json').value.trim();
+  var status = document.getElementById('entra-import-status');
+  if (!raw) {
+    status.style.display = 'block';
+    status.className = 'alert alert-error';
+    status.textContent = 'Bitte die JSON-Ausgabe des Scripts oben einfügen.';
+    return;
+  }
+  try {
+    var data = JSON.parse(raw);
+  } catch (e) {
+    status.style.display = 'block';
+    status.className = 'alert alert-error';
+    status.textContent = 'Ungültiges JSON-Format. Bitte die vollständige Ausgabe des Scripts einfügen.';
+    return;
+  }
+  if (!data.client_id) {
+    status.style.display = 'block';
+    status.className = 'alert alert-error';
+    status.textContent = 'JSON enthält keine client_id. Bitte prüfen.';
+    return;
+  }
+  /* Felder befüllen */
+  if (data.tenant_id) document.getElementById('entra-f-tenant').value = data.tenant_id;
+  if (data.client_id)  document.getElementById('entra-f-client').value = data.client_id;
+  if (data.client_secret) {
+    var secretField = document.getElementById('entra-f-secret');
+    secretField.value = data.client_secret;
+    secretField.type = 'text';
+    setTimeout(function(){ secretField.type = 'password'; }, 3000);
+  }
+  status.style.display = 'block';
+  status.className = 'alert alert-success';
+  status.innerHTML = '✓ <strong>Zugangsdaten übernommen!</strong> Bitte unten auf „Speichern" klicken.';
+  document.getElementById('entra-f-tenant').scrollIntoView({behavior:'smooth', block:'center'});
+}
+</script>
 {% endblock %}

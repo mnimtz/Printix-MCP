@@ -1,5 +1,43 @@
 # Changelog
 
+## 4.2.0 (2026-04-12) — „AI Report Designer + Entra Auto-Setup"
+
+### Feature — Entra ID Automatische Einrichtung
+- **Auto-Setup-Wizard** in Admin-Settings: Azure CLI Script (PowerShell + Bash) erstellt
+  die App-Registrierung automatisch. JSON-Ausgabe einfach einfügen → Felder werden befüllt.
+- Tab-UI: „Automatisch einrichten" vs. „Manuell konfigurieren" mit Script-Umschalter.
+- Copy-Buttons für Scripts, JSON-Paste mit Validierung und Auto-Fill.
+
+### Feature — Erweiterte MCP Report-Design-Tools
+- **`printix_list_design_options()`** — Neues MCP-Tool: listet alle verfügbaren Themes,
+  Chart-Typen, Fonts, Header-Varianten, Dichten, Währungen, Logo-Positionen und Query-Typen.
+  Ermöglicht der KI, dem Benutzer Design-Optionen vorzuschlagen.
+- **`printix_preview_report()`** — Neues MCP-Tool: generiert eine vollständige Report-Vorschau
+  mit eingebetteten SVG-Charts direkt im Chat. Unterstützt Ad-hoc-Modus (query_type + Datum)
+  und Template-Modus (report_id). Alle Layout-Parameter einstellbar.
+- **`printix_query_any()`** — Neues MCP-Tool: universeller Query-Zugang für alle 22
+  Report-Typen (Stufe 1 + 2), inkl. printer_history, device_readings, job_history,
+  user_activity, sensitive_documents, dept_comparison, waste_analysis, color_vs_bw,
+  duplex_analysis, paper_size, service_desk, fleet_utilization, sustainability,
+  peak_hours, cost_allocation.
+- **`printix_save_report_template()`** — Erweitert um 8 neue Design-Parameter:
+  `theme_id`, `chart_type`, `header_variant`, `density`, `font_family`, `currency`,
+  `show_env_impact`, `logo_position`. Templates können jetzt vollständig per KI-Chat
+  designed und gespeichert werden.
+
+### Workflow: Reports per KI-Chat designen
+1. `printix_list_design_options()` → Optionen anzeigen
+2. `printix_preview_report(theme_id="executive_slate", chart_type="donut")` → Vorschau
+3. Iterieren bis zufrieden
+4. `printix_save_report_template(...)` → Als wiederverwendbares Template speichern
+
+### Touched Files
+- `src/server.py` — 3 neue MCP-Tools + erweiterte save_report_template-Parameter
+- `src/web/templates/admin_settings.html` — Entra Auto-Setup-Wizard mit Script-Generator
+- `config.yaml` / `run.sh` — Version-Bump auf 4.2.0
+
+---
+
 ## 4.1.0 (2026-04-12) — „Entra ID (Azure AD) SSO"
 
 ### Feature — Entra ID Single Sign-On
