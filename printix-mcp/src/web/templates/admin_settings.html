@@ -5,14 +5,13 @@
   <div class="card" style="max-width:680px;margin:40px auto;">
     <h2 class="section-title">{{ _('admin_settings') }}</h2>
     <p class="section-sub" style="margin-bottom:24px;">
-      Server-weite Einstellungen — gelten für alle Benutzer.
+      {{ _('admin_settings_sub') }}
     </p>
 
     {% if auto_setup_success | default(false) %}
     <div class="alert alert-success" style="font-size:.92em;">
-      ✓ <strong>Entra SSO automatisch eingerichtet!</strong><br>
-      Die App-Registrierung wurde erfolgreich erstellt und die Zugangsdaten gespeichert.
-      Der „Mit Microsoft anmelden"-Button ist jetzt auf der Login-Seite aktiv.
+      ✓ <strong>{{ _('entra_auto_success') }}</strong><br>
+      {{ _('entra_auto_success_sub') }}
     </div>
     {% endif %}
     {% if saved and not auto_setup_success | default(false) %}
@@ -33,7 +32,7 @@
       </div>
 
       <div class="alert alert-info" style="margin-bottom:20px;font-size:.88em;">
-        <strong>Aktuell aktive URL:</strong><br>
+        <strong>{{ _('admin_current_url') }}</strong><br>
         MCP: <code>{{ public_url or 'http://&lt;HA-IP&gt;:8765' }}/mcp</code><br>
         SSE: <code>{{ public_url or 'http://&lt;HA-IP&gt;:8765' }}/sse</code><br>
         OAuth: <code>{{ public_url or 'http://&lt;HA-IP&gt;:8765' }}/oauth/authorize</code>
@@ -45,11 +44,10 @@
       <div style="margin-bottom:24px;">
         <div class="section-title" style="margin-bottom:4px;">
           <img src="https://learn.microsoft.com/favicon.ico" alt="" style="width:18px;height:18px;vertical-align:text-bottom;margin-right:4px;">
-          Entra ID (Azure AD) — Single Sign-On
+          {{ _('entra_title') }}
         </div>
         <div class="section-sub" style="margin-bottom:16px;">
-          Ermöglicht die Anmeldung über ein Microsoft-Konto. Benutzer aus jedem Entra-Tenant
-          können sich anmelden — du brauchst nur eine App-Registration in deinem eigenen Tenant.
+          {{ _('entra_subtitle') }}
         </div>
 
         <!-- Toggle -->
@@ -58,16 +56,13 @@
             <input type="checkbox" name="entra_enabled" value="1"
                    {{ 'checked' if entra.enabled else '' }}
                    onchange="document.getElementById('entra-fields').style.display=this.checked?'block':'none'">
-            Entra-Login aktivieren
+            {{ _('entra_toggle') }}
           </label>
         </div>
 
         <div id="entra-fields" style="{{ '' if entra.enabled else 'display:none;' }}">
 
           {% if not entra.client_id or not entra.has_secret %}
-          <!-- ══════════════════════════════════════════════════════════════
-               Noch nicht konfiguriert — Setup-Optionen anzeigen
-               ══════════════════════════════════════════════════════════════ -->
 
           {% if bootstrap_available | default(false) %}
           <!-- ── Ein-Klick Auto-Setup (Bootstrap-App konfiguriert) ───── -->
@@ -84,17 +79,15 @@
                 </svg>
               </div>
               <div>
-                <strong style="font-size:1em;color:#1e3a5f;">Automatisch einrichten</strong>
+                <strong style="font-size:1em;color:#1e3a5f;">{{ _('entra_auto_setup_title') }}</strong>
                 <div style="font-size:.82em;color:#4b5563;">
-                  Ein Klick — App-Registrierung wird automatisch erstellt
+                  {{ _('entra_auto_setup_sub') }}
                 </div>
               </div>
             </div>
 
             <p style="font-size:.85em;color:#374151;margin-bottom:14px;line-height:1.6;">
-              Melde dich mit deinem Microsoft-Konto an und erteile die Berechtigung.
-              Die App-Registrierung, das Client-Secret und alle Einstellungen werden
-              automatisch erstellt und gespeichert.
+              {{ _('entra_auto_setup_desc') }}
             </p>
 
             <a href="/admin/entra/auto-setup"
@@ -111,17 +104,17 @@
                 <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
                 <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
               </svg>
-              Mit Microsoft anmelden &amp; App erstellen
+              {{ _('entra_auto_setup_btn') }}
             </a>
 
             <div style="font-size:.78em;color:#6b7280;text-align:center;margin-top:8px;">
-              Benötigt: Global Administrator oder Application Administrator Rolle
+              {{ _('entra_auto_setup_hint') }}
             </div>
           </div>
 
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
             <div style="flex:1;height:1px;background:#e5e7eb;"></div>
-            <span style="font-size:.82em;color:#9ca3af;white-space:nowrap;">oder manuell / per Script</span>
+            <span style="font-size:.82em;color:#9ca3af;white-space:nowrap;">{{ _('entra_or_manual') }}</span>
             <div style="flex:1;height:1px;background:#e5e7eb;"></div>
           </div>
           {% endif %}
@@ -132,23 +125,23 @@
                     onclick="entraShowTab('auto')"
                     style="flex:1;font-size:.85em;padding:8px 12px;border-radius:8px;
                            background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;font-weight:600;">
-              Azure CLI Script
+              {{ _('entra_tab_cli') }}
             </button>
             <button type="button" class="btn btn-sm" id="entra-tab-manual"
                     onclick="entraShowTab('manual')"
                     style="flex:1;font-size:.85em;padding:8px 12px;border-radius:8px;
                            background:#f9fafb;color:#6b7280;border:1px solid #e5e7eb;font-weight:500;">
-              Manuell im Azure Portal
+              {{ _('entra_tab_manual') }}
             </button>
           </div>
 
           <!-- ── CLI Script Panel ─────────────────────────────────────── -->
           <div id="entra-panel-auto">
             <div class="alert alert-info" style="font-size:.85em;margin-bottom:16px;">
-              <strong>App erstellen per Azure CLI</strong><br>
+              <strong>{{ _('entra_cli_title') }}</strong><br>
               <span style="color:#4b5563;">
-                Führe das Script in PowerShell oder Bash aus — die Zugangsdaten werden als JSON ausgegeben.
-                <em>Voraussetzung:</em>
+                {{ _('entra_cli_desc') }}
+                <em>{{ _('entra_cli_prereq') }}</em>
                 <a href="https://aka.ms/installazurecli" target="_blank" style="font-weight:600;">Azure CLI</a>
               </span>
             </div>
@@ -171,7 +164,7 @@
             <div id="script-ps" style="position:relative;">
               <pre style="background:#1e293b;color:#e2e8f0;padding:14px 40px 14px 14px;border-radius:0 8px 8px 8px;
                           font-size:.78em;line-height:1.6;overflow-x:auto;margin:0 0 12px 0;white-space:pre-wrap;word-break:break-all;"
-              ><code id="entra-script-ps"># Printix MCP — Entra App erstellen (PowerShell)
+              ><code id="entra-script-ps"># Printix MCP — Entra App (PowerShell)
 az login
 $app = az ad app create `
   --display-name "Printix MCP Server" `
@@ -185,13 +178,13 @@ $secret = az ad app credential reset `
   client_secret=$secret.password} | ConvertTo-Json</code></pre>
               <button type="button" class="copy-btn"
                       style="position:absolute;top:6px;right:6px;"
-                      onclick="copyScript('entra-script-ps', this)">⧉</button>
+                      onclick="copyScript('entra-script-ps', this)">&#x29C9;</button>
             </div>
 
             <div id="script-bash" style="position:relative;display:none;">
               <pre style="background:#1e293b;color:#e2e8f0;padding:14px 40px 14px 14px;border-radius:0 8px 8px 8px;
                           font-size:.78em;line-height:1.6;overflow-x:auto;margin:0 0 12px 0;white-space:pre-wrap;word-break:break-all;"
-              ><code id="entra-script-bash"># Printix MCP — Entra App erstellen (Bash)
+              ><code id="entra-script-bash"># Printix MCP — Entra App (Bash)
 az login
 APP=$(az ad app create \
   --display-name "Printix MCP Server" \
@@ -204,11 +197,11 @@ SECRET=$(az ad app credential reset \
 echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\":\"$APP_ID\",\"client_secret\":\"$(echo "$SECRET" | jq -r '.password')\"}"</code></pre>
               <button type="button" class="copy-btn"
                       style="position:absolute;top:6px;right:6px;"
-                      onclick="copyScript('entra-script-bash', this)">⧉</button>
+                      onclick="copyScript('entra-script-bash', this)">&#x29C9;</button>
             </div>
 
             <div class="form-group" style="margin-top:4px;">
-              <label style="font-weight:600;font-size:.9em;">JSON-Ausgabe hier einfügen:</label>
+              <label style="font-weight:600;font-size:.9em;">{{ _('entra_json_label') }}</label>
               <textarea id="entra-auto-json" rows="4"
                         placeholder='{"tenant_id":"...","client_id":"...","client_secret":"..."}'
                         style="font-family:monospace;font-size:.82em;width:100%;resize:vertical;
@@ -220,7 +213,7 @@ echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\
 
             <button type="button" class="btn btn-primary" style="width:100%;margin-bottom:16px;"
                     onclick="entraImportJson()">
-              Zugangsdaten übernehmen
+              {{ _('entra_json_import') }}
             </button>
             <div id="entra-import-status" style="display:none;margin-bottom:12px;"></div>
           </div>
@@ -228,37 +221,32 @@ echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\
           <!-- ── Manuelle Anleitung Panel ─────────────────────────────── -->
           <div id="entra-panel-manual">
             <div class="alert alert-info" style="font-size:.85em;margin-bottom:16px;">
-              <strong>Manuelle Einrichtung in 3 Schritten:</strong>
+              <strong>{{ _('entra_manual_title') }}</strong>
               <ol style="margin:8px 0 0 16px;line-height:1.8;">
-                <li>Öffne das <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" style="font-weight:700;">Azure Portal → App-Registrierungen → Neue Registrierung</a></li>
-                <li>Name: <strong>Printix MCP</strong>, Unterstützte Kontotypen: <strong>Konten in einem beliebigen Organisationsverzeichnis</strong> (Multi-Tenant)</li>
-                <li>Umleitungs-URI (Web): <code style="user-select:all;">{{ entra_redirect_uri }}</code></li>
+                <li>{{ _('entra_manual_step1') }} <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" style="font-weight:700;">{{ _('entra_manual_step1_link') }}</a></li>
+                <li>{{ _('entra_manual_step2') }}</li>
+                <li>{{ _('entra_manual_step3') }} <code style="user-select:all;">{{ entra_redirect_uri }}</code></li>
               </ol>
               <div style="margin-top:8px;">
-                Nach dem Erstellen: <strong>Client-ID</strong> von der Übersichtsseite kopieren,
-                unter <strong>Zertifikate &amp; Geheimnisse → Neuer geheimer Clientschlüssel</strong>
-                ein Secret erstellen und den <strong>Wert</strong> kopieren.
+                {{ _('entra_manual_after') }}
               </div>
             </div>
           </div>
 
           {% else %}
-          <!-- ══════════════════════════════════════════════════════════════
-               Bereits konfiguriert — kein Setup-Wizard nötig
-               ══════════════════════════════════════════════════════════════ -->
           {% endif %}
 
           <!-- ── Credential-Felder (immer sichtbar) ──────────────────── -->
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <div class="form-group">
-              <label>Entra Tenant-ID <small style="color:#6b7280;">(Directory-ID)</small></label>
+              <label>{{ _('entra_tenant_id') }} <small style="color:#6b7280;">(Directory-ID)</small></label>
               <input type="text" name="entra_tenant_id" id="entra-f-tenant"
                      value="{{ entra.tenant_id }}"
                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-              <small class="hint">Leer lassen = „common" (alle Tenants).</small>
+              <small class="hint">{{ _('entra_tenant_hint') }}</small>
             </div>
             <div class="form-group">
-              <label>Application (Client) ID</label>
+              <label>{{ _('entra_client_id') }}</label>
               <input type="text" name="entra_client_id" id="entra-f-client"
                      value="{{ entra.client_id }}"
                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
@@ -266,16 +254,16 @@ echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\
           </div>
 
           <div class="form-group">
-            <label>Client Secret</label>
+            <label>{{ _('entra_client_secret') }}</label>
             <input type="password" name="entra_client_secret" id="entra-f-secret" value=""
-                   placeholder="{{ '(gespeichert — nur ändern wenn nötig)' if entra.has_secret else 'Geheimen Clientschlüssel hier einfügen' }}">
-            <small class="hint">Wird verschlüsselt gespeichert. Leer lassen = bestehender Wert bleibt erhalten.</small>
+                   placeholder="{{ _('entra_secret_placeholder_set') if entra.has_secret else _('entra_secret_placeholder_empty') }}">
+            <small class="hint">{{ _('entra_secret_hint') }}</small>
           </div>
 
           <div class="form-group">
-            <label>Redirect URI <small style="color:#6b7280;">(in Azure eintragen)</small></label>
+            <label>{{ _('entra_redirect_uri') }} <small style="color:#6b7280;">({{ _('entra_redirect_hint') }})</small></label>
             <div class="code-block" id="entra-redirect-block">
-              <button type="button" class="copy-btn" onclick="copyToClipboard('entra-redirect-val', this)">⧉</button>
+              <button type="button" class="copy-btn" onclick="copyToClipboard('entra-redirect-val', this)">&#x29C9;</button>
               <span id="entra-redirect-val">{{ entra_redirect_uri }}</span>
             </div>
           </div>
@@ -287,24 +275,22 @@ echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\
             <label class="fmt-item" style="font-size:.9em;cursor:pointer;">
               <input type="checkbox" name="entra_auto_approve" value="1"
                      {{ 'checked' if entra.auto_approve else '' }}>
-              Neue Entra-Benutzer automatisch freischalten
+              {{ _('entra_auto_approve') }}
             </label>
             <small class="hint" style="display:block;margin-top:4px;">
-              Wenn deaktiviert: Entra-Benutzer werden mit Status „Ausstehend" angelegt und müssen
-              von einem Admin genehmigt werden (Standard-Verhalten, empfohlen).
+              {{ _('entra_auto_approve_hint') }}
             </small>
           </div>
 
           <!-- Status -->
           {% if entra.enabled and entra.client_id and entra.has_secret %}
           <div class="alert alert-success" style="font-size:.88em;">
-            ✓ <strong>Entra-Login ist aktiv.</strong>
-            Auf der Login-Seite erscheint der Button „Mit Microsoft anmelden".
+            ✓ <strong>{{ _('entra_status_active') }}</strong>
+            {{ _('entra_status_active_sub') }}
           </div>
           {% elif entra.enabled %}
           <div class="alert alert-warning" style="font-size:.88em;">
-            ⚠️ Entra ist aktiviert, aber Client-ID oder Secret fehlt.
-            Der Login-Button wird erst angezeigt, wenn beide Felder ausgefüllt sind.
+            {{ _('entra_status_incomplete') }}
           </div>
           {% endif %}
         </div>
@@ -319,6 +305,13 @@ echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\
     </form>
   </div>
 </div>
+
+<!-- i18n strings for JavaScript -->
+<div id="entra-i18n" style="display:none;"
+     data-err-empty="{{ _('entra_json_err_empty') }}"
+     data-err-invalid="{{ _('entra_json_err_invalid') }}"
+     data-err-no-client="{{ _('entra_json_err_no_client') }}"
+     data-ok="{{ _('entra_json_ok') }}"></div>
 
 <script>
 /* ── Entra Setup Tab Switching ──────────────────────────────────── */
@@ -367,20 +360,20 @@ function entraShowScript(lang) {
 function copyScript(id, btn) {
   var el = document.getElementById(id);
   if (!el) return;
-  var text = el.textContent || el.innerText;
-  navigator.clipboard.writeText(text).then(function() {
-    btn.textContent = '✓'; setTimeout(function(){ btn.textContent = '⧉'; }, 2000);
+  navigator.clipboard.writeText(el.textContent || el.innerText).then(function() {
+    btn.textContent = '\u2713'; setTimeout(function(){ btn.textContent = '\u29C9'; }, 2000);
   });
 }
 
-/* ── JSON Import (CLI Script Output) ────────────────────────────── */
+/* ── JSON Import (CLI Script Output) ──��─────────────────────────── */
 function entraImportJson() {
+  var i18n = document.getElementById('entra-i18n').dataset;
   var raw = document.getElementById('entra-auto-json').value.trim();
   var status = document.getElementById('entra-import-status');
   if (!raw) {
     status.style.display = 'block';
     status.className = 'alert alert-error';
-    status.textContent = 'Bitte die JSON-Ausgabe des Scripts oben einfügen.';
+    status.textContent = i18n.errEmpty;
     return;
   }
   try {
@@ -388,13 +381,13 @@ function entraImportJson() {
   } catch (e) {
     status.style.display = 'block';
     status.className = 'alert alert-error';
-    status.textContent = 'Ungültiges JSON-Format. Bitte die vollständige Ausgabe des Scripts einfügen.';
+    status.textContent = i18n.errInvalid;
     return;
   }
   if (!data.client_id) {
     status.style.display = 'block';
     status.className = 'alert alert-error';
-    status.textContent = 'JSON enthält keine client_id. Bitte prüfen.';
+    status.textContent = i18n.errNoClient;
     return;
   }
   if (data.tenant_id) document.getElementById('entra-f-tenant').value = data.tenant_id;
@@ -407,7 +400,7 @@ function entraImportJson() {
   }
   status.style.display = 'block';
   status.className = 'alert alert-success';
-  status.innerHTML = '✓ <strong>Zugangsdaten übernommen!</strong> Bitte unten auf „Speichern" klicken.';
+  status.innerHTML = '\u2713 <strong>' + i18n.ok + '</strong>';
   document.getElementById('entra-f-tenant').scrollIntoView({behavior:'smooth', block:'center'});
 }
 </script>

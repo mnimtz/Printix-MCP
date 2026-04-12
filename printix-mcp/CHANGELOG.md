@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.2.2 (2026-04-12) — „i18n + Tenant-Isolation"
+
+### Fix — Tenant-Isolation: Demo-Status-Endpoint
+- **`/tenant/demo/status`** prüft jetzt die `user_id` im Job-Dict —
+  ein Benutzer kann nicht mehr den Demo-Generierungs-Status eines anderen
+  Benutzers abfragen. `_demo_jobs` speichert jetzt `user_id` bei Erstellung.
+
+### Enhancement — Vollständige i18n für Entra-Einstellungen
+- **43 neue Übersetzungsschlüssel** für die gesamte Entra-ID-Konfiguration
+  in allen 12 Sprachen (de, en, fr, it, es, nl, no, sv, bar, hessisch,
+  oesterreichisch, schwiizerdütsch).
+- **admin_settings.html**: Alle hartkodierten Strings durch `{{ _('key') }}`
+  Aufrufe ersetzt. JavaScript-Fehlermeldungen via `data-*` Attribute aus
+  dem Übersetzungssystem gespeist.
+- Neue Keys: `entra_title`, `entra_subtitle`, `entra_toggle`,
+  `entra_auto_setup_*`, `entra_tab_*`, `entra_cli_*`, `entra_json_*`,
+  `entra_manual_*`, `entra_tenant_*`, `entra_client_*`, `entra_secret_*`,
+  `entra_redirect_*`, `entra_auto_approve*`, `entra_status_*`,
+  `admin_settings_sub`, `admin_current_url`.
+
+### Touched Files
+- `src/web/app.py` — Tenant-Isolation-Fix in `/tenant/demo/status`
+- `src/web/i18n.py` — 43 neue Keys × 12 Sprachen = 516 neue Einträge
+- `src/web/templates/admin_settings.html` — Alle Strings internationalisiert
+- `config.yaml` / `run.sh` / `src/server.py` — Version 4.2.2
+
+---
+
 ## 4.2.1 (2026-04-12) — „Entra Ein-Klick-Setup"
 
 ### Feature — Ein-Klick Entra Auto-Setup

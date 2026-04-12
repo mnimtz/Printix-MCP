@@ -1757,6 +1757,9 @@ def create_app(session_secret: str) -> FastAPI:
         job = _demo_jobs.get(job_id)
         if not job:
             return JSONResponse({"status": "unknown"})
+        # Tenant-Isolation: nur eigene Jobs anzeigen
+        if job.get("user_id") and job["user_id"] != user["id"]:
+            return JSONResponse({"status": "unknown"})
         return JSONResponse({
             "status": job.get("status"),
             "error": job.get("error", ""),
@@ -1947,7 +1950,8 @@ def create_app(session_secret: str) -> FastAPI:
             # Hintergrund-Task: sofort Redirect, Browser pollt /tenant/demo/status
             # SUBPROCESS-Isolation: pyodbc/FreeTDS Segfaults töten nicht den Web-Server
             job_id = _uuid.uuid4().hex[:10]
-            _demo_jobs[job_id] = {"status": "running", "started": _time.time()}
+            _demo_jobs[job_id] = {"status": "running", "started": _time.time(),
+                                  "user_id": user["id"]}
             async def _bg_generate():
                 import json as _json, sys as _sys, os as _os
                 output_file = f"/tmp/demo_result_{job_id}.json"
