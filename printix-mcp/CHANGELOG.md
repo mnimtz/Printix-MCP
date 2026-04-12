@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.4.4 (2026-04-12) — Capture Webhook auf MCP-Port
+
+### Fix — Webhook auf falschem Port
+- **Ursache**: Capture-Webhook-Routen waren nur auf Port 8080 (Web-UI) registriert
+- Printix sendet an die `public_url` → Port 8765 (MCP) → keine Route → nichts passiert
+- **Fix**: Capture-Webhook-Handler jetzt auch auf dem MCP-Port (8765) im `DualTransportApp`
+- `BearerAuthMiddleware` lässt `/capture/webhook/` und `/capture/debug` ohne Bearer Token durch
+- Voller Webhook-Support auf MCP-Port: HMAC-Verify, Plugin-Dispatch, Debug-Modus
+- Web-UI-Port (8080) behält ebenfalls die Webhook-Routen (Dual-Port)
+
 ## 4.4.3 (2026-04-12) — Debug Webhook URL für Printix
 
 ### Fix — Debug-URL Printix-kompatibel
