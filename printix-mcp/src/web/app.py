@@ -1492,7 +1492,7 @@ def create_app(session_secret: str) -> FastAPI:
             "schema_ready": None,
             "flash": flash, "flash_msg": flash_msg,
             "job_id": job_id,
-            "form_defaults": {}, "active_tab": "demo", **tc,
+            "form_defaults": {}, "form": {}, "active_tab": "demo", **tc,
         })
 
     # ── In-Memory-Cache für Demo-Sessions (per Tenant, 30s TTL) ──────────
