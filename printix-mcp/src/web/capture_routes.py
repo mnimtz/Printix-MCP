@@ -427,6 +427,10 @@ def register_capture_routes(
         try:
             body = json.loads(body_bytes)
         except (json.JSONDecodeError, ValueError):
+            await asyncio.to_thread(
+                add_capture_log, profile["tenant_id"], profile_id, profile["name"],
+                "parse_error", "error", f"Invalid JSON body ({len(body_bytes)} bytes)",
+            )
             return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
         event_type = body.get("eventType", "unknown")

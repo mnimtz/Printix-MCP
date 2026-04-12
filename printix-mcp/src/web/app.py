@@ -1860,7 +1860,7 @@ def create_app(session_secret: str) -> FastAPI:
             "min_level": min_level.upper(),
             "levels": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
             "category": category.upper(),
-            "categories": ["", "PRINTIX_API", "SQL", "AUTH", "SYSTEM"],
+            "categories": ["", "PRINTIX_API", "SQL", "AUTH", "CAPTURE", "SYSTEM"],
             **tc,
         })
 
