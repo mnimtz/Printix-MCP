@@ -1,6 +1,6 @@
 # Printix MCP Server — Home Assistant Add-on
 
-**Version 4.0.0** · Multi-Tenant MCP Server for the Printix Cloud Print API
+**Version 4.3.1** · Multi-Tenant MCP Server for the Printix Cloud Print API
 
 A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix Cloud Print API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Manage printers, users, print jobs, and generate detailed reports — all through natural language in your AI chat.
 
@@ -8,7 +8,7 @@ A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others)
 
 ## Features
 
-### 🖨️ Printix Management via AI Chat
+### Printix Management via AI Chat
 
 Control your Printix environment directly from any MCP-compatible AI assistant:
 
@@ -22,18 +22,29 @@ Control your Printix environment directly from any MCP-compatible AI assistant:
 - **SNMP Configurations** — create and manage SNMP configs
 - **Print Submission** — submit print jobs programmatically
 
-### 📊 Reports & Automation (since v3.0.0)
+### Reports & Automation (since v3.0.0)
 
 Create, manage and schedule print reporting directly in the browser — no AI chat required:
 
-- **18 Report Presets** based on the official Printix PowerBI template (v2025.4) — **all 18 immediately executable**
+- **18 Report Presets** based on the official Printix PowerBI template (v2025.4) — all 18 immediately executable
 - **17 SQL query types**: print stats, trends, cost, top users/printers, anomalies, printer history, device readings, job history, queue stats, user/copy/scan details, workstations, tree meter, service desk
+- **AI Report Designer** (since v4.2.0) — design report themes, chart types, layouts, and preview via MCP tools
 - **Output formats**: HTML (email body), CSV, JSON, PDF, XLSX
 - **Scheduled delivery**: daily, weekly, monthly — configured entirely in the browser
 - **Email delivery** via Resend API (configurable per tenant)
+- **Event notifications** — automatic alerts for new printers, queues, guest users (via polling)
 - **Dynamic date ranges**: last week, last month, last quarter, last year, custom range
 
-### 🎭 Demo Data Generator (since v3.5.0)
+### Microsoft Entra ID SSO (since v4.1.0)
+
+Single Sign-On via Microsoft accounts for all users:
+
+- **One-click auto-setup** (v4.3.0) — Admin clicks a button, enters a code at `microsoft.com/devicelogin`, and the SSO app is created automatically via Microsoft Graph API. No Azure Portal or CLI needed.
+- **Multi-tenant** — one app registration, login for users from any Entra tenant
+- **Auto-linking** — existing users with matching email are automatically linked on first Entra login
+- **Auto-approve** — optionally auto-approve new Entra users (configurable)
+
+### Demo Data Generator (since v3.5.0)
 
 Generate realistic Printix print data directly in your Azure SQL database for demos, PoCs and testing:
 
@@ -41,30 +52,25 @@ Generate realistic Printix print data directly in your Azure SQL database for de
 - **Custom configuration**: define users, printers, queues, time period and site names manually
 - **Progress overlay**: animated real-time progress during generation
 - **Session management**: view, compare and delete individual demo datasets
-- **Reporting Views**: `setup_schema()` creates a `reporting.*` schema with 8 SQL views (`v_tracking_data`, `v_jobs`, `v_users`, `v_printers`, `v_networks`, `v_jobs_scan`, `v_jobs_copy`, `v_jobs_copy_details`) — demo data is automatically included in all BI reports
+- **Reporting Views**: `setup_schema()` creates a `reporting.*` schema with 8 SQL views — demo data is automatically included in all BI reports
 
-### 🌐 Multi-Tenant Architecture
+### Multi-Tenant Architecture
 
-Each user manages their own Printix OAuth2 credentials independently. Multiple tenants can use the same server instance simultaneously. All credentials are stored encrypted in a local SQLite database.
+Each user manages their own Printix OAuth2 credentials independently. Multiple tenants can use the same server instance simultaneously. All credentials are stored encrypted (Fernet) in a local SQLite database. Full tenant isolation — no user can see data from another user.
 
-### 🌍 12 UI Languages
+### 14 UI Languages
 
-The web interface is fully localized in 12 languages:
+The web interface is fully localized in 14 languages:
 
-| Code | Language |
-|------|----------|
-| `de` | German (Hochdeutsch) |
-| `en` | English |
-| `fr` | French |
-| `it` | Italian |
-| `es` | Spanish |
-| `nl` | Dutch |
-| `no` | Norwegian |
-| `sv` | Swedish |
-| `bar` | Bavarian dialect |
-| `hessisch` | Hessian dialect |
-| `oesterreichisch` | Austrian German |
-| `schwiizerdütsch` | Swiss German |
+| Code | Language | | Code | Language |
+|------|----------|-|------|----------|
+| `de` | Deutsch (Hochdeutsch) | | `no` | Norsk |
+| `en` | English | | `sv` | Svenska |
+| `fr` | Francais | | `bar` | Boarisch (Bavarian) |
+| `it` | Italiano | | `hessisch` | Hessisch |
+| `es` | Espanol | | `oesterreichisch` | Oesterreichisch |
+| `nl` | Nederlands | | `schwiizerduetsch` | Schwiizerdueuetsch |
+| `cockney` | Cockney (UK) | | `us_south` | Southern US |
 
 ---
 
@@ -83,8 +89,8 @@ The web interface is fully localized in 12 languages:
 
 ### Via Home Assistant Add-on Store
 
-1. Open **Settings → Add-ons → Add-on Store** in Home Assistant
-2. Click the three-dot menu (⋮) → **Repositories**
+1. Open **Settings > Add-ons > Add-on Store** in Home Assistant
+2. Click the three-dot menu > **Repositories**
 3. Add the repository URL: `https://github.com/mnimtz/Printix-MCP`
 4. Find **Printix MCP Server** in the list and click **Install**
 5. Start the add-on
@@ -98,34 +104,24 @@ The web interface is fully localized in 12 languages:
 4. Copy your **MCP Bearer Token** from the Settings page
 5. Connect your AI assistant using the MCP endpoint (see below)
 
----
+### Entra ID SSO Setup (optional)
 
-## Web Interface
-
-| URL | Description |
-|-----|-------------|
-| `http://<your-ha-ip>:8080/` | Home / redirect to dashboard |
-| `http://<your-ha-ip>:8080/register` | Register a new account |
-| `http://<your-ha-ip>:8080/dashboard` | User dashboard |
-| `http://<your-ha-ip>:8080/settings` | Manage credentials & preferences |
-| `http://<your-ha-ip>:8080/reports` | Reports & automation |
-| `http://<your-ha-ip>:8080/tenant/printers` | Printer list (live from Printix API) |
-| `http://<your-ha-ip>:8080/tenant/queues` | Print queue list |
-| `http://<your-ha-ip>:8080/tenant/users` | User list |
-| `http://<your-ha-ip>:8080/tenant/demo` | Demo data generator |
-| `http://<your-ha-ip>:8080/help` | MCP connection guide |
+1. Go to **Admin > Settings**
+2. Enable **Entra-Login**
+3. Click **"Sign in with Microsoft & create app"** — the one-click auto-setup handles everything
+4. Alternatively: use the Azure CLI script or manual Azure Portal setup
 
 ---
 
 ## Connecting an AI Assistant
 
-### MCP Endpoint (HTTP Streaming)
+### MCP Endpoint (HTTP Streaming — for claude.ai)
 
 ```
 http://<your-ha-ip>:8765/mcp
 ```
 
-### SSE Endpoint (for legacy clients)
+### SSE Endpoint (for ChatGPT / legacy clients)
 
 ```
 http://<your-ha-ip>:8765/sse
@@ -133,7 +129,7 @@ http://<your-ha-ip>:8765/sse
 
 ### Authentication
 
-Use the **Bearer Token** from the web interface under **Settings**. Pass it as an HTTP header:
+Use the **Bearer Token** from the web interface under **Settings**:
 
 ```
 Authorization: Bearer <your-token>
@@ -158,6 +154,29 @@ Once connected, you can ask Claude things like:
 - *"Show me the top 5 users by print volume this month"*
 - *"Generate a demo dataset for a mid-market company"*
 - *"Run the monthly cost analysis report and send it to my email"*
+- *"Design a report with a dark blue theme and donut charts"*
+
+---
+
+## Web Interface
+
+| URL | Description |
+|-----|-------------|
+| `/` | Home / redirect to dashboard |
+| `/register` | Register a new account |
+| `/login` | Login (local + Entra SSO) |
+| `/dashboard` | User dashboard |
+| `/settings` | Manage credentials & preferences |
+| `/reports` | Reports & automation |
+| `/tenant/printers` | Printer list (live from Printix API) |
+| `/tenant/queues` | Print queue list |
+| `/tenant/users` | User list |
+| `/tenant/demo` | Demo data generator |
+| `/help` | MCP connection guide |
+| `/admin` | Admin panel (user management) |
+| `/admin/settings` | Server settings (Entra SSO, Public URL) |
+| `/admin/logs` | Server logs |
+| `/feedback` | Feedback & feature requests |
 
 ---
 
@@ -165,6 +184,7 @@ Once connected, you can ask Claude things like:
 
 The add-on exposes the following tools to connected AI assistants:
 
+### Printix Management
 | Tool | Description |
 |------|-------------|
 | `printix_list_printers` | List all printers |
@@ -190,6 +210,10 @@ The add-on exposes the following tools to connected AI assistants:
 | `printix_list_sites` | List sites |
 | `printix_list_workstations` | List workstations |
 | `printix_list_snmp_configs` | List SNMP configurations |
+
+### Reports & Queries
+| Tool | Description |
+|------|-------------|
 | `printix_query_print_stats` | Query print statistics |
 | `printix_query_top_printers` | Top printers by volume |
 | `printix_query_top_users` | Top users by volume |
@@ -207,7 +231,19 @@ The add-on exposes the following tools to connected AI assistants:
 | `printix_query_workstation_detail` | Single workstation history |
 | `printix_query_tree_meter` | Duplex savings in trees (sustainability) |
 | `printix_query_service_desk` | Failed/cancelled jobs for IT service desk |
+| `printix_query_any` | Run any custom SQL query (v4.2.0) |
 | `printix_run_report_now` | Run a saved report template |
+
+### Report Designer (since v4.2.0)
+| Tool | Description |
+|------|-------------|
+| `printix_list_design_options` | List available themes, chart types, fonts |
+| `printix_preview_report` | Preview a report with custom design settings |
+| `printix_save_report_template` | Save/update a report template with full layout |
+
+### System
+| Tool | Description |
+|------|-------------|
 | `printix_status` | Check add-on status |
 
 ---
@@ -219,40 +255,42 @@ The add-on exposes the following tools to connected AI assistants:
 | `8080` | HTTP | Web management interface |
 | `8765` | HTTP | MCP server (SSE + HTTP streaming) |
 
-Both ports must be accessible from your AI assistant. If using Claude Desktop on the same network, the Home Assistant IP is sufficient. For cloud-based AI services, expose the ports through a reverse proxy with TLS.
+Both ports must be accessible from your AI assistant. If using Claude Desktop on the same network, the Home Assistant IP is sufficient. For cloud-based AI services, expose the MCP port through a reverse proxy with TLS.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                 Home Assistant Add-on               │
-│                                                     │
-│  ┌──────────────────┐    ┌──────────────────────┐  │
-│  │   Web UI :8080   │    │   MCP Server :8765   │  │
-│  │  (FastAPI/Jinja2)│    │  (SSE + HTTP stream) │  │
-│  └────────┬─────────┘    └──────────┬───────────┘  │
-│           │                          │               │
-│           └──────────┬───────────────┘               │
-│                      ▼                               │
-│            ┌─────────────────┐                       │
-│            │   SQLite DB     │                       │
-│            │  /data/*.db     │                       │
-│            └────────┬────────┘                       │
-└─────────────────────┼───────────────────────────────┘
-                      │
-          ┌───────────┼───────────┐
-          ▼           ▼           ▼
-   Printix API    Azure SQL    Resend API
-   (Print/Card/  (Reports &   (Email
-    Workstation)  Demo Data)   Delivery)
++-----------------------------------------------------+
+|                 Home Assistant Add-on                |
+|                                                     |
+|  +------------------+    +----------------------+   |
+|  |   Web UI :8080   |    |   MCP Server :8765   |   |
+|  |  (FastAPI/Jinja2) |    |  (SSE + HTTP stream) |   |
+|  +--------+---------+    +----------+-----------+   |
+|           |                          |               |
+|           +----------+------------+-+               |
+|                      v            v                  |
+|            +---------+----+  +---+-------+          |
+|            |   SQLite DB  |  | Entra ID  |          |
+|            |  /data/*.db  |  |   (SSO)   |          |
+|            +------+-------+  +-----------+          |
++--------------------+----------------------------+---+
+                     |                            |
+         +-----------+-----------+                |
+         v           v           v                v
+  Printix API    Azure SQL    Resend API    Microsoft
+  (Print/Card/  (Reports &   (Email        Graph API
+   Workstation)  Demo Data)   Delivery)    (Auto-Setup)
 ```
 
 **Data flow:**
 - Web UI and MCP server share the same SQLite database for credentials and configuration
 - Printix API calls use OAuth2 (client credentials flow) — tokens are cached and refreshed automatically
 - Azure SQL is optional and only required for Reports and Demo Data features
+- Entra ID SSO uses OAuth2 Authorization Code Flow for user login
+- Device Code Flow + Graph API for automatic app registration
 - All user data is stored locally on your Home Assistant instance
 
 ---
@@ -261,13 +299,14 @@ Both ports must be accessible from your AI assistant. If using Claude Desktop on
 
 The add-on is configured entirely through the web interface. No manual YAML configuration is required. Credentials are stored encrypted in `/data/printix_multi.db`.
 
-For advanced scenarios, the following environment variables can be set via the HA add-on options:
+Add-on options (via HA UI):
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WEB_PORT` | `8080` | Web UI port |
-| `MCP_PORT` | `8765` | MCP server port |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
+| Option | Default | Description |
+|--------|---------|-------------|
+| `mcp_port` | `8765` | MCP server port |
+| `web_port` | `8080` | Web UI port (external mapping) |
+| `public_url` | | Public URL for MCP endpoint (e.g. via Cloudflare Tunnel) |
+| `log_level` | `info` | Logging verbosity (debug/info/warning/error/critical) |
 
 ---
 
@@ -275,19 +314,24 @@ For advanced scenarios, the following environment variables can be set via the H
 
 See [CHANGELOG.md](CHANGELOG.md) for a full version history.
 
-**v4.0.0** — Bugfix release: demo-data schema mismatch (`dbo.*` → `demo.*`), missing `/tenant/demo/rollback` route, XHR-loaded session list (30+ s → <100 ms first load), `query_off_hours_print` rewrite against real `dbo.jobs` schema, report-engine XSS fix (`|safe` removal + autoescape), OAuth client_id binding (RFC 6749 §4.1.3 defense-in-depth)  
-**v3.9.1** — Security & performance hardening: OAuth redirect-URI whitelist (RFC 6749), XSS fixes in consent + admin/demo/reports templates, open-redirect fix in `/lang`, indexed bearer-token lookup (O(N) → O(1)), dead-code cleanup  
-**v3.9.0** — Admin audit trail, feedback/feature-request ticket system, `audit_log` & `off_hours_print` reports  
-**v3.8.1** — Hour × weekday heatmap report, `sensitive_documents` SQL fix  
-**v3.8.0** — Sensitive-documents compliance report, demo-data improvements  
-**v3.7.0** — Report Designer Stufe 2: 11 new query types, all 18 presets available, demo generation fix  
-**v3.6.0** — Report Designer Stufe 1: CSS charts, XLSX/PDF output, report preview  
-**v3.5.1** — Schema fix (demo.* vs dbo.*), rollback-all button, batch_size 2000  
-**v3.5.0** — Demo Data Generator, reporting SQL views, full i18n for all demo UI  
-**v3.0.0** — Reports & automation, 18 presets, browser-based management  
+**v4.3.1** — Entra callback redirect fix, event poller fix, report delta rendering fix, Cockney + US Southern dialects (14 languages total)
+**v4.3.0** — Device Code Flow: true one-click Entra auto-setup (no bootstrap app needed)
+**v4.2.2** — Full i18n for Entra settings (43 keys x 12 languages), tenant isolation fix
+**v4.2.1** — One-click Entra auto-setup via bootstrap app
+**v4.2.0** — AI Report Designer tools (list_design_options, preview_report, query_any)
+**v4.1.0** — Entra ID (Azure AD) SSO login
+**v4.0.0** — Bugfix release: demo-data schema, XSS fix, OAuth binding
+**v3.9.1** — Security hardening: OAuth redirect-URI whitelist, XSS fixes, indexed bearer-token lookup
+**v3.9.0** — Admin audit trail, feedback/feature-request ticket system
+**v3.8.1** — Hour x weekday heatmap report
+**v3.8.0** — Sensitive-documents compliance report
+**v3.7.0** — Report Designer Stage 2: 11 new query types, all 18 presets
+**v3.6.0** — Report Designer Stage 1: CSS charts, XLSX/PDF output
+**v3.5.0** — Demo Data Generator, reporting SQL views
+**v3.0.0** — Reports & automation, 18 presets, browser-based management
 
 ---
 
 ## License
 
-MIT License — © 2026 [Marcus Nimtz](https://github.com/mnimtz) / Tungsten Automation
+MIT License — 2026 [Marcus Nimtz](https://github.com/mnimtz) / Tungsten Automation

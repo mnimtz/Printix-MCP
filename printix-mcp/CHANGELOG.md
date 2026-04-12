@@ -1,5 +1,46 @@
 # Changelog
 
+## 4.3.1 (2026-04-12) — Bugfixes + Cockney & Southern US
+
+### Fix — Entra SSO Login Callback
+- **Redirect URI zeigte auf MCP-Port**: `_get_base_url()` nutzte `public_url`
+  (MCP-Server), aber der Entra-Callback lebt in der Web-UI. Ergebnis war
+  `401 Missing or invalid Authorization header` beim Login-Versuch.
+  Fix: URL wird jetzt aus dem Request-Host-Header abgeleitet (z.B. `:8010`).
+- **E-Mail-Verknuepfung** funktioniert damit automatisch: bestehende Benutzer
+  mit gleicher E-Mail werden beim ersten Entra-Login verknuepft.
+
+### Fix — Event Poller: `update_poller_state` fehlte
+- **`cannot import name 'update_poller_state' from 'db'`**: Fehlte komplett.
+  Neue Spalte `poller_state` in der Tenants-Tabelle + neue Funktion
+  `update_poller_state(user_id, state)` in db.py. Der Event Poller (alle 30 Min)
+  funktioniert jetzt ohne Fehler.
+
+### Fix — Report: Delta-Spalte zeigte Raw-HTML
+- **`<span class="delta-neg">` als Text**: `_fmt_delta()` gibt jetzt
+  `markupsafe.Markup` zurueck, damit `autoescape=True` den HTML-Code
+  nicht escaped. Trend-Reports zeigen jetzt korrekt gefaerbte Pfeile.
+
+### Feature — 2 neue Sprachen
+- **Cockney** (UK East London): "'Elp", "Sorted", "Yer account", "innit"
+- **US Southern** (Deep South/Texas): "Y'all's", "fixin' to", "howdy", "much obliged"
+- Jeweils 683 Keys — vollstaendige UI-Abdeckung.
+- Gesamt: **14 Sprachen** in der Web-Oberflaeche.
+
+### Fix — Device Code Flow Client-ID
+- Microsoft Graph CLI Tools Client-ID (`14d82eec-...`) statt Azure CLI
+  (`04b07795-...`), die keine Graph API Scopes unterstuetzte.
+
+### Touched Files
+- `src/web/app.py` — `_get_base_url()` nutzt Request statt `public_url`
+- `src/db.py` — `poller_state` Spalte + `update_poller_state()` Funktion
+- `src/reporting/report_engine.py` — `_fmt_delta()` mit `Markup()`
+- `src/web/i18n.py` — Cockney + US Southern (2 x 683 Keys)
+- `src/entra.py` — Graph CLI Client-ID
+- `config.yaml` / `run.sh` / `src/server.py` — Version 4.3.1
+
+---
+
 ## 4.3.0 (2026-04-12) — Device Code Flow: Echtes Ein-Klick Entra Auto-Setup
 
 ### Feature — Device Code Flow fuer Entra SSO App-Registrierung
