@@ -31,6 +31,12 @@
 - R²-Konfidenzwert, Trend-Erkennung (steigend/sinkend/stabil)
 - Integriert in Dashboard-Prognose-Karte
 
+### Capture Connector — Test-Endpoint
+- `POST /capture/webhook` — empfängt Printix Capture Notifications (Test/Debug)
+- `GET /capture/webhook` — Health-Check für den Capture Endpoint
+- `GET /capture/log` — Admin-only: letzte empfangene Webhooks als JSON
+- Loggt Headers, Body, Signatur-Daten in `/data/capture_webhooks.jsonl`
+
 ### i18n
 - ~65 neue Keys × 14 Sprachen für alle neuen Features
 

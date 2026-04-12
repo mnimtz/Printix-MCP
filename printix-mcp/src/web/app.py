@@ -2582,4 +2582,103 @@ def create_app(session_secret: str) -> FastAPI:
     except Exception as _re:
         logger.error("Reports-Routen konnten nicht registriert werden: %s", _re)
 
+    # ── Capture Connector Test-Endpoint (v4.3.3) ─────────────────────────────
+
+    @app.post("/capture/webhook")
+    async def capture_webhook(request: Request):
+        """
+        Empfängt Printix Capture Connector Notifications.
+        Loggt alles für Test/Debug. Antwortet immer mit 200 OK.
+        """
+        import json as _json
+        from datetime import datetime as _dt
+
+        # Headers loggen (inkl. Signatur-Headers)
+        headers_dict = dict(request.headers)
+        sig_headers = {
+            k: v for k, v in headers_dict.items()
+            if k.startswith("x-printix-")
+        }
+
+        # Body lesen
+        try:
+            body = await request.json()
+        except Exception:
+            body = {"_raw": (await request.body()).decode("utf-8", errors="replace")[:2000]}
+
+        log_entry = {
+            "timestamp": _dt.utcnow().isoformat() + "Z",
+            "endpoint": "/capture/webhook",
+            "method": request.method,
+            "printix_headers": sig_headers,
+            "content_type": headers_dict.get("content-type", ""),
+            "body": body,
+        }
+
+        logger.info("╔═══ CAPTURE WEBHOOK RECEIVED ═══╗")
+        logger.info("║ Event: %s", body.get("eventType", "unknown"))
+        logger.info("║ Job:   %s", body.get("jobId", "?"))
+        logger.info("║ File:  %s", body.get("fileName", "?"))
+        logger.info("║ Scan:  %s", body.get("scanId", "?"))
+        logger.info("║ Doc:   %s", (body.get("documentUrl", "?") or "?")[:80])
+        logger.info("║ Meta:  %s", body.get("metadataNames", []))
+        logger.info("║ Sig-Headers: %s", sig_headers)
+        logger.info("╚════════════════════════════════╝")
+
+        # Optional: In Datei loggen für spätere Analyse
+        try:
+            import os
+            log_dir = "/data"
+            if not os.path.isdir(log_dir):
+                log_dir = "/tmp"
+            log_file = os.path.join(log_dir, "capture_webhooks.jsonl")
+            with open(log_file, "a") as f:
+                f.write(_json.dumps(log_entry, default=str) + "\n")
+            logger.info("Capture webhook logged to %s", log_file)
+        except Exception as e:
+            logger.warning("Could not write capture log: %s", e)
+
+        # Printix erwartet 2xx als Bestätigung
+        return JSONResponse({
+            "status": "received",
+            "message": "Capture webhook test endpoint — logged successfully",
+        })
+
+    @app.get("/capture/webhook")
+    async def capture_webhook_status(request: Request):
+        """Health-Check für den Capture Endpoint."""
+        return JSONResponse({
+            "status": "ok",
+            "endpoint": "/capture/webhook",
+            "description": "Printix Capture Connector test endpoint. POST notifications here.",
+        })
+
+    @app.get("/capture/log")
+    async def capture_log_view(request: Request):
+        """Zeigt die letzten empfangenen Capture Webhooks."""
+        user = get_session_user(request)
+        if not user or not user.get("is_admin"):
+            return JSONResponse({"error": "admin required"}, status_code=403)
+
+        import os, json as _json
+        log_file = "/data/capture_webhooks.jsonl"
+        if not os.path.exists(log_file):
+            log_file = "/tmp/capture_webhooks.jsonl"
+        if not os.path.exists(log_file):
+            return JSONResponse({"entries": [], "message": "No webhooks received yet."})
+
+        entries = []
+        try:
+            with open(log_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        entries.append(_json.loads(line))
+        except Exception as e:
+            return JSONResponse({"error": str(e)})
+
+        # Neueste zuerst
+        entries.reverse()
+        return JSONResponse({"entries": entries[:50], "total": len(entries)})
+
     return app
