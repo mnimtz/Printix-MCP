@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.3.2 (2026-04-12) — Entra Login Fixes
+
+### Fix — Redirect URI Mismatch (AADSTS50011)
+- **Redirect URI wurde nicht gespeichert**: Bei Auto-Setup wurde die URI aus dem
+  aktuellen Request abgeleitet (z.B. lokale IP), beim Login dann aber von der
+  öffentlichen URL (z.B. `printix.cloud`). Ergebnis: `AADSTS50011 redirect_uri mismatch`.
+  Fix: Redirect URI wird bei Auto-Setup in der DB gespeichert und beim Login
+  immer konsistent verwendet. Auf der Admin-Seite jetzt editierbar.
+
+### Fix — Auto-Setup nicht wiederholbar
+- **Setup-Button verschwand** nach erfolgreicher Einrichtung. Jetzt als
+  aufklappbarer Bereich verfügbar: _"Erneut einrichten / Auto-Setup wiederholen..."_
+
+### Fix — E-Mail-Verknüpfung case-sensitive
+- **`Marcus@nimtz.email` ≠ `marcus@nimtz.email`**: Entra-Login erstellte einen
+  Duplikat-Account statt den bestehenden zu verknüpfen. Fix: `COLLATE NOCASE`
+  für E-Mail-Vergleich in `get_or_create_entra_user()`.
+
+---
+
 ## 4.3.1 (2026-04-12) — Bugfixes + Cockney & Southern US
 
 ### Fix — Entra SSO Login Callback
