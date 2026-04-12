@@ -48,7 +48,7 @@ else
 fi
 
 bashio::log.info "╔══════════════════════════════════════════════════════════════╗"
-bashio::log.info "║        PRINTIX MCP SERVER v4.4.7 — MULTI-TENANT             ║"
+bashio::log.info "║        PRINTIX MCP SERVER v4.4.8 — MULTI-TENANT             ║"
 bashio::log.info "╠══════════════════════════════════════════════════════════════╣"
 bashio::log.info "║ Web-Verwaltung:  http://<HA-IP>:${HOST_WEB_PORT}"
 bashio::log.info "║  → Erstkonfiguration / Benutzer registrieren"
