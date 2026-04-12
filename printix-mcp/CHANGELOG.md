@@ -1,5 +1,29 @@
 # Changelog
 
+## 4.4.13 (2026-04-12) — Versionen, Log-Marker, Cleanup
+
+### Fix — Startup-Banner im MCP-Server zeigte v4.4.5 statt aktuelle Version
+- `server.py` Python-Startup-Banner (logger.info) war auf v4.4.5 stehen geblieben
+- Jetzt konsistent v4.4.13 in allen 4 Stellen (config.yaml, run.sh, server.py Kopf + Banner)
+
+### Fix — CAPTURE REQUEST Log-Marker fehlte im Web-Route-Handler (Port 8080)
+- Der `▶ CAPTURE REQUEST` Marker existierte nur im MCP-Router (Port 8765)
+- Wenn Webhooks über den Web-Port (8080/8010) eingingen, fehlte der Marker komplett
+- Fix: Marker in allen 3 Web-Route-Handlern (POST webhook, GET health, debug)
+
+### Fix — Dummy-Code in capture_routes.py entfernt
+- `await asyncio.to_thread(lambda: None) if False else await handle_webhook(...)`
+- War übriggebliebener Platzhalter-Code — jetzt direkt `await handle_webhook(...)`
+
+### Docs — Webhook-Response-Protokoll dokumentiert
+- HTTP-Status-Strategie im webhook_handler.py erklärt:
+  - HTTP 4xx/5xx nur bei Infrastruktur-Fehlern (Profil/HMAC/JSON)
+  - HTTP 200 + `errorMessage` für Plugin-Ergebnisse (Printix Capture Protokoll)
+
+### Docs — HMAC soft-verify Warnung verbessert
+- Explizitere Log-Meldung wenn Request ohne Signatur-Header durchgelassen wird
+- Hinweis auf zukünftiges `require_signature` Flag
+
 ## 4.4.12 (2026-04-12) — Paperless Upload: Name→ID Auflösung
 
 ### Fix — Tags, Correspondent, Document Type wurden als Namen statt IDs gesendet

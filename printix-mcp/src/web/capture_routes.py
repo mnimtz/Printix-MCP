@@ -1,5 +1,5 @@
 """
-Capture Store Routes — Web-UI für Capture-Profil-Verwaltung (v4.4.9)
+Capture Store Routes — Web-UI für Capture-Profil-Verwaltung (v4.4.13)
 ====================================================================
 Registriert alle /capture-Routen in der FastAPI-App.
 
@@ -410,14 +410,13 @@ def register_capture_routes(
         URL-Format: /capture/webhook/{profile_id}
         """
         from capture.webhook_handler import handle_webhook
-        import asyncio
+
+        logger.info("▶ CAPTURE REQUEST [web]: %s /capture/webhook/%s", request.method, profile_id)
 
         body_bytes = await request.body()
         headers_dict = {k.lower(): v for k, v in request.headers.items()}
 
-        status, data = await asyncio.to_thread(
-            lambda: None  # placeholder
-        ) if False else await handle_webhook(
+        status, data = await handle_webhook(
             profile_id=profile_id,
             method=request.method,
             headers=headers_dict,
@@ -432,6 +431,8 @@ def register_capture_routes(
     async def capture_webhook_health(request: Request, profile_id: str):
         """Health-Check / Debug: GET an shared handler."""
         from capture.webhook_handler import handle_webhook
+
+        logger.info("▶ CAPTURE REQUEST [web]: GET /capture/webhook/%s", profile_id)
 
         headers_dict = {k.lower(): v for k, v in request.headers.items()}
         status, data = await handle_webhook(
@@ -449,6 +450,8 @@ def register_capture_routes(
     async def capture_debug(request: Request):
         """Debug-Endpoint: delegiert an shared handler mit Debug-UUID."""
         from capture.webhook_handler import handle_webhook
+
+        logger.info("▶ CAPTURE REQUEST [web]: %s /capture/debug", request.method)
 
         body_bytes = await request.body()
         headers_dict = {k.lower(): v for k, v in request.headers.items()}
