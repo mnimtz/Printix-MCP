@@ -1,5 +1,5 @@
 """
-Printix MCP Server — Home Assistant Add-on v4.4.6 (Multi-Tenant)
+Printix MCP Server — Home Assistant Add-on v4.4.7 (Multi-Tenant)
 =================================================================
 Model Context Protocol server for the Printix Cloud Print API.
 
@@ -52,6 +52,8 @@ for _noisy in (
     "httpx",
     "httpcore",
     "uvicorn.access",
+    "python_multipart",
+    "python_multipart.multipart",
 ):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
@@ -2152,24 +2154,25 @@ except Exception as _de:
 def _demo_check() -> str | None:
     if not _DEMO_AVAILABLE:
         return "Demo-Generator nicht verfügbar — bitte Container neu bauen."
-    if not _sql_configured():
-        return ("SQL nicht konfiguriert. "
-                "Bitte eigene Azure SQL in den Einstellungen eintragen "
-                "und anschließend printix_demo_setup_schema ausführen.")
+    # v4.4.7: Demo läuft auf lokaler SQLite — kein Azure SQL nötig.
+    # Nur prüfen ob tenant_id verfügbar ist.
+    tid = _get_sql_tenant_id() if _REPORTING_AVAILABLE else ""
+    if not tid:
+        return "Kein Tenant-Kontext — bitte mit gültigem Bearer Token authentifizieren."
     return None
 
 
 @mcp.tool()
 def printix_demo_setup_schema() -> str:
     """
-    Erstellt alle erforderlichen Tabellen für Demo-Daten in der konfigurierten Azure SQL.
+    Initialisiert die lokale Demo-SQLite-Datenbank (idempotent).
 
-    Legt folgende Tabellen an (nur wenn sie noch nicht existieren):
-      dbo.networks, dbo.users, dbo.printers, dbo.jobs, dbo.tracking_data,
-      dbo.jobs_scan, dbo.jobs_copy, dbo.jobs_copy_details, dbo.demo_sessions
+    Legt folgende Demo-Tabellen an (nur wenn sie noch nicht existieren):
+      demo_networks, demo_users, demo_printers, demo_jobs, demo_tracking_data,
+      demo_jobs_scan, demo_jobs_copy, demo_jobs_copy_details, demo_sessions
 
     Idempotent — kann mehrfach ohne Schaden ausgeführt werden.
-    Voraussetzung: Eigene Azure SQL mit INSERT/CREATE-Rechten konfiguriert.
+    Kein Azure SQL erforderlich — Demo-Daten liegen lokal auf SQLite.
     """
     err = _demo_check()
     if err:
@@ -2192,11 +2195,11 @@ def printix_demo_generate(
     jobs_per_user_day: float = 3.0,
 ) -> str:
     """
-    Generiert ein vollständiges Demo-Dataset in der konfigurierten Azure SQL-Datenbank.
+    Generiert ein vollständiges Demo-Dataset in der lokalen SQLite-Datenbank.
 
     Erstellt realistische Druck-, Scan- und Kopierjobs für den angegebenen Zeitraum
     — rückwirkend ab heute. Alle Reports (Volumen, Kosten, Top-User, Trends usw.)
-    zeigen danach aussagekräftige Demo-Daten.
+    zeigen danach aussagekräftige Demo-Daten. Kein Azure SQL erforderlich.
 
     Args:
         user_count:        Anzahl Demo-User (1–200, default: 15)
@@ -2241,11 +2244,11 @@ def printix_demo_generate(
 @mcp.tool()
 def printix_demo_rollback(demo_tag: str) -> str:
     """
-    Löscht alle Demo-Daten einer bestimmten Session aus der Azure SQL-Datenbank.
+    Löscht alle Demo-Daten einer bestimmten Session aus der lokalen SQLite-DB.
 
-    Entfernt alle Zeilen aus tracking_data, jobs, jobs_scan, jobs_copy,
-    jobs_copy_details, printers, users, networks und demo_sessions,
-    die mit dem angegebenen demo_tag erstellt wurden.
+    Entfernt alle Zeilen aus demo_tracking_data, demo_jobs, demo_jobs_scan,
+    demo_jobs_copy, demo_jobs_copy_details, demo_printers, demo_users,
+    demo_networks und demo_sessions für den angegebenen demo_tag.
 
     Voraussetzung: printix_demo_status zeigt vorhandene Tags.
 

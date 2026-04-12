@@ -1,5 +1,35 @@
 # Changelog
 
+## 4.4.7 (2026-04-12) — Demo-System Fix + View-Detection + Cleanup
+
+### Fix — Rollback-All kaputt (demo_jobs_copy_details)
+- `demo_jobs_copy_details` hat kein `tenant_id` — `rollback_all_demos()` schlug fehl
+- Fix: Löscht jetzt via `WHERE job_id IN (SELECT id FROM demo_jobs_copy WHERE tenant_id = ?)`
+- `rollback_demo_session()` war nicht betroffen (nutzt `demo_session_id`)
+
+### Fix — Demo-MCP-Tools blockiert ohne Azure SQL
+- `_demo_check()` verlangte Azure SQL Credentials obwohl Demo seit v4.4.0 auf SQLite läuft
+- Fix: Prüft nur noch ob Tenant-Kontext (Bearer Token) vorhanden ist
+- Alle 4 Demo-Tool-Beschreibungen von "Azure SQL" auf "lokale SQLite" aktualisiert
+
+### Fix — Druckerflotte / Reports: 500 Internal Server Error
+- `_V()` prüfte nur einmal ob `reporting.v_tracking_data` existiert
+- Dann wurden ALLE anderen Views (`v_printers`, `v_networks` usw.) vorausgesetzt
+- Fehlte eine View → "Invalid object name" → 500er
+- Fix: Jede View pro Tabelle einzeln prüfen + cachen (per-table Fallback auf `dbo.*`)
+
+### Fix — Paperless test_connection bei Proxy/HTML-Antwort
+- `test_connection()` rief `resp.json()` ohne Content-Type-Prüfung auf
+- Proxy/Login-Seiten die HTML zurückgeben → unsauberer Crash
+- Fix: Content-Type prüfen, bei HTML klare Fehlermeldung
+
+### Fix — Multipart-Debug-Logs zu laut
+- `python_multipart` und `python_multipart.multipart` Logger auf WARNING gesetzt
+
+### Cleanup — Legacy Azure SQL Demo-Code entfernt
+- 348 Zeilen `SCHEMA_STATEMENTS` und `_create_v_jobs_view()` aus `demo_generator.py` entfernt
+- Waren seit v4.4.0 komplett toter Code (Demo läuft auf lokaler SQLite)
+
 ## 4.4.6 (2026-04-12) — Kanonischer Capture Handler + Demo-Data Fix
 
 ### Architektur — Ein einziger Capture Webhook Handler
