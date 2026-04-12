@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.4.3 (2026-04-12) — Debug Webhook URL für Printix
+
+### Fix — Debug-URL Printix-kompatibel
+- Printix akzeptiert nur URLs im Format `/capture/webhook/{uuid}`
+- Debug-Endpoint jetzt erreichbar über: `/capture/webhook/00000000-0000-0000-0000-000000000000`
+- POST + GET (Health-Check) auf die Debug-UUID leiten an Debug-Handler weiter
+- Bisherige `/capture/debug` Pfade funktionieren weiterhin
+
 ## 4.4.2 (2026-04-12) — Capture Debug Endpoint + aiohttp Fix
 
 ### Feature — Debug Endpoint
