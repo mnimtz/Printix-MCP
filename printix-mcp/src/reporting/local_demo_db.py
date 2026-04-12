@@ -259,7 +259,7 @@ def query_demo_tracking_data(tenant_id: str, start_date: str, end_date: str) -> 
     """
     return demo_query(
         """
-        SELECT td.*, j.filename,
+        SELECT td.*, j.filename, j.paper_size,
                u.name AS user_name, u.email AS user_email, u.department,
                p.name AS printer_name, p.model_name, p.vendor_name,
                p.location, p.network_id,
@@ -277,6 +277,89 @@ def query_demo_tracking_data(tenant_id: str, start_date: str, end_date: str) -> 
               WHERE ds.tenant_id = td.tenant_id AND ds.status = 'active'
           )
         ORDER BY td.print_time
+        """,
+        (tenant_id, start_date, end_date + "T23:59:59"),
+    )
+
+
+def query_demo_scan_jobs(tenant_id: str, start_date: str, end_date: str) -> list[dict]:
+    """Holt Demo-Scan-Jobs mit JOINs für Merge (v4.4.14)."""
+    return demo_query(
+        """
+        SELECT js.id, js.tenant_id, js.printer_id, js.tenant_user_id,
+               js.scan_time, js.page_count, js.color, js.workflow_name,
+               js.filename, js.demo_session_id,
+               u.name AS user_name, u.email AS user_email, u.department,
+               p.name AS printer_name, p.model_name, p.vendor_name,
+               p.location, p.network_id,
+               n.name AS network_name
+        FROM demo_jobs_scan js
+        LEFT JOIN demo_users u ON js.tenant_user_id = u.id
+        LEFT JOIN demo_printers p ON js.printer_id = p.id
+        LEFT JOIN demo_networks n ON p.network_id = n.id
+        WHERE js.tenant_id = ?
+          AND js.scan_time >= ?
+          AND js.scan_time < ?
+          AND EXISTS (
+              SELECT 1 FROM demo_sessions ds
+              WHERE ds.tenant_id = js.tenant_id AND ds.status = 'active'
+          )
+        ORDER BY js.scan_time
+        """,
+        (tenant_id, start_date, end_date + "T23:59:59"),
+    )
+
+
+def query_demo_copy_jobs(tenant_id: str, start_date: str, end_date: str) -> list[dict]:
+    """Holt Demo-Copy-Jobs mit Details und JOINs für Merge (v4.4.14)."""
+    return demo_query(
+        """
+        SELECT jc.id, jc.tenant_id, jc.printer_id, jc.tenant_user_id,
+               jc.copy_time, jc.demo_session_id,
+               jcd.page_count, jcd.paper_size, jcd.duplex, jcd.color,
+               u.name AS user_name, u.email AS user_email, u.department,
+               p.name AS printer_name, p.model_name, p.vendor_name,
+               p.location, p.network_id,
+               n.name AS network_name
+        FROM demo_jobs_copy jc
+        LEFT JOIN demo_jobs_copy_details jcd ON jcd.job_id = jc.id
+        LEFT JOIN demo_users u ON jc.tenant_user_id = u.id
+        LEFT JOIN demo_printers p ON jc.printer_id = p.id
+        LEFT JOIN demo_networks n ON p.network_id = n.id
+        WHERE jc.tenant_id = ?
+          AND jc.copy_time >= ?
+          AND jc.copy_time < ?
+          AND EXISTS (
+              SELECT 1 FROM demo_sessions ds
+              WHERE ds.tenant_id = jc.tenant_id AND ds.status = 'active'
+          )
+        ORDER BY jc.copy_time
+        """,
+        (tenant_id, start_date, end_date + "T23:59:59"),
+    )
+
+
+def query_demo_jobs(tenant_id: str, start_date: str, end_date: str) -> list[dict]:
+    """Holt Demo-Jobs mit JOINs (fuer queue_stats, off_hours, sensitive_docs) (v4.4.14)."""
+    return demo_query(
+        """
+        SELECT j.*,
+               u.name AS user_name, u.email AS user_email, u.department,
+               p.name AS printer_name, p.model_name, p.vendor_name,
+               p.location, p.network_id,
+               n.name AS network_name
+        FROM demo_jobs j
+        LEFT JOIN demo_users u ON j.tenant_user_id = u.id
+        LEFT JOIN demo_printers p ON j.printer_id = p.id
+        LEFT JOIN demo_networks n ON p.network_id = n.id
+        WHERE j.tenant_id = ?
+          AND j.submit_time >= ?
+          AND j.submit_time < ?
+          AND EXISTS (
+              SELECT 1 FROM demo_sessions ds
+              WHERE ds.tenant_id = j.tenant_id AND ds.status = 'active'
+          )
+        ORDER BY j.submit_time
         """,
         (tenant_id, start_date, end_date + "T23:59:59"),
     )

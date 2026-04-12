@@ -1,5 +1,38 @@
 # Changelog
 
+## 4.4.14 (2026-04-12) — Demo-Daten Merge fuer ALLE Reports
+
+### Feature — Demo-Merge-Layer auf alle Report-Typen erweitert
+- **Vorher**: Nur 4 von ~20 Reports nutzten Demo-Daten (print_stats, cost_report, top_users, top_printers)
+- **Nachher**: Alle relevanten Reports mergen jetzt Demo-Daten aus lokaler SQLite:
+  - `query_printer_history` — Drucker-Historie mit Demo-Druckern
+  - `query_device_readings` — Geraeteuebersicht mit Demo-Druckern
+  - `query_job_history` — Job-Verlauf inkl. Demo-Jobs (paginiert)
+  - `query_queue_stats` — Papierformat/Farb-Verteilung mit Demo-Daten
+  - `query_user_detail` — Benutzer-Drill-Down mit Demo-Usern
+  - `query_tree_meter` — Nachhaltigkeits-Kennzahlen mit Demo-Duplex-Daten
+  - `query_anomalies` — Anomalie-Erkennung mit Demo-Tageswerten (Z-Score in Python)
+  - `query_trend` — Perioden-Vergleich mit Demo-Daten in beiden Zeitraeumen
+  - `query_hour_dow_heatmap` — Nutzungs-Heatmap mit Demo-Zeitstempeln
+  - `query_user_scan_detail` — Scan-Reports mit Demo-Scan-Jobs
+  - `query_user_copy_detail` — Copy-Reports mit Demo-Copy-Jobs
+  - `query_service_desk` — Fehlgeschlagene Jobs mit Demo-Fehlerstatus
+  - `query_off_hours_print` — Off-Hours-Analyse mit Demo-Submit-Zeiten
+  - `query_sensitive_documents` — Keyword-Suche in Demo-Job-Filenames + Demo-Scans
+- Nicht geaendert: `query_workstation_*` (keine Demo-Daten), `query_audit_log` (Admin-DB),
+  `query_forecast` (nutzt bereits query_print_stats indirekt)
+
+### Feature — Neue Demo-Datenquellen in local_demo_db.py
+- `query_demo_scan_jobs()` — Demo-Scan-Jobs mit User/Printer/Network JOINs
+- `query_demo_copy_jobs()` — Demo-Copy-Jobs + Copy-Details mit JOINs
+- `query_demo_jobs()` — Demo-Jobs fuer Off-Hours/Sensitive-Docs/Queue-Stats
+- `query_demo_tracking_data()` liefert jetzt auch `paper_size` (fuer Queue-Stats)
+
+### Fix — Alle SQL-Queries in try/except gewrappt
+- Reports die bisher bei SQL-Fehlern mit 500 abstürzten, fallen jetzt auf Demo-Daten zurück
+- Betrifft: printer_history, device_readings, job_history, queue_stats, user_detail,
+  user_copy_detail, user_scan_detail, anomalies, trend, heatmap, service_desk, off_hours
+
 ## 4.4.13 (2026-04-12) — Versionen, Log-Marker, Cleanup
 
 ### Fix — Startup-Banner im MCP-Server zeigte v4.4.5 statt aktuelle Version
