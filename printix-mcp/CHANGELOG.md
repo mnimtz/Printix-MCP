@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.4.11 (2026-04-12) — Paperless test_connection: HTTP 406 fix
+
+### Fix — Paperless test_connection HTTP 406
+- `/api/?format=json` root endpoint caused DRF to return 406 "Not Acceptable"
+- Fix: Use `/api/documents/?page_size=1` instead — lightweight, reliable, works behind reverse proxies
+- Also removed `?format=json` from `/api/ui_settings/` version check
+- `Accept: application/json` header is sufficient (no query param needed)
+- Bonus: Shows document count in success message ("Connection successful — 42 documents")
+- Pattern aligned with user's working Paperless-MCP client (`mnimtz/Paperless-MCP`)
+
 ## 4.4.10 (2026-04-12) — Paperless test_connection: Accept-Header
 
 ### Fix — Paperless test_connection gibt "HTML instead of JSON"

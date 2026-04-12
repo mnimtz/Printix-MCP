@@ -159,7 +159,7 @@ class PaperlessNgxPlugin(CapturePlugin):
             return False, f"Error: {e}"
 
     async def test_connection(self) -> tuple[bool, str]:
-        """Tests connection to Paperless-ngx by calling the API status endpoint."""
+        """Tests connection to Paperless-ngx by querying /api/documents/ (v4.4.11)."""
         import aiohttp
 
         paperless_url = self.config.get("paperless_url", "").rstrip("/")
@@ -170,19 +170,20 @@ class PaperlessNgxPlugin(CapturePlugin):
         if not token:
             return False, "API token not configured"
 
+        headers = {
+            "Authorization": f"Token {token}",
+            "Accept": "application/json",
+        }
+        timeout = aiohttp.ClientTimeout(total=10)
+
         try:
             async with aiohttp.ClientSession() as session:
-                # Try /api/ endpoint to check auth
-                # ?format=json + Accept-Header: verhindert HTML-Antwort bei
-                # Reverse-Proxy oder DRF Browsable API
-                url = f"{paperless_url}/api/?format=json"
-                headers = {
-                    "Authorization": f"Token {token}",
-                    "Accept": "application/json",
-                }
-                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                # Use /api/documents/?page_size=1 — lightweight, reliable,
+                # works with DRF + Cloudflare/reverse proxies.
+                # The /api/ root can return 406 with format negotiation.
+                url = f"{paperless_url}/api/documents/?page_size=1"
+                async with session.get(url, headers=headers, timeout=timeout) as resp:
                     if resp.status == 200:
-                        # Prüfe Content-Type — Proxy/Login kann HTML zurückgeben
                         ct = resp.headers.get("content-type", "")
                         if "text/html" in ct:
                             return False, (
@@ -193,11 +194,15 @@ class PaperlessNgxPlugin(CapturePlugin):
                             data = await resp.json()
                         except Exception:
                             return False, f"Response is not valid JSON (Content-Type: {ct})"
-                        version = ""
+
+                        # Extract document count for status info
+                        doc_count = data.get("count", "?")
+
                         # Try to get version from /api/ui_settings/
+                        version = ""
                         try:
                             async with session.get(
-                                f"{paperless_url}/api/ui_settings/?format=json",
+                                f"{paperless_url}/api/ui_settings/",
                                 headers=headers,
                                 timeout=aiohttp.ClientTimeout(total=5),
                             ) as vr:
@@ -206,9 +211,11 @@ class PaperlessNgxPlugin(CapturePlugin):
                                     version = vdata.get("version", "")
                         except Exception:
                             pass
+
                         msg = "Connection successful"
                         if version:
                             msg += f" (Paperless-ngx {version})"
+                        msg += f" — {doc_count} documents"
                         return True, msg
                     elif resp.status == 401:
                         return False, "Authentication failed — check API token"
