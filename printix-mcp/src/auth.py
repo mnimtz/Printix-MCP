@@ -61,6 +61,10 @@ class BearerAuthMiddleware:
         if path in ("/favicon.ico", "/robots.txt"):
             await self._not_found(send)
             return
+        # Capture Webhooks: HMAC-Auth statt Bearer Token (v4.4.3)
+        if path.startswith("/capture/webhook/") or path.startswith("/capture/debug"):
+            await self.app(scope, receive, send)
+            return
 
         # Bearer Token aus Authorization-Header extrahieren
         headers = dict(scope.get("headers", []))
