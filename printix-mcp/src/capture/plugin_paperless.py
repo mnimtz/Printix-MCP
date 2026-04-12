@@ -173,8 +173,13 @@ class PaperlessNgxPlugin(CapturePlugin):
         try:
             async with aiohttp.ClientSession() as session:
                 # Try /api/ endpoint to check auth
-                url = f"{paperless_url}/api/"
-                headers = {"Authorization": f"Token {token}"}
+                # ?format=json + Accept-Header: verhindert HTML-Antwort bei
+                # Reverse-Proxy oder DRF Browsable API
+                url = f"{paperless_url}/api/?format=json"
+                headers = {
+                    "Authorization": f"Token {token}",
+                    "Accept": "application/json",
+                }
                 async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status == 200:
                         # Prüfe Content-Type — Proxy/Login kann HTML zurückgeben
@@ -192,7 +197,7 @@ class PaperlessNgxPlugin(CapturePlugin):
                         # Try to get version from /api/ui_settings/
                         try:
                             async with session.get(
-                                f"{paperless_url}/api/ui_settings/",
+                                f"{paperless_url}/api/ui_settings/?format=json",
                                 headers=headers,
                                 timeout=aiohttp.ClientTimeout(total=5),
                             ) as vr:

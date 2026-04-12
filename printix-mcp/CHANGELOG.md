@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.4.10 (2026-04-12) — Paperless test_connection: Accept-Header
+
+### Fix — Paperless test_connection gibt "HTML instead of JSON"
+- `test_connection()` sendete keinen `Accept: application/json` Header
+- Paperless-ngx DRF Browsable API oder Reverse-Proxy antwortet dann mit HTML
+- Fix: `Accept: application/json` Header + `?format=json` Query-Parameter
+- Betrifft auch den Version-Check via `/api/ui_settings/`
+
 ## 4.4.9 (2026-04-12) — Log-Sichtbarkeit, Versionskonsistenz, Webhook-Cleanup
 
 ### Fix — Versionsangaben konsistent
