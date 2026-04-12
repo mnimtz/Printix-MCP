@@ -8,7 +8,14 @@
       Server-weite Einstellungen — gelten für alle Benutzer.
     </p>
 
-    {% if saved %}
+    {% if auto_setup_success | default(false) %}
+    <div class="alert alert-success" style="font-size:.92em;">
+      ✓ <strong>Entra SSO automatisch eingerichtet!</strong><br>
+      Die App-Registrierung wurde erfolgreich erstellt und die Zugangsdaten gespeichert.
+      Der „Mit Microsoft anmelden"-Button ist jetzt auf der Login-Seite aktiv.
+    </div>
+    {% endif %}
+    {% if saved and not auto_setup_success | default(false) %}
     <div class="alert alert-success">✓ {{ _('admin_saved') }}</div>
     {% endif %}
     {% if error %}
@@ -57,38 +64,95 @@
 
         <div id="entra-fields" style="{{ '' if entra.enabled else 'display:none;' }}">
 
-          <!-- ── Setup-Methode wählen ─────────────────────────────────── -->
+          {% if not entra.client_id or not entra.has_secret %}
+          <!-- ══════════════════════════════════════════════════════════════
+               Noch nicht konfiguriert — Setup-Optionen anzeigen
+               ══════════════════════════════════════════════════════════════ -->
+
+          {% if bootstrap_available | default(false) %}
+          <!-- ── Ein-Klick Auto-Setup (Bootstrap-App konfiguriert) ───── -->
+          <div style="background:linear-gradient(135deg,#eff6ff 0%,#f0fdf4 100%);
+                      border:1px solid #bfdbfe;border-radius:12px;padding:20px;margin-bottom:20px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+              <div style="width:36px;height:36px;background:#2563eb;border-radius:8px;
+                          display:flex;align-items:center;justify-content:center;">
+                <svg width="20" height="20" viewBox="0 0 21 21">
+                  <rect x="1" y="1" width="9" height="9" fill="#fff" opacity=".9"/>
+                  <rect x="11" y="1" width="9" height="9" fill="#fff" opacity=".7"/>
+                  <rect x="1" y="11" width="9" height="9" fill="#fff" opacity=".7"/>
+                  <rect x="11" y="11" width="9" height="9" fill="#fff" opacity=".5"/>
+                </svg>
+              </div>
+              <div>
+                <strong style="font-size:1em;color:#1e3a5f;">Automatisch einrichten</strong>
+                <div style="font-size:.82em;color:#4b5563;">
+                  Ein Klick — App-Registrierung wird automatisch erstellt
+                </div>
+              </div>
+            </div>
+
+            <p style="font-size:.85em;color:#374151;margin-bottom:14px;line-height:1.6;">
+              Melde dich mit deinem Microsoft-Konto an und erteile die Berechtigung.
+              Die App-Registrierung, das Client-Secret und alle Einstellungen werden
+              automatisch erstellt und gespeichert.
+            </p>
+
+            <a href="/admin/entra/auto-setup"
+               style="display:flex;align-items:center;justify-content:center;gap:10px;
+                      width:100%;padding:12px 16px;border-radius:8px;
+                      background:#2563eb;color:#fff;font-size:.95em;font-weight:600;
+                      text-decoration:none;transition:background .15s,box-shadow .15s;
+                      box-shadow:0 2px 8px rgba(37,99,235,.25);"
+               onmouseover="this.style.background='#1d4ed8';this.style.boxShadow='0 4px 12px rgba(37,99,235,.35)'"
+               onmouseout="this.style.background='#2563eb';this.style.boxShadow='0 2px 8px rgba(37,99,235,.25)'">
+              <svg width="20" height="20" viewBox="0 0 21 21">
+                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+              </svg>
+              Mit Microsoft anmelden &amp; App erstellen
+            </a>
+
+            <div style="font-size:.78em;color:#6b7280;text-align:center;margin-top:8px;">
+              Benötigt: Global Administrator oder Application Administrator Rolle
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+            <span style="font-size:.82em;color:#9ca3af;white-space:nowrap;">oder manuell / per Script</span>
+            <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+          </div>
+          {% endif %}
+
+          <!-- ── Setup-Tabs: CLI-Script / Manuelle Anleitung ─────────── -->
           <div style="display:flex;gap:8px;margin-bottom:16px;">
-            <button type="button" class="btn btn-sm"
-                    id="entra-tab-auto"
+            <button type="button" class="btn btn-sm" id="entra-tab-auto"
                     onclick="entraShowTab('auto')"
                     style="flex:1;font-size:.85em;padding:8px 12px;border-radius:8px;
                            background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;font-weight:600;">
-              ⚡ Automatisch einrichten
+              Azure CLI Script
             </button>
-            <button type="button" class="btn btn-sm"
-                    id="entra-tab-manual"
+            <button type="button" class="btn btn-sm" id="entra-tab-manual"
                     onclick="entraShowTab('manual')"
                     style="flex:1;font-size:.85em;padding:8px 12px;border-radius:8px;
                            background:#f9fafb;color:#6b7280;border:1px solid #e5e7eb;font-weight:500;">
-              Manuell konfigurieren
+              Manuell im Azure Portal
             </button>
           </div>
 
-          <!-- ── TAB: Automatisch ─────────────────────────────────────── -->
+          <!-- ── CLI Script Panel ─────────────────────────────────────── -->
           <div id="entra-panel-auto">
             <div class="alert alert-info" style="font-size:.85em;margin-bottom:16px;">
-              <strong>Automatische Einrichtung per Azure CLI</strong><br>
+              <strong>App erstellen per Azure CLI</strong><br>
               <span style="color:#4b5563;">
-                Führe das folgende Script in PowerShell oder Bash aus.
-                Es erstellt die App-Registrierung automatisch und gibt die Zugangsdaten als JSON aus.
-                <br><em>Voraussetzung:</em>
+                Führe das Script in PowerShell oder Bash aus — die Zugangsdaten werden als JSON ausgegeben.
+                <em>Voraussetzung:</em>
                 <a href="https://aka.ms/installazurecli" target="_blank" style="font-weight:600;">Azure CLI</a>
-                muss installiert sein.
               </span>
             </div>
 
-            <!-- Script Tabs: PowerShell / Bash -->
             <div style="display:flex;gap:4px;margin-bottom:0;">
               <button type="button" id="script-tab-ps" class="btn btn-sm"
                       onclick="entraShowScript('ps')"
@@ -107,7 +171,7 @@
             <div id="script-ps" style="position:relative;">
               <pre style="background:#1e293b;color:#e2e8f0;padding:14px 40px 14px 14px;border-radius:0 8px 8px 8px;
                           font-size:.78em;line-height:1.6;overflow-x:auto;margin:0 0 12px 0;white-space:pre-wrap;word-break:break-all;"
-              ><code id="entra-script-ps"># Printix MCP — Entra App automatisch erstellen (PowerShell)
+              ><code id="entra-script-ps"># Printix MCP — Entra App erstellen (PowerShell)
 az login
 $app = az ad app create `
   --display-name "Printix MCP Server" `
@@ -127,7 +191,7 @@ $secret = az ad app credential reset `
             <div id="script-bash" style="position:relative;display:none;">
               <pre style="background:#1e293b;color:#e2e8f0;padding:14px 40px 14px 14px;border-radius:0 8px 8px 8px;
                           font-size:.78em;line-height:1.6;overflow-x:auto;margin:0 0 12px 0;white-space:pre-wrap;word-break:break-all;"
-              ><code id="entra-script-bash"># Printix MCP — Entra App automatisch erstellen (Bash)
+              ><code id="entra-script-bash"># Printix MCP — Entra App erstellen (Bash)
 az login
 APP=$(az ad app create \
   --display-name "Printix MCP Server" \
@@ -143,11 +207,8 @@ echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\
                       onclick="copyScript('entra-script-bash', this)">⧉</button>
             </div>
 
-            <!-- JSON Paste Feld -->
             <div class="form-group" style="margin-top:4px;">
-              <label style="font-weight:600;font-size:.9em;">
-                JSON-Ausgabe hier einfügen:
-              </label>
+              <label style="font-weight:600;font-size:.9em;">JSON-Ausgabe hier einfügen:</label>
               <textarea id="entra-auto-json" rows="4"
                         placeholder='{"tenant_id":"...","client_id":"...","client_secret":"..."}'
                         style="font-family:monospace;font-size:.82em;width:100%;resize:vertical;
@@ -161,19 +222,12 @@ echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\
                     onclick="entraImportJson()">
               Zugangsdaten übernehmen
             </button>
-
             <div id="entra-import-status" style="display:none;margin-bottom:12px;"></div>
-
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-              <div style="flex:1;height:1px;background:#e5e7eb;"></div>
-              <span style="font-size:.78em;color:#9ca3af;">oder weiter mit manueller Eingabe</span>
-              <div style="flex:1;height:1px;background:#e5e7eb;"></div>
-            </div>
           </div>
 
-          <!-- ── TAB: Manuell (immer sichtbar unter Auto-Tab / exklusiv bei Manual-Tab) ── -->
+          <!-- ── Manuelle Anleitung Panel ─────────────────────────────── -->
           <div id="entra-panel-manual">
-            <div class="alert alert-info" style="font-size:.85em;margin-bottom:16px;" id="entra-manual-guide">
+            <div class="alert alert-info" style="font-size:.85em;margin-bottom:16px;">
               <strong>Manuelle Einrichtung in 3 Schritten:</strong>
               <ol style="margin:8px 0 0 16px;line-height:1.8;">
                 <li>Öffne das <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" style="font-weight:700;">Azure Portal → App-Registrierungen → Neue Registrierung</a></li>
@@ -188,13 +242,20 @@ echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\
             </div>
           </div>
 
+          {% else %}
+          <!-- ══════════════════════════════════════════════════════════════
+               Bereits konfiguriert — kein Setup-Wizard nötig
+               ══════════════════════════════════════════════════════════════ -->
+          {% endif %}
+
+          <!-- ── Credential-Felder (immer sichtbar) ──────────────────── -->
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <div class="form-group">
               <label>Entra Tenant-ID <small style="color:#6b7280;">(Directory-ID)</small></label>
               <input type="text" name="entra_tenant_id" id="entra-f-tenant"
                      value="{{ entra.tenant_id }}"
                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-              <small class="hint">Zu finden im Azure Portal → Entra ID → Übersicht. Leer lassen = „common" (alle Tenants).</small>
+              <small class="hint">Leer lassen = „common" (alle Tenants).</small>
             </div>
             <div class="form-group">
               <label>Application (Client) ID</label>
@@ -266,9 +327,10 @@ function entraShowTab(tab) {
   var manual = document.getElementById('entra-panel-manual');
   var tabAuto = document.getElementById('entra-tab-auto');
   var tabManual = document.getElementById('entra-tab-manual');
+  if (!auto || !manual) return;
   if (tab === 'auto') {
     auto.style.display = '';
-    manual.style.display = '';
+    manual.style.display = 'none';
     tabAuto.style.background = '#eff6ff'; tabAuto.style.color = '#2563eb';
     tabAuto.style.borderColor = '#bfdbfe'; tabAuto.style.fontWeight = '600';
     tabManual.style.background = '#f9fafb'; tabManual.style.color = '#6b7280';
@@ -289,6 +351,7 @@ function entraShowScript(lang) {
   var bash = document.getElementById('script-bash');
   var tPs = document.getElementById('script-tab-ps');
   var tBash = document.getElementById('script-tab-bash');
+  if (!ps || !bash) return;
   if (lang === 'ps') {
     ps.style.display = ''; bash.style.display = 'none';
     tPs.style.background = '#1e3a5f'; tPs.style.color = '#fff'; tPs.style.borderColor = '#1e3a5f';
@@ -303,13 +366,14 @@ function entraShowScript(lang) {
 /* ── Copy Script ────────────────────────────────────────────────── */
 function copyScript(id, btn) {
   var el = document.getElementById(id);
+  if (!el) return;
   var text = el.textContent || el.innerText;
   navigator.clipboard.writeText(text).then(function() {
     btn.textContent = '✓'; setTimeout(function(){ btn.textContent = '⧉'; }, 2000);
   });
 }
 
-/* ── JSON Import ────────────────────────────────────────────────── */
+/* ── JSON Import (CLI Script Output) ────────────────────────────── */
 function entraImportJson() {
   var raw = document.getElementById('entra-auto-json').value.trim();
   var status = document.getElementById('entra-import-status');
@@ -333,7 +397,6 @@ function entraImportJson() {
     status.textContent = 'JSON enthält keine client_id. Bitte prüfen.';
     return;
   }
-  /* Felder befüllen */
   if (data.tenant_id) document.getElementById('entra-f-tenant').value = data.tenant_id;
   if (data.client_id)  document.getElementById('entra-f-client').value = data.client_id;
   if (data.client_secret) {

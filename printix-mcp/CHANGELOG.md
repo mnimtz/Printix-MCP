@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.2.1 (2026-04-12) — „Entra Ein-Klick-Setup"
+
+### Feature — Ein-Klick Entra Auto-Setup
+- **Bootstrap-App-Flow**: Neuer OAuth-basierter Auto-Setup — Admin klickt
+  „Mit Microsoft anmelden & App erstellen", meldet sich bei Microsoft an,
+  erteilt Consent, und die SSO-App wird automatisch via Graph API erstellt.
+  Client-ID, Secret und Tenant-ID werden automatisch gespeichert.
+- **Bootstrap-Konfiguration**: Neue Add-on-Options `entra_bootstrap_client_id`
+  und `entra_bootstrap_client_secret` in config.yaml. Einmal eine „Setup Helper"-App
+  registrieren, dann können alle Admins per Klick einrichten.
+- **Neue Routen**: `GET /admin/entra/auto-setup` (startet OAuth-Flow) und
+  `GET /admin/entra/auto-callback` (verarbeitet Callback, erstellt App).
+- **entra.py erweitert**: `get_bootstrap_config()`, `is_bootstrap_available()`,
+  `exchange_bootstrap_code()` — separater Token-Exchange mit Bootstrap-Credentials.
+  `auto_register_app()` verbessert: ermittelt Tenant-ID automatisch via Graph API.
+- **UI-Redesign**: Setup-Wizard zeigt Ein-Klick-Button prominent wenn Bootstrap
+  konfiguriert ist. CLI-Script und manuelle Anleitung als Fallback darunter.
+  Setup-Bereich verschwindet automatisch wenn Entra bereits konfiguriert ist.
+
+### Touched Files
+- `config.yaml` — Bootstrap-App-Options + Version 4.2.1
+- `run.sh` — Export der Bootstrap-Env-Vars
+- `src/entra.py` — Bootstrap-Flow-Funktionen, verbessertes auto_register_app()
+- `src/web/app.py` — Auto-Setup-Routen + bootstrap_available im Template-Kontext
+- `src/web/templates/admin_settings.html` — Komplettes Redesign des Entra-Setup-Bereichs
+
+---
+
 ## 4.2.0 (2026-04-12) — „AI Report Designer + Entra Auto-Setup"
 
 ### Feature — Entra ID Automatische Einrichtung

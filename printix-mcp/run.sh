@@ -37,6 +37,12 @@ export MCP_PUBLIC_URL="${PUBLIC_URL}"
 # Fallback falls MCP_PORT leer
 MCP_PORT="${MCP_PORT:-8765}"
 
+# ─── Entra ID Bootstrap-App (optional, für Ein-Klick-Setup) ─────────────────
+export ENTRA_BOOTSTRAP_CLIENT_ID=$(bashio::config 'entra_bootstrap_client_id')
+export ENTRA_BOOTSTRAP_CLIENT_SECRET=$(bashio::config 'entra_bootstrap_client_secret')
+ENTRA_BOOTSTRAP_CLIENT_ID="${ENTRA_BOOTSTRAP_CLIENT_ID:-}"
+ENTRA_BOOTSTRAP_CLIENT_SECRET="${ENTRA_BOOTSTRAP_CLIENT_SECRET:-}"
+
 # ─── Verbindungsinfo im Log ────────────────────────────────────────────────────
 
 if [ -n "${PUBLIC_URL}" ]; then
@@ -46,7 +52,7 @@ else
 fi
 
 bashio::log.info "╔══════════════════════════════════════════════════════════════╗"
-bashio::log.info "║        PRINTIX MCP SERVER v4.2.0 — MULTI-TENANT            ║"
+bashio::log.info "║        PRINTIX MCP SERVER v4.2.1 — MULTI-TENANT            ║"
 bashio::log.info "╠══════════════════════════════════════════════════════════════╣"
 bashio::log.info "║ Web-Verwaltung:  http://<HA-IP>:${HOST_WEB_PORT}"
 bashio::log.info "║  → Erstkonfiguration / Benutzer registrieren"

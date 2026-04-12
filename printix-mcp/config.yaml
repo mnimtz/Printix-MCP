@@ -1,7 +1,7 @@
 # Home Assistant Add-on: Printix MCP Server
 # https://github.com/mnimtz/Printix-MCP
 name: Printix MCP Server
-version: "4.2.0"
+version: "4.2.1"
 slug: printix-mcp
 description: >-
   Multi-Tenant MCP Server für die Printix Cloud Print API.
@@ -43,12 +43,21 @@ options:
   # Log Level
   log_level: "info"
 
+  # Entra ID Auto-Setup: Bootstrap-App für Ein-Klick-Einrichtung
+  # Einmal eine "Setup Helper"-App in deinem Entra-Tenant registrieren,
+  # dann können Admins per Klick die SSO-App automatisch erstellen lassen.
+  # Leer lassen = manuelles Setup über Azure Portal / CLI
+  entra_bootstrap_client_id: ""
+  entra_bootstrap_client_secret: ""
+
 # Schema-Validierung
 schema:
   mcp_port: int
   web_port: int
   public_url: "url?"
   log_level: "list(debug|info|warning|error|critical)"
+  entra_bootstrap_client_id: "str?"
+  entra_bootstrap_client_secret: "str?"
 
 # Datenpersistenz: SQLite-Datenbank + Secrets bleiben über Updates erhalten
 map:

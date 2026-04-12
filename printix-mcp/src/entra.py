@@ -6,11 +6,16 @@ Konfiguration erfolgt über Admin-Settings (settings-Tabelle).
 
 Unterstützt Multi-Tenant: eine App-Registration in einem beliebigen
 Entra-Tenant, Login für Benutzer aus jedem Entra-Tenant möglich.
+
+Auto-Setup: Über eine „Bootstrap-App" (ENTRA_BOOTSTRAP_CLIENT_ID/SECRET
+in der Add-on-Konfiguration) kann per Ein-Klick-Flow eine neue SSO-App
+im Entra-Tenant des Admins erstellt werden — genauso wie bei SaaS-Anbietern.
 """
 
 import base64
 import json
 import logging
+import os
 import secrets
 from urllib.parse import urlencode
 
@@ -26,6 +31,22 @@ _SCOPES = "openid profile email"
 # Graph API for auto app registration
 _GRAPH_URL = "https://graph.microsoft.com/v1.0"
 _GRAPH_SCOPES = "openid profile email Application.ReadWrite.All"
+
+
+# ─── Bootstrap App (for one-click auto-setup) ──────────────────────────────
+
+def get_bootstrap_config() -> dict:
+    """Liest die Bootstrap-App-Konfiguration aus Umgebungsvariablen."""
+    return {
+        "client_id":     os.environ.get("ENTRA_BOOTSTRAP_CLIENT_ID", "").strip(),
+        "client_secret": os.environ.get("ENTRA_BOOTSTRAP_CLIENT_SECRET", "").strip(),
+    }
+
+
+def is_bootstrap_available() -> bool:
+    """Prüft ob die Bootstrap-App konfiguriert ist (Ein-Klick-Setup möglich)."""
+    cfg = get_bootstrap_config()
+    return bool(cfg["client_id"]) and bool(cfg["client_secret"])
 
 
 # ─── Configuration ───────────────────────────────────────────────────────────
@@ -139,22 +160,34 @@ def exchange_code_for_user(code: str, redirect_uri: str) -> dict | None:
     }
 
 
-# ─── Auto App Registration (Graph API) ──────────────────────────────────────
+# ─── Auto App Registration (Bootstrap Flow) ────────────────────────────────
+#
+# Der Ein-Klick-Setup-Flow nutzt eine vorregistrierte „Bootstrap-App"
+# (konfiguriert via ENTRA_BOOTSTRAP_CLIENT_ID / SECRET), um per Graph API
+# eine neue SSO-App im Entra-Tenant des Admins zu erstellen.
+#
+# Ablauf:
+#   1. Admin klickt „Automatisch einrichten"
+#   2. Redirect zu Microsoft-Login mit Bootstrap-App + Application.ReadWrite.All
+#   3. Admin meldet sich an und erteilt Consent
+#   4. Callback erhält Auth-Code → Token-Exchange mit Bootstrap-Credentials
+#   5. Graph API erstellt neue App + Secret im Admin-Tenant
+#   6. Neue Credentials werden in Settings gespeichert
+# ─────────────────────────────────────────────────────────────────────────────
 
 def build_auto_setup_url(redirect_uri: str, state: str) -> str:
-    """Baut die Microsoft-Login-URL mit Graph-API-Berechtigungen
-    für die automatische App-Registrierung."""
-    cfg = get_config()
-    # Für Auto-Setup muss noch keine client_id konfiguriert sein —
-    # wir nutzen hier den Bootstrap-Flow über "common"
-    tenant = cfg["tenant_id"] or "common"
-    # Wir brauchen eine Bootstrap-Client-ID — die aber noch nicht existiert.
-    # Daher ist der Auto-Setup-Flow nur möglich, wenn bereits eine Client-ID
-    # konfiguriert ist (z.B. manuell angelegt, aber noch kein Secret).
-    if not cfg["client_id"]:
+    """
+    Baut die Microsoft-Login-URL für den Ein-Klick-Auto-Setup.
+    Verwendet die Bootstrap-App-Credentials.
+
+    Returns leeren String wenn Bootstrap nicht konfiguriert ist.
+    """
+    bootstrap = get_bootstrap_config()
+    if not bootstrap["client_id"]:
         return ""
+
     params = {
-        "client_id":     cfg["client_id"],
+        "client_id":     bootstrap["client_id"],
         "response_type": "code",
         "redirect_uri":  redirect_uri,
         "scope":         _GRAPH_SCOPES,
@@ -162,38 +195,97 @@ def build_auto_setup_url(redirect_uri: str, state: str) -> str:
         "state":         state,
         "prompt":        "consent",
     }
-    return _AUTH_URL.format(tenant=tenant) + "?" + urlencode(params)
+    return _AUTH_URL.format(tenant="common") + "?" + urlencode(params)
+
+
+def exchange_bootstrap_code(code: str, redirect_uri: str) -> str | None:
+    """
+    Tauscht den Authorization Code aus dem Auto-Setup-Callback
+    gegen ein Access-Token (via Bootstrap-App-Credentials).
+
+    Returns access_token oder None bei Fehler.
+    """
+    bootstrap = get_bootstrap_config()
+    if not bootstrap["client_id"] or not bootstrap["client_secret"]:
+        logger.error("Bootstrap-Credentials nicht konfiguriert")
+        return None
+
+    try:
+        resp = _requests.post(
+            _TOKEN_URL.format(tenant="common"),
+            data={
+                "client_id":     bootstrap["client_id"],
+                "client_secret": bootstrap["client_secret"],
+                "code":          code,
+                "redirect_uri":  redirect_uri,
+                "grant_type":    "authorization_code",
+                "scope":         _GRAPH_SCOPES,
+            },
+            timeout=15,
+        )
+    except Exception as e:
+        logger.error("Bootstrap Token-Exchange Netzwerkfehler: %s", e)
+        return None
+
+    if resp.status_code != 200:
+        logger.error("Bootstrap Token-Exchange fehlgeschlagen: %s %s",
+                      resp.status_code, resp.text[:500])
+        return None
+
+    data = resp.json()
+    return data.get("access_token")
 
 
 def auto_register_app(
     access_token: str,
-    redirect_uri: str,
+    sso_redirect_uri: str,
     app_name: str = "Printix MCP Server",
 ) -> dict | None:
     """
-    Erstellt eine neue App-Registration im Entra-Tenant des Benutzers
+    Erstellt eine neue SSO-App-Registration im Entra-Tenant des Admins
     über die Microsoft Graph API.
 
-    Returns dict mit client_id + client_secret oder None bei Fehler.
+    Args:
+        access_token:     Graph API Access Token (aus Bootstrap-Flow)
+        sso_redirect_uri: Redirect URI für die neue SSO-App (z.B. .../auth/entra/callback)
+        app_name:         Anzeigename der App in Azure
+
+    Returns:
+        dict mit tenant_id, client_id, client_secret — oder None bei Fehler.
     """
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
 
+    # Tenant-ID des eingeloggten Admins ermitteln
+    tenant_id = ""
+    try:
+        me_resp = _requests.get(
+            f"{_GRAPH_URL}/organization",
+            headers=headers,
+            timeout=10,
+        )
+        if me_resp.status_code == 200:
+            orgs = me_resp.json().get("value", [])
+            if orgs:
+                tenant_id = orgs[0].get("id", "")
+    except Exception as e:
+        logger.warning("Konnte Tenant-ID nicht ermitteln: %s", e)
+
     # 1. App erstellen
     app_body = {
         "displayName": app_name,
         "signInAudience": "AzureADMultipleOrgs",
         "web": {
-            "redirectUris": [redirect_uri],
+            "redirectUris": [sso_redirect_uri],
             "implicitGrantSettings": {
                 "enableIdTokenIssuance": True,
             },
         },
         "requiredResourceAccess": [
             {
-                "resourceAppId": "00000003-0000-0000-c000-000000000000",  # Microsoft Graph
+                "resourceAppId": "00000003-0000-0000-c000-000000000000",
                 "resourceAccess": [
                     {"id": "37f7f235-527c-4136-accd-4a02d197296e", "type": "Scope"},  # openid
                     {"id": "14dad69e-099b-42c9-810b-d002981feec1", "type": "Scope"},  # profile
@@ -235,19 +327,21 @@ def auto_register_app(
         if resp2.status_code not in (200, 201):
             logger.error("Graph: Secret-Erstellung fehlgeschlagen: %s %s",
                           resp2.status_code, resp2.text[:500])
-            return {"client_id": app_id, "client_secret": ""}
+            return {"tenant_id": tenant_id, "client_id": app_id, "client_secret": ""}
 
         secret_data = resp2.json()
         client_secret = secret_data.get("secretText", "")
 
-        logger.info("Entra App automatisch erstellt: %s (client_id=%s)", app_name, app_id)
+        logger.info("Entra SSO-App automatisch erstellt: %s (client_id=%s, tenant=%s)",
+                     app_name, app_id, tenant_id)
         return {
+            "tenant_id":     tenant_id,
             "client_id":     app_id,
             "client_secret": client_secret,
         }
 
     except Exception as e:
-        logger.error("Graph API Fehler: %s", e)
+        logger.error("Graph API Fehler bei Auto-Setup: %s", e)
         return None
 
 
