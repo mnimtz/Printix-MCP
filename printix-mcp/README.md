@@ -1,6 +1,6 @@
 # Printix MCP Server — Home Assistant Add-on
 
-**Version 3.9.2** · Multi-Tenant MCP Server for the Printix Cloud Print API
+**Version 4.0.0** · Multi-Tenant MCP Server for the Printix Cloud Print API
 
 A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix Cloud Print API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Manage printers, users, print jobs, and generate detailed reports — all through natural language in your AI chat.
 
@@ -275,7 +275,7 @@ For advanced scenarios, the following environment variables can be set via the H
 
 See [CHANGELOG.md](CHANGELOG.md) for a full version history.
 
-**v3.9.2** — Bugfix release: demo-data schema mismatch (`dbo.*` → `demo.*`), missing `/tenant/demo/rollback` route, XHR-loaded session list (30+ s → <100 ms first load), `query_off_hours_print` rewrite against real `dbo.jobs` schema, report-engine XSS fix (`|safe` removal + autoescape), OAuth client_id binding (RFC 6749 §4.1.3 defense-in-depth)  
+**v4.0.0** — Bugfix release: demo-data schema mismatch (`dbo.*` → `demo.*`), missing `/tenant/demo/rollback` route, XHR-loaded session list (30+ s → <100 ms first load), `query_off_hours_print` rewrite against real `dbo.jobs` schema, report-engine XSS fix (`|safe` removal + autoescape), OAuth client_id binding (RFC 6749 §4.1.3 defense-in-depth)  
 **v3.9.1** — Security & performance hardening: OAuth redirect-URI whitelist (RFC 6749), XSS fixes in consent + admin/demo/reports templates, open-redirect fix in `/lang`, indexed bearer-token lookup (O(N) → O(1)), dead-code cleanup  
 **v3.9.0** — Admin audit trail, feedback/feature-request ticket system, `audit_log` & `off_hours_print` reports  
 **v3.8.1** — Hour × weekday heatmap report, `sensitive_documents` SQL fix  

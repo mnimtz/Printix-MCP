@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.9.2 (2026-04-11) — „Reports & Demo-Daten Bugfix-Release"
+## 4.0.0 (2026-04-12) — „Reports & Demo-Daten Bugfix-Release"
 
 > **Bugfix-Release.** Behebt mehrere kritische Fehler in der Demo-Daten-Verwaltung
 > und in den Reports, die seit v3.5.0 / v3.9.0 unbemerkt im Code lagen. Der
@@ -33,7 +33,7 @@
 - `src/reporting/query_tools.py` — `query_off_hours_print()` komplett neu gegen echtes `dbo.jobs`-Schema.
 - `src/reporting/report_engine.py` — `|safe` entfernt, `autoescape=True`, `_plain_html_fallback`-Escape.
 - `src/oauth.py` — explizites client_id-Binding im Token-Endpoint.
-- `config.yaml`, `run.sh`, `src/server.py`, `README.md` — v3.9.1 → v3.9.2.
+- `config.yaml`, `run.sh`, `src/server.py`, `README.md` — v3.9.1 → v4.0.0.
 
 ### Upgrade-Hinweise
 - Backwards-kompatibel. Keine Schema-Änderungen, keine manuellen Schritte.
