@@ -505,3 +505,91 @@ def register_capture_routes(
             "profile_id": profile_id,
             "endpoint": f"/capture/webhook/{profile_id}",
         })
+
+    # ── Debug Endpoint — loggt ALLES was reinkommt ────────────────────────
+
+    @app.api_route("/capture/debug", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    async def capture_debug(request: Request):
+        """
+        Debug-Endpoint: Loggt alle Details eines eingehenden Requests.
+        Nützlich um zu sehen was Printix genau sendet.
+        URL: /capture/debug
+        """
+        body_bytes = await request.body()
+        headers_dict = dict(request.headers)
+        query_params = dict(request.query_params)
+
+        # Body parsen (versuchen)
+        body_parsed = None
+        body_text = ""
+        try:
+            body_parsed = json.loads(body_bytes) if body_bytes else None
+        except Exception:
+            body_text = body_bytes.decode("utf-8", errors="replace")[:2000] if body_bytes else ""
+
+        debug_info = {
+            "timestamp": __import__("datetime").datetime.now().isoformat(),
+            "method": request.method,
+            "url": str(request.url),
+            "path": request.url.path,
+            "query_params": query_params,
+            "headers": headers_dict,
+            "body_size": len(body_bytes),
+            "body_json": body_parsed,
+            "body_text": body_text if not body_parsed else "",
+            "client": f"{request.client.host}:{request.client.port}" if request.client else "unknown",
+        }
+
+        # In Server-Log ausgeben
+        logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info("  CAPTURE DEBUG ENDPOINT")
+        logger.info("  Method:  %s", request.method)
+        logger.info("  URL:     %s", request.url)
+        logger.info("  Client:  %s", debug_info["client"])
+        logger.info("  Headers:")
+        for k, v in headers_dict.items():
+            logger.info("    %s: %s", k, v)
+        logger.info("  Query:   %s", query_params)
+        logger.info("  Body (%d bytes):", len(body_bytes))
+        if body_parsed:
+            for k, v in body_parsed.items():
+                val_str = str(v)
+                if len(val_str) > 200:
+                    val_str = val_str[:200] + "..."
+                logger.info("    %s: %s", k, val_str)
+        elif body_text:
+            logger.info("    (raw) %s", body_text[:500])
+        else:
+            logger.info("    (empty)")
+        logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        # Auch ins Capture-Log schreiben (falls ein User eingeloggt ist)
+        try:
+            user = require_login(request)
+            if user:
+                from db import get_tenant_by_user_id, add_tenant_log
+                import asyncio
+                tenant = get_tenant_by_user_id(user["id"])
+                if tenant:
+                    summary = (
+                        f"DEBUG {request.method} | "
+                        f"Body: {len(body_bytes)}B | "
+                        f"Keys: {list(body_parsed.keys()) if body_parsed else '(none)'}"
+                    )
+                    await asyncio.to_thread(
+                        add_tenant_log, tenant["id"], "INFO", "CAPTURE",
+                        f"[Debug Endpoint] {summary}"
+                    )
+        except Exception:
+            pass
+
+        return JSONResponse({
+            "status": "ok",
+            "message": "Debug info logged — check server logs and /logs (CAPTURE category)",
+            "received": debug_info,
+        })
+
+    @app.api_route("/capture/debug/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    async def capture_debug_subpath(request: Request, path: str):
+        """Catch-all für Debug mit Sub-Pfad."""
+        return await capture_debug(request)
