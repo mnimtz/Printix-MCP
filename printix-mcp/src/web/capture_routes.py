@@ -404,15 +404,28 @@ def register_capture_routes(
         from db import get_capture_profile_for_webhook, add_capture_log
         import asyncio
 
+        logger.info("━━━ Capture Webhook empfangen: profile=%s method=%s ━━━",
+                     profile_id[:8], request.method)
+        logger.info("  Headers: %s", dict(request.headers))
+
         # 1. Profil laden
         profile = await asyncio.to_thread(get_capture_profile_for_webhook, profile_id)
         if not profile:
             logger.warning("Capture webhook: unknown or inactive profile %s", profile_id)
             return JSONResponse({"error": "Unknown profile"}, status_code=404)
 
+        logger.info("  Profile found: name=%s plugin=%s active=%s",
+                     profile["name"], profile["plugin_type"], profile.get("is_active"))
+
         # 2. Body lesen
         body_bytes = await request.body()
         headers_dict = {k.lower(): v for k, v in request.headers.items()}
+        logger.info("  Body: %d bytes, Content-Type: %s",
+                     len(body_bytes), headers_dict.get("content-type", "?"))
+
+        # v4.4.1: Body-Preview für Debugging (erste 500 Zeichen)
+        if body_bytes:
+            logger.info("  Body preview: %s", body_bytes[:500].decode("utf-8", errors="replace"))
 
         # 3. HMAC verifizieren
         if not verify_hmac(body_bytes, headers_dict, profile.get("secret_key", "")):
@@ -426,22 +439,28 @@ def register_capture_routes(
         # 4. Body parsen
         try:
             body = json.loads(body_bytes)
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError) as parse_err:
+            logger.error("Capture webhook: JSON parse error: %s (body=%s)",
+                         parse_err, body_bytes[:200].decode("utf-8", errors="replace"))
             await asyncio.to_thread(
                 add_capture_log, profile["tenant_id"], profile_id, profile["name"],
-                "parse_error", "error", f"Invalid JSON body ({len(body_bytes)} bytes)",
+                "parse_error", "error",
+                f"Invalid JSON body ({len(body_bytes)} bytes): {parse_err}",
             )
             return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
-        event_type = body.get("eventType", "unknown")
-        document_url = body.get("documentUrl", "")
-        filename = body.get("fileName", "scan.pdf")
-        metadata = body.get("metadata", {})
+        event_type = body.get("eventType", body.get("EventType", "unknown"))
+        document_url = body.get("documentUrl", body.get("DocumentUrl",
+                       body.get("documentURL", body.get("blobUrl", ""))))
+        filename = body.get("fileName", body.get("FileName",
+                   body.get("name", "scan.pdf")))
+        metadata = body.get("metadata", body.get("Metadata", {}))
 
         logger.info(
-            "Capture webhook [%s/%s]: event=%s file=%s",
-            profile["name"], profile_id[:8], event_type, filename,
+            "  Parsed: event=%s file=%s docUrl=%s...",
+            event_type, filename, document_url[:80] if document_url else "(none)",
         )
+        logger.info("  Full body keys: %s", list(body.keys()))
 
         # 5. Plugin-Verarbeitung
         plugin = create_plugin_instance(profile["plugin_type"], profile.get("config_json", "{}"))
@@ -457,6 +476,8 @@ def register_capture_routes(
         except Exception as e:
             logger.exception("Capture plugin error: %s", e)
             ok, msg = False, str(e)
+
+        logger.info("  Result: ok=%s msg=%s", ok, msg[:200] if msg else "")
 
         # 6. Log
         await asyncio.to_thread(

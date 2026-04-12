@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.4.1 (2026-04-12) — Capture Webhook Debug + HMAC Fix
+
+### Fix — Capture Webhook
+- **Verbose Logging**: Webhook-Handler loggt jetzt alle eingehenden Headers, Body-Preview, parsed Keys
+- **HMAC toleranter**: Wenn Printix keine Signatur-Header sendet (aber Secret konfiguriert), wird der Request trotzdem durchgelassen statt 401
+- **HMAC Prefix-Handling**: Unterstützt jetzt `sha256=HEXDIGEST` Format (wie GitHub Webhooks)
+- **Flexible Feld-Erkennung**: `documentUrl`/`DocumentUrl`/`blobUrl`, `fileName`/`FileName`/`name`, `eventType`/`EventType`
+- **JSON-Parse-Fehler** werden jetzt ins Capture-Log geschrieben (mit Body-Preview)
+- **CAPTURE Log-Kategorie** im `/logs`-Filter ergänzt (fehlte vorher)
+
+### Fix — Webhook URL HTTPS
+- Capture Store + Form nutzen jetzt `MCP_PUBLIC_URL`/`public_url` statt `request.url.scheme`
+- Zeigt korrekte HTTPS-URL statt internes HTTP
+
 ## 4.4.0 (2026-04-12) — Capture Store, Fleet/Dashboard API-First, Demo Local SQLite
 
 ### Feature — Capture Store (`/capture`)
