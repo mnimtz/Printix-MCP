@@ -231,14 +231,21 @@ def rollback_demo_session(session_id: str) -> dict:
 
 def rollback_all_demos(tenant_id: str) -> dict:
     """Löscht ALLE Demo-Daten eines Tenants."""
-    tables = [
+    tables_with_tenant_id = [
         "demo_tracking_data", "demo_jobs", "demo_jobs_scan",
-        "demo_jobs_copy", "demo_jobs_copy_details",
+        "demo_jobs_copy",
         "demo_users", "demo_printers", "demo_networks",
     ]
     deleted = {}
     with demo_conn() as conn:
-        for tbl in tables:
+        # demo_jobs_copy_details hat kein tenant_id — über demo_jobs_copy.id joinen
+        cur = conn.execute(
+            "DELETE FROM demo_jobs_copy_details WHERE job_id IN "
+            "(SELECT id FROM demo_jobs_copy WHERE tenant_id = ?)",
+            (tenant_id,),
+        )
+        deleted["demo_jobs_copy_details"] = cur.rowcount
+        for tbl in tables_with_tenant_id:
             cur = conn.execute(f"DELETE FROM {tbl} WHERE tenant_id = ?", (tenant_id,))
             deleted[tbl] = cur.rowcount
         conn.execute("DELETE FROM demo_sessions WHERE tenant_id = ?", (tenant_id,))

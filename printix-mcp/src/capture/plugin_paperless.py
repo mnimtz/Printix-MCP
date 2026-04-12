@@ -172,7 +172,17 @@ class PaperlessNgxPlugin(CapturePlugin):
                 headers = {"Authorization": f"Token {token}"}
                 async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status == 200:
-                        data = await resp.json()
+                        # Prüfe Content-Type — Proxy/Login kann HTML zurückgeben
+                        ct = resp.headers.get("content-type", "")
+                        if "text/html" in ct:
+                            return False, (
+                                f"Server returned HTML instead of JSON — "
+                                f"check URL (proxy/login page?): {paperless_url}"
+                            )
+                        try:
+                            data = await resp.json()
+                        except Exception:
+                            return False, f"Response is not valid JSON (Content-Type: {ct})"
                         version = ""
                         # Try to get version from /api/ui_settings/
                         try:

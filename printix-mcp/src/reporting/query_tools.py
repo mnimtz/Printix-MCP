@@ -385,22 +385,24 @@ _view_cache: dict[tuple, bool] = {}
 
 def _V(table: str) -> str:
     """
-    Gibt 'reporting.v_{table}' zurück wenn reporting-Views in der aktuellen DB
-    vorhanden sind, sonst 'dbo.{table}' als Fallback.
-    Gecacht pro (server, database) Kombination.
+    Gibt 'reporting.v_{table}' zurück wenn die View in der aktuellen DB
+    existiert, sonst 'dbo.{table}' als Fallback.
+    v4.4.7: Prüft jede View einzeln statt globalem Schalter.
     """
     from .sql_client import get_current_db_key, query_fetchone
-    key = get_current_db_key()
-    if key not in _view_cache:
+    db_key = get_current_db_key()
+    cache_key = db_key + (table,)
+    if cache_key not in _view_cache:
         try:
             r = query_fetchone(
                 "SELECT COUNT(*) AS cnt FROM sys.views "
-                "WHERE schema_id = SCHEMA_ID('reporting') AND name = 'v_tracking_data'"
+                "WHERE schema_id = SCHEMA_ID('reporting') AND name = ?",
+                (f"v_{table}",),
             )
-            _view_cache[key] = bool((r or {}).get("cnt", 0) > 0)
+            _view_cache[cache_key] = bool((r or {}).get("cnt", 0) > 0)
         except Exception:
-            _view_cache[key] = False
-    return f"reporting.v_{table}" if _view_cache[key] else f"dbo.{table}"
+            _view_cache[cache_key] = False
+    return f"reporting.v_{table}" if _view_cache[cache_key] else f"dbo.{table}"
 
 
 def invalidate_view_cache() -> None:
