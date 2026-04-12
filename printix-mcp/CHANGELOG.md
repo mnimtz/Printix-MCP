@@ -1,5 +1,46 @@
 # Changelog
 
+## 4.3.0 (2026-04-12) — Device Code Flow: Echtes Ein-Klick Entra Auto-Setup
+
+### Feature — Device Code Flow fuer Entra SSO App-Registrierung
+- **Vollautomatisches Setup**: Admin klickt "Automatisch einrichten", gibt
+  einen Code bei `microsoft.com/devicelogin` ein, meldet sich an und erteilt
+  Consent. Die SSO-App wird via Graph API erstellt, Client-ID, Secret und
+  Tenant-ID automatisch gespeichert. Keine Bootstrap-App mehr noetig.
+- **Azure CLI Client-ID**: Nutzt Microsofts well-known Azure CLI Client-ID
+  (`04b07795-a710-4f83-a962-d65c70e4e3c2`) fuer den Device Code Flow.
+  Unterstuetzt Application.ReadWrite.All und Organization.Read.All Scopes.
+- **Neue API-Endpunkte**: `POST /admin/entra/device-code` (startet Flow) und
+  `GET /admin/entra/device-poll` (pollt Token-Status + erstellt App bei Erfolg).
+- **Neues UI**: Device Code Box mit grossem Code-Display, Verification-Link
+  (oeffnet automatisch in neuem Tab), Live-Polling-Spinner, Erfolgs- und
+  Fehler-Anzeige mit Retry-Button.
+- **11 neue i18n Keys** fuer Device Code Flow in allen 12 Sprachen
+  (`entra_dc_step1`, `entra_dc_step2`, `entra_dc_waiting`, `entra_dc_success`,
+  `entra_dc_success_sub`, `entra_dc_expired`, `entra_dc_error`,
+  `entra_dc_error_declined`, `entra_dc_error_app`, `entra_dc_retry`,
+  `entra_dc_starting`).
+
+### Breaking — Bootstrap-App entfernt
+- `entra_bootstrap_client_id` und `entra_bootstrap_client_secret` aus
+  config.yaml entfernt — nicht mehr benoetig.
+- `ENTRA_BOOTSTRAP_CLIENT_ID`/`ENTRA_BOOTSTRAP_CLIENT_SECRET` Env-Vars
+  aus run.sh entfernt.
+- Bootstrap-Funktionen (`get_bootstrap_config`, `is_bootstrap_available`,
+  `build_auto_setup_url`, `exchange_bootstrap_code`) durch Device Code
+  Flow ersetzt (`start_device_code_flow`, `poll_device_code_token`).
+
+### Touched Files
+- `src/entra.py` — Device Code Flow Funktionen, Bootstrap entfernt
+- `src/web/app.py` — Neue JSON-API-Routen, Bootstrap-Routen entfernt
+- `src/web/templates/admin_settings.html` — Device Code UI + JS
+- `src/web/i18n.py` — 11 neue Keys x 12 Sprachen = 132 neue Eintraege
+- `config.yaml` — Bootstrap-Options entfernt, Version 4.3.0
+- `run.sh` — Bootstrap-Env-Vars entfernt, Version 4.3.0
+- `src/server.py` — Version 4.3.0
+
+---
+
 ## 4.2.2 (2026-04-12) — „i18n + Tenant-Isolation"
 
 ### Fix — Tenant-Isolation: Demo-Status-Endpoint

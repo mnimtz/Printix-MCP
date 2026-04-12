@@ -64,9 +64,9 @@
 
           {% if not entra.client_id or not entra.has_secret %}
 
-          {% if bootstrap_available | default(false) %}
-          <!-- ── Ein-Klick Auto-Setup (Bootstrap-App konfiguriert) ───── -->
-          <div style="background:linear-gradient(135deg,#eff6ff 0%,#f0fdf4 100%);
+          <!-- ── Ein-Klick Auto-Setup (Device Code Flow) ───────────── -->
+          <div id="entra-auto-setup-box"
+               style="background:linear-gradient(135deg,#eff6ff 0%,#f0fdf4 100%);
                       border:1px solid #bfdbfe;border-radius:12px;padding:20px;margin-bottom:20px;">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
               <div style="width:36px;height:36px;background:#2563eb;border-radius:8px;
@@ -90,25 +90,83 @@
               {{ _('entra_auto_setup_desc') }}
             </p>
 
-            <a href="/admin/entra/auto-setup"
-               style="display:flex;align-items:center;justify-content:center;gap:10px;
-                      width:100%;padding:12px 16px;border-radius:8px;
-                      background:#2563eb;color:#fff;font-size:.95em;font-weight:600;
-                      text-decoration:none;transition:background .15s,box-shadow .15s;
-                      box-shadow:0 2px 8px rgba(37,99,235,.25);"
-               onmouseover="this.style.background='#1d4ed8';this.style.boxShadow='0 4px 12px rgba(37,99,235,.35)'"
-               onmouseout="this.style.background='#2563eb';this.style.boxShadow='0 2px 8px rgba(37,99,235,.25)'">
-              <svg width="20" height="20" viewBox="0 0 21 21">
-                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-              </svg>
-              {{ _('entra_auto_setup_btn') }}
-            </a>
+            <!-- Start-Button -->
+            <div id="entra-dc-start">
+              <button type="button" id="entra-dc-btn"
+                      onclick="entraStartDeviceCode()"
+                      style="display:flex;align-items:center;justify-content:center;gap:10px;
+                             width:100%;padding:12px 16px;border-radius:8px;cursor:pointer;
+                             background:#2563eb;color:#fff;font-size:.95em;font-weight:600;
+                             border:none;transition:background .15s,box-shadow .15s;
+                             box-shadow:0 2px 8px rgba(37,99,235,.25);"
+                      onmouseover="this.style.background='#1d4ed8';this.style.boxShadow='0 4px 12px rgba(37,99,235,.35)'"
+                      onmouseout="this.style.background='#2563eb';this.style.boxShadow='0 2px 8px rgba(37,99,235,.25)'">
+                <svg width="20" height="20" viewBox="0 0 21 21">
+                  <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                  <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                  <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                  <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+                </svg>
+                {{ _('entra_auto_setup_btn') }}
+              </button>
+              <div style="font-size:.78em;color:#6b7280;text-align:center;margin-top:8px;">
+                {{ _('entra_auto_setup_hint') }}
+              </div>
+            </div>
 
-            <div style="font-size:.78em;color:#6b7280;text-align:center;margin-top:8px;">
-              {{ _('entra_auto_setup_hint') }}
+            <!-- Device Code anzeigen (wird per JS eingeblendet) -->
+            <div id="entra-dc-code" style="display:none;">
+              <div style="text-align:center;padding:8px 0;">
+                <div style="font-size:.88em;color:#374151;margin-bottom:10px;">
+                  {{ _('entra_dc_step1') }}
+                </div>
+                <div id="entra-dc-user-code"
+                     style="font-size:2em;font-weight:800;letter-spacing:4px;color:#1e3a5f;
+                            background:#fff;border:2px solid #2563eb;border-radius:10px;
+                            padding:12px 24px;display:inline-block;margin-bottom:14px;
+                            user-select:all;cursor:pointer;"
+                     onclick="navigator.clipboard.writeText(this.textContent.trim())">
+                </div>
+                <div style="font-size:.88em;color:#374151;margin-bottom:8px;">
+                  {{ _('entra_dc_step2') }}
+                </div>
+                <a id="entra-dc-link" href="#" target="_blank"
+                   style="display:inline-flex;align-items:center;gap:6px;
+                          font-size:1em;font-weight:600;color:#2563eb;">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M6 3H3a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1v-3M9 1h6m0 0v6m0-6L8 8"/>
+                  </svg>
+                  <span id="entra-dc-link-text"></span>
+                </a>
+              </div>
+              <div id="entra-dc-status"
+                   style="display:flex;align-items:center;justify-content:center;gap:8px;
+                          margin-top:14px;font-size:.88em;color:#6b7280;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5"
+                     style="animation:spin 1s linear infinite;">
+                  <path d="M12 2a10 10 0 0110 10" stroke-linecap="round"/>
+                </svg>
+                <span>{{ _('entra_dc_waiting') }}</span>
+              </div>
+            </div>
+
+            <!-- Erfolg -->
+            <div id="entra-dc-success" style="display:none;">
+              <div class="alert alert-success" style="font-size:.92em;margin:0;">
+                &#10003; <strong>{{ _('entra_dc_success') }}</strong><br>
+                {{ _('entra_dc_success_sub') }}
+              </div>
+            </div>
+
+            <!-- Fehler -->
+            <div id="entra-dc-error" style="display:none;">
+              <div class="alert alert-error" style="font-size:.92em;margin-bottom:12px;">
+                <span id="entra-dc-error-msg"></span>
+              </div>
+              <button type="button" class="btn btn-secondary" style="width:100%;"
+                      onclick="entraResetDeviceCode()">
+                {{ _('entra_dc_retry') }}
+              </button>
             </div>
           </div>
 
@@ -117,7 +175,6 @@
             <span style="font-size:.82em;color:#9ca3af;white-space:nowrap;">{{ _('entra_or_manual') }}</span>
             <div style="flex:1;height:1px;background:#e5e7eb;"></div>
           </div>
-          {% endif %}
 
           <!-- ── Setup-Tabs: CLI-Script / Manuelle Anleitung ─────────── -->
           <div style="display:flex;gap:8px;margin-bottom:16px;">
@@ -311,7 +368,18 @@ echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\
      data-err-empty="{{ _('entra_json_err_empty') }}"
      data-err-invalid="{{ _('entra_json_err_invalid') }}"
      data-err-no-client="{{ _('entra_json_err_no_client') }}"
-     data-ok="{{ _('entra_json_ok') }}"></div>
+     data-ok="{{ _('entra_json_ok') }}"
+     data-dc-waiting="{{ _('entra_dc_waiting') }}"
+     data-dc-success="{{ _('entra_dc_success') }}"
+     data-dc-expired="{{ _('entra_dc_expired') }}"
+     data-dc-error="{{ _('entra_dc_error') }}"
+     data-dc-error-declined="{{ _('entra_dc_error_declined') }}"
+     data-dc-error-app="{{ _('entra_dc_error_app') }}"
+     data-dc-starting="{{ _('entra_dc_starting') }}"></div>
+
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
 
 <script>
 /* ── Entra Setup Tab Switching ──────────────────────────────────── */
@@ -363,6 +431,82 @@ function copyScript(id, btn) {
   navigator.clipboard.writeText(el.textContent || el.innerText).then(function() {
     btn.textContent = '\u2713'; setTimeout(function(){ btn.textContent = '\u29C9'; }, 2000);
   });
+}
+
+/* ── Device Code Flow ──────────────────────────────────────────── */
+var _dcPollTimer = null;
+
+function entraStartDeviceCode() {
+  var i18n = document.getElementById('entra-i18n').dataset;
+  var btn = document.getElementById('entra-dc-btn');
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  btn.textContent = i18n.dcStarting || '...';
+
+  fetch('/admin/entra/device-code', {method:'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) {
+        entraShowDcError(i18n.dcError + ': ' + data.error);
+        return;
+      }
+      document.getElementById('entra-dc-start').style.display = 'none';
+      document.getElementById('entra-dc-code').style.display = '';
+      document.getElementById('entra-dc-user-code').textContent = data.user_code;
+      var link = document.getElementById('entra-dc-link');
+      link.href = data.verification_uri;
+      document.getElementById('entra-dc-link-text').textContent = data.verification_uri;
+      window.open(data.verification_uri, '_blank');
+      var interval = (data.interval || 5) * 1000;
+      _dcPollTimer = setInterval(function() { entraPollDeviceCode(); }, interval);
+    })
+    .catch(function(e) {
+      entraShowDcError(i18n.dcError + ': ' + e.message);
+    });
+}
+
+function entraPollDeviceCode() {
+  var i18n = document.getElementById('entra-i18n').dataset;
+  fetch('/admin/entra/device-poll')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === 'pending') return;
+      clearInterval(_dcPollTimer);
+      _dcPollTimer = null;
+      if (data.status === 'success') {
+        document.getElementById('entra-dc-code').style.display = 'none';
+        document.getElementById('entra-dc-success').style.display = '';
+        setTimeout(function() { location.reload(); }, 2000);
+      } else if (data.status === 'expired') {
+        entraShowDcError(i18n.dcExpired);
+      } else {
+        var msg = i18n.dcError;
+        if (data.error === 'authorization_declined') msg = i18n.dcErrorDeclined;
+        else if (data.error === 'app_creation_failed') msg = i18n.dcErrorApp;
+        else if (data.error) msg = data.error;
+        entraShowDcError(msg);
+      }
+    })
+    .catch(function() { /* ignore network glitch, retry next interval */ });
+}
+
+function entraShowDcError(msg) {
+  document.getElementById('entra-dc-start').style.display = 'none';
+  document.getElementById('entra-dc-code').style.display = 'none';
+  document.getElementById('entra-dc-success').style.display = 'none';
+  document.getElementById('entra-dc-error').style.display = '';
+  document.getElementById('entra-dc-error-msg').textContent = msg;
+}
+
+function entraResetDeviceCode() {
+  if (_dcPollTimer) { clearInterval(_dcPollTimer); _dcPollTimer = null; }
+  document.getElementById('entra-dc-start').style.display = '';
+  document.getElementById('entra-dc-code').style.display = 'none';
+  document.getElementById('entra-dc-success').style.display = 'none';
+  document.getElementById('entra-dc-error').style.display = 'none';
+  var btn = document.getElementById('entra-dc-btn');
+  btn.disabled = false;
+  btn.style.opacity = '';
 }
 
 /* ── JSON Import (CLI Script Output) ──��─────────────────────────── */

@@ -587,95 +587,79 @@ def create_app(session_secret: str) -> FastAPI:
 
     # ── Entra Auto-Setup (Ein-Klick via Bootstrap-App) ─────────────────────
     #
-    # Voraussetzung: ENTRA_BOOTSTRAP_CLIENT_ID + SECRET als Env-Vars gesetzt.
-    # Admin klickt Button → Microsoft Login → Consent → App wird erstellt.
+    # ─── Device Code Flow: Admin klickt Button → Code anzeigen → automatische
+    # App-Registration via Graph API. Keine Bootstrap-App nötig.
 
-    @app.get("/admin/entra/auto-setup")
-    async def entra_auto_setup(request: Request):
-        """Startet den Ein-Klick-Auto-Setup-Flow für Entra SSO."""
+    @app.post("/admin/entra/device-code")
+    async def entra_device_code_start(request: Request):
+        """Startet den Device Code Flow fuer Entra Auto-Setup."""
         user = get_session_user(request)
         if not user or not user.get("is_admin"):
-            return RedirectResponse("/login", status_code=302)
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         try:
-            from entra import is_bootstrap_available, build_auto_setup_url, generate_state
+            from entra import start_device_code_flow
         except ImportError:
-            return RedirectResponse("/admin/settings?error=entra_module", status_code=302)
+            return JSONResponse({"error": "entra module not available"}, status_code=500)
 
-        if not is_bootstrap_available():
-            return RedirectResponse("/admin/settings?error=no_bootstrap", status_code=302)
+        result = start_device_code_flow()
+        if not result or not result.get("device_code"):
+            return JSONResponse({"error": "device_code_failed"}, status_code=502)
 
-        base = _get_base_url(request)
-        state = generate_state()
-        request.session["entra_auto_state"] = state
+        # Device code in Session speichern (fuer Polling)
+        request.session["entra_device_code"] = result["device_code"]
+        request.session["entra_device_interval"] = result.get("interval", 5)
 
-        redirect_uri = f"{base}/admin/entra/auto-callback"
-        url = build_auto_setup_url(redirect_uri, state)
-        if not url:
-            return RedirectResponse("/admin/settings?error=bootstrap_config", status_code=302)
+        return JSONResponse({
+            "user_code":        result["user_code"],
+            "verification_uri": result["verification_uri"],
+            "expires_in":       result["expires_in"],
+            "interval":         result.get("interval", 5),
+            "message":          result.get("message", ""),
+        })
 
-        return RedirectResponse(url, status_code=302)
-
-    @app.get("/admin/entra/auto-callback")
-    async def entra_auto_callback(request: Request):
-        """
-        Callback nach Microsoft-Consent: erstellt die SSO-App via Graph API,
-        speichert Credentials automatisch in den Settings.
-        """
+    @app.get("/admin/entra/device-poll")
+    async def entra_device_code_poll(request: Request):
+        """Pollt den Token-Status des laufenden Device Code Flows."""
         user = get_session_user(request)
         if not user or not user.get("is_admin"):
-            return RedirectResponse("/login", status_code=302)
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-        # State validieren
-        expected_state = request.session.pop("entra_auto_state", "")
-        received_state = request.query_params.get("state", "")
-        if not expected_state or expected_state != received_state:
-            return templates.TemplateResponse("admin_settings.html",
-                _admin_settings_ctx(request, user,
-                    error="CSRF-Validierung fehlgeschlagen. Bitte erneut versuchen."))
+        device_code = request.session.get("entra_device_code", "")
+        if not device_code:
+            return JSONResponse({"status": "error", "error": "no_device_code"})
 
-        # Error von Microsoft?
-        ms_error = request.query_params.get("error", "")
-        if ms_error:
-            desc = request.query_params.get("error_description", ms_error)
-            logger.error("Entra Auto-Setup: Microsoft-Fehler: %s — %s", ms_error, desc)
-            return templates.TemplateResponse("admin_settings.html",
-                _admin_settings_ctx(request, user,
-                    error=f"Microsoft-Fehler: {desc}"))
-
-        code = request.query_params.get("code", "")
-        if not code:
-            return templates.TemplateResponse("admin_settings.html",
-                _admin_settings_ctx(request, user,
-                    error="Kein Authorization-Code erhalten."))
-
-        # Token-Exchange via Bootstrap-App
         try:
-            from entra import exchange_bootstrap_code, auto_register_app
+            from entra import poll_device_code_token, auto_register_app
         except ImportError:
-            return templates.TemplateResponse("admin_settings.html",
-                _admin_settings_ctx(request, user,
-                    error="Entra-Modul nicht verfügbar."))
+            return JSONResponse({"status": "error", "error": "entra module not available"})
+
+        poll_result = poll_device_code_token(device_code)
+
+        if poll_result["status"] == "pending":
+            return JSONResponse({"status": "pending"})
+
+        if poll_result["status"] == "expired":
+            request.session.pop("entra_device_code", None)
+            return JSONResponse({"status": "expired"})
+
+        if poll_result["status"] == "error":
+            request.session.pop("entra_device_code", None)
+            return JSONResponse({"status": "error", "error": poll_result.get("error", "")})
+
+        # status == "success" — Token erhalten, App erstellen
+        access_token = poll_result["access_token"]
+        request.session.pop("entra_device_code", None)
 
         base = _get_base_url(request)
-        setup_redirect_uri = f"{base}/admin/entra/auto-callback"
-        access_token = exchange_bootstrap_code(code, setup_redirect_uri)
-
-        if not access_token:
-            return templates.TemplateResponse("admin_settings.html",
-                _admin_settings_ctx(request, user,
-                    error="Token-Exchange fehlgeschlagen. Bitte Bootstrap-Credentials prüfen."))
-
-        # SSO-App erstellen via Graph API
         sso_redirect_uri = f"{base}/auth/entra/callback"
         result = auto_register_app(access_token, sso_redirect_uri)
 
         if not result or not result.get("client_id"):
-            return templates.TemplateResponse("admin_settings.html",
-                _admin_settings_ctx(request, user,
-                    error="App-Erstellung via Graph API fehlgeschlagen. "
-                          "Prüfe ob der Benutzer ausreichende Rechte hat "
-                          "(Global Administrator oder Application Administrator)."))
+            return JSONResponse({
+                "status": "error",
+                "error": "app_creation_failed",
+            })
 
         # Credentials in Settings speichern
         try:
@@ -686,20 +670,23 @@ def create_app(session_secret: str) -> FastAPI:
                 set_setting("entra_client_secret", _enc(result["client_secret"]))
             if result.get("tenant_id"):
                 set_setting("entra_tenant_id", result["tenant_id"])
-            set_setting("entra_auto_approve", "0")  # Sicher: erstmal manuell freischalten
+            set_setting("entra_auto_approve", "0")
 
             audit(user["id"], "entra_auto_setup",
-                  f"SSO-App automatisch erstellt (client_id={result['client_id']})")
+                  f"SSO-App via Device Code Flow erstellt (client_id={result['client_id']})")
             logger.info("Entra Auto-Setup erfolgreich: client_id=%s", result["client_id"])
         except Exception as e:
             logger.error("Entra Auto-Setup DB-Fehler: %s", e)
-            return templates.TemplateResponse("admin_settings.html",
-                _admin_settings_ctx(request, user,
-                    error=f"App erstellt, aber Speichern fehlgeschlagen: {e}"))
+            return JSONResponse({
+                "status": "error",
+                "error": f"App erstellt, aber Speichern fehlgeschlagen: {e}",
+            })
 
-        return templates.TemplateResponse("admin_settings.html",
-            _admin_settings_ctx(request, user, saved=True,
-                auto_setup_success=True))
+        return JSONResponse({
+            "status": "success",
+            "client_id": result["client_id"],
+            "tenant_id": result.get("tenant_id", ""),
+        })
 
     def _get_base_url(request: Request) -> str:
         """Ermittelt die Base-URL für Redirect URIs."""
@@ -1289,19 +1276,12 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception:
             entra_cfg = {"enabled": False, "tenant_id": "", "client_id": "",
                          "has_secret": False, "auto_approve": False}
-        # Bootstrap-App-Status prüfen
-        try:
-            from entra import is_bootstrap_available
-            bootstrap_available = is_bootstrap_available()
-        except Exception:
-            bootstrap_available = False
         base = _get_base_url(request)
         return {
             "request": request, "user": user,
             "public_url": public_url,
             "entra": entra_cfg,
             "entra_redirect_uri": f"{base}/auth/entra/callback",
-            "bootstrap_available": bootstrap_available,
             "auto_setup_success": auto_setup_success,
             "saved": saved, "error": error,
             **t_ctx(request),

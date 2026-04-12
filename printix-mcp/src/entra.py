@@ -7,9 +7,9 @@ Konfiguration erfolgt über Admin-Settings (settings-Tabelle).
 Unterstützt Multi-Tenant: eine App-Registration in einem beliebigen
 Entra-Tenant, Login für Benutzer aus jedem Entra-Tenant möglich.
 
-Auto-Setup: Über eine „Bootstrap-App" (ENTRA_BOOTSTRAP_CLIENT_ID/SECRET
-in der Add-on-Konfiguration) kann per Ein-Klick-Flow eine neue SSO-App
-im Entra-Tenant des Admins erstellt werden — genauso wie bei SaaS-Anbietern.
+Auto-Setup (v4.3.0): Device Code Flow mit Azure-CLI-Client-ID — der Admin
+klickt einen Button, gibt einen Code bei Microsoft ein, und die SSO-App
+wird automatisch via Graph API erstellt. Keine Bootstrap-App nötig.
 """
 
 import base64
@@ -26,27 +26,15 @@ logger = logging.getLogger(__name__)
 # Microsoft Identity Platform v2.0 Endpoints
 _AUTH_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
 _TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+_DEVICE_CODE_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/devicecode"
 _SCOPES = "openid profile email"
 
-# Graph API for auto app registration
+# Graph API
 _GRAPH_URL = "https://graph.microsoft.com/v1.0"
-_GRAPH_SCOPES = "openid profile email Application.ReadWrite.All"
 
-
-# ─── Bootstrap App (for one-click auto-setup) ──────────────────────────────
-
-def get_bootstrap_config() -> dict:
-    """Liest die Bootstrap-App-Konfiguration aus Umgebungsvariablen."""
-    return {
-        "client_id":     os.environ.get("ENTRA_BOOTSTRAP_CLIENT_ID", "").strip(),
-        "client_secret": os.environ.get("ENTRA_BOOTSTRAP_CLIENT_SECRET", "").strip(),
-    }
-
-
-def is_bootstrap_available() -> bool:
-    """Prüft ob die Bootstrap-App konfiguriert ist (Ein-Klick-Setup möglich)."""
-    cfg = get_bootstrap_config()
-    return bool(cfg["client_id"]) and bool(cfg["client_secret"])
+# Azure CLI well-known client_id (Microsoft first-party app, supports device code flow
+# + Graph API permissions). Used by `az login` / `az ad app create`.
+_AZURE_CLI_CLIENT_ID = "04b07795-a710-4f83-a962-d65c70e4e3c2"
 
 
 # ─── Configuration ───────────────────────────────────────────────────────────
@@ -160,80 +148,107 @@ def exchange_code_for_user(code: str, redirect_uri: str) -> dict | None:
     }
 
 
-# ─── Auto App Registration (Bootstrap Flow) ────────────────────────────────
+# ─── Device Code Flow (Auto App Registration) ────────────────────────────────
 #
-# Der Ein-Klick-Setup-Flow nutzt eine vorregistrierte „Bootstrap-App"
-# (konfiguriert via ENTRA_BOOTSTRAP_CLIENT_ID / SECRET), um per Graph API
-# eine neue SSO-App im Entra-Tenant des Admins zu erstellen.
+# Truly automatic one-click setup using Azure CLI's well-known client_id.
+# No bootstrap app or pre-registered credentials needed.
 #
 # Ablauf:
-#   1. Admin klickt „Automatisch einrichten"
-#   2. Redirect zu Microsoft-Login mit Bootstrap-App + Application.ReadWrite.All
-#   3. Admin meldet sich an und erteilt Consent
-#   4. Callback erhält Auth-Code → Token-Exchange mit Bootstrap-Credentials
-#   5. Graph API erstellt neue App + Secret im Admin-Tenant
-#   6. Neue Credentials werden in Settings gespeichert
+#   1. Admin klickt "Automatisch einrichten"
+#   2. Server startet Device Code Flow (POST devicecode endpoint)
+#   3. Seite zeigt user_code + verification_uri
+#   4. Admin oeffnet URL, gibt Code ein, meldet sich an, erteilt Consent
+#   5. Server pollt Token-Endpoint bis Token empfangen
+#   6. Graph API erstellt neue SSO-App + Secret
+#   7. Credentials werden in Settings gespeichert
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_auto_setup_url(redirect_uri: str, state: str) -> str:
+# Graph API scopes for device code flow (app registration)
+_GRAPH_SCOPES_DEVICE = (
+    "https://graph.microsoft.com/Application.ReadWrite.All "
+    "https://graph.microsoft.com/Organization.Read.All"
+)
+
+
+def start_device_code_flow(tenant: str = "common") -> dict | None:
     """
-    Baut die Microsoft-Login-URL für den Ein-Klick-Auto-Setup.
-    Verwendet die Bootstrap-App-Credentials.
+    Startet den Device Code Flow mit der Azure CLI Client-ID.
 
-    Returns leeren String wenn Bootstrap nicht konfiguriert ist.
+    Returns dict mit keys: device_code, user_code, verification_uri,
+    expires_in, interval — oder None bei Fehler.
     """
-    bootstrap = get_bootstrap_config()
-    if not bootstrap["client_id"]:
-        return ""
-
-    params = {
-        "client_id":     bootstrap["client_id"],
-        "response_type": "code",
-        "redirect_uri":  redirect_uri,
-        "scope":         _GRAPH_SCOPES,
-        "response_mode": "query",
-        "state":         state,
-        "prompt":        "consent",
-    }
-    return _AUTH_URL.format(tenant="common") + "?" + urlencode(params)
-
-
-def exchange_bootstrap_code(code: str, redirect_uri: str) -> str | None:
-    """
-    Tauscht den Authorization Code aus dem Auto-Setup-Callback
-    gegen ein Access-Token (via Bootstrap-App-Credentials).
-
-    Returns access_token oder None bei Fehler.
-    """
-    bootstrap = get_bootstrap_config()
-    if not bootstrap["client_id"] or not bootstrap["client_secret"]:
-        logger.error("Bootstrap-Credentials nicht konfiguriert")
-        return None
-
     try:
         resp = _requests.post(
-            _TOKEN_URL.format(tenant="common"),
+            _DEVICE_CODE_URL.format(tenant=tenant),
             data={
-                "client_id":     bootstrap["client_id"],
-                "client_secret": bootstrap["client_secret"],
-                "code":          code,
-                "redirect_uri":  redirect_uri,
-                "grant_type":    "authorization_code",
-                "scope":         _GRAPH_SCOPES,
+                "client_id": _AZURE_CLI_CLIENT_ID,
+                "scope":     _GRAPH_SCOPES_DEVICE,
             },
             timeout=15,
         )
     except Exception as e:
-        logger.error("Bootstrap Token-Exchange Netzwerkfehler: %s", e)
+        logger.error("Device Code Flow Netzwerkfehler: %s", e)
         return None
 
     if resp.status_code != 200:
-        logger.error("Bootstrap Token-Exchange fehlgeschlagen: %s %s",
+        logger.error("Device Code Flow fehlgeschlagen: %s %s",
                       resp.status_code, resp.text[:500])
         return None
 
     data = resp.json()
-    return data.get("access_token")
+    return {
+        "device_code":      data.get("device_code", ""),
+        "user_code":        data.get("user_code", ""),
+        "verification_uri": data.get("verification_uri", ""),
+        "expires_in":       data.get("expires_in", 900),
+        "interval":         data.get("interval", 5),
+        "message":          data.get("message", ""),
+    }
+
+
+def poll_device_code_token(device_code: str, tenant: str = "common") -> dict:
+    """
+    Pollt den Token-Endpoint fuer den Device Code Flow (ein einzelner Versuch).
+
+    Returns dict mit:
+      - status: "pending" | "success" | "error" | "expired"
+      - access_token: (nur bei status="success")
+      - error: (bei status="error")
+    """
+    try:
+        resp = _requests.post(
+            _TOKEN_URL.format(tenant=tenant),
+            data={
+                "client_id":  _AZURE_CLI_CLIENT_ID,
+                "device_code": device_code,
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            },
+            timeout=15,
+        )
+    except Exception as e:
+        logger.error("Device Code Poll Netzwerkfehler: %s", e)
+        return {"status": "error", "error": str(e)}
+
+    data = resp.json()
+
+    if resp.status_code == 200:
+        access_token = data.get("access_token", "")
+        if access_token:
+            return {"status": "success", "access_token": access_token}
+        return {"status": "error", "error": "Kein access_token in Antwort"}
+
+    # Microsoft returns 400 for pending/expired/declined
+    error = data.get("error", "")
+    if error in ("authorization_pending", "slow_down"):
+        return {"status": "pending"}
+    elif error == "expired_token":
+        return {"status": "expired"}
+    elif error == "authorization_declined":
+        return {"status": "error", "error": "authorization_declined"}
+    else:
+        desc = data.get("error_description", error)
+        logger.error("Device Code Poll Fehler: %s — %s", error, desc)
+        return {"status": "error", "error": desc}
 
 
 def auto_register_app(
@@ -246,7 +261,7 @@ def auto_register_app(
     über die Microsoft Graph API.
 
     Args:
-        access_token:     Graph API Access Token (aus Bootstrap-Flow)
+        access_token:     Graph API Access Token (aus Device Code Flow)
         sso_redirect_uri: Redirect URI für die neue SSO-App (z.B. .../auth/entra/callback)
         app_name:         Anzeigename der App in Azure
 
