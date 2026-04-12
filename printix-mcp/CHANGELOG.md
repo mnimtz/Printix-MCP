@@ -1,5 +1,34 @@
 # Changelog
 
+## 4.4.0 (2026-04-12) — Capture Store, Fleet/Dashboard API-First
+
+### Feature — Capture Store (`/capture`)
+- **Neues Hauptregister** "Capture Store" in der Navigation (vor Hilfe)
+- **Plugin-System**: Erweiterbare Architektur für Capture-Ziele
+- **Paperless-ngx Plugin**: Gescannte Dokumente automatisch an Paperless-ngx senden (OCR + Archivierung)
+- **Profil-Verwaltung**: Beliebig viele Capture-Profile pro Tenant anlegen/bearbeiten/löschen
+- **HMAC-Verifizierung**: SHA-256/SHA-512 Signaturprüfung für eingehende Printix Webhooks
+- **Verbindungstest**: Integrierter Test-Button prüft Erreichbarkeit des Ziel-Systems
+- **Webhook-Endpoint**: `/capture/webhook/{profileId}` — pro Profil individuelle URL
+- **Capture-Logs**: Alle Capture-Events in den Tenant-Logs unter Kategorie "CAPTURE"
+- **14 Sprachen**: Vollständige Übersetzung aller Capture Store Texte
+
+### Fix — Fleet Health: API-First
+- **Druckerdaten jetzt primär von Printix API** (nicht mehr SQL-abhängig)
+- Drucker-Deduplizierung nach printer_id (wie Printix → Drucker Tab)
+- `connectionStatus` aus API als primärer Status-Indikator
+- SQL-Daten optional als Enrichment (historische Jobs/Seiten/Auslastung)
+
+### Fix — Dashboard: API-First
+- **Aktive Drucker** werden jetzt live von der Printix API gezählt
+- KPI-Kacheln erscheinen auch ohne Azure SQL (Druckerzahl immer sichtbar)
+- SQL nur noch für historische Druckvolumen, Sparkline, Forecast, Umweltbilanz
+- Banner: erklärt, dass SQL optional ist für historische Daten
+
+### Fix — Fehlende Übersetzungen
+- 14 fehlende Dashboard-Keys ergänzt (alle 14 Sprachen)
+- `dash_sparkline_nodata`, `dash_forecast_nodata`, `dash_creds_title` u.a.
+
 ## 4.3.3 (2026-04-12) — Dashboard, Fleet Health, Sustainability, Forecast
 
 ### Feature — Live Dashboard

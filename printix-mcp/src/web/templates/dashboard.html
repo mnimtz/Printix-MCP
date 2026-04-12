@@ -317,7 +317,7 @@
       <div class="section-title">{{ _('dash_title') }}</div>
       <div class="section-sub">{{ _('dash_connection') }}</div>
     </div>
-    {% if has_sql %}
+    {% if has_api or has_sql %}
     <button class="auto-refresh-btn" id="autoRefreshBtn" onclick="toggleAutoRefresh()" title="{{ _('dash_auto_refresh') }}">
       <span class="refresh-dot" id="refreshDot"></span>
       <span id="refreshLabel">{{ _('dash_auto_refresh') }}</span>
@@ -326,7 +326,7 @@
   </div>
 
   {# ── No-SQL info banner ──────────────────────────────────────────────── #}
-  {% if not has_sql %}
+  {% if not has_sql and has_api %}
   <div class="info-banner">
     <span class="info-banner__icon">&#x2139;&#xFE0F;</span>
     <span>{{ _('dash_no_sql_banner') }}</span>
@@ -334,7 +334,7 @@
   {% endif %}
 
   {# ── KPI Tiles ───────────────────────────────────────────────────────── #}
-  {% if has_sql and kpis %}
+  {% if kpis %}
   <div class="kpi-grid" id="kpiGrid">
     {# Prints today #}
     <div class="kpi-tile kpi-tile--prints">
@@ -370,10 +370,11 @@
         <div class="indicator-bar__fill indicator-bar__fill--green" id="duplex-bar" style="width: {{ kpis.duplex_rate | default(0) }}%"></div>
       </div>
     </div>
-    {# Active printers #}
+    {# Active printers (Live from Printix API) #}
     <div class="kpi-tile kpi-tile--printers">
       <div class="kpi-number" id="kpi-active-printers">{{ kpis.active_printers | default(0) }}</div>
       <div class="kpi-label">{{ _('dash_kpi_printers') }}</div>
+      {% if kpis.total_printers %}<div class="kpi-subtitle">/ {{ kpis.total_printers }} {{ _('dash_kpi_total') }}</div>{% endif %}
     </div>
   </div>
   {% endif %}
