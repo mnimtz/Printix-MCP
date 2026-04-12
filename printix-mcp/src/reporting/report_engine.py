@@ -612,12 +612,19 @@ def _fmt_cost(v, currency="€") -> str:
     return f"{float(v):,.2f} {currency}"
 
 
-def _fmt_delta(v) -> str:
+def _fmt_delta(v):
+    """Formatiert einen Delta-Wert als farbigen HTML-Span.
+    Gibt Markup zurueck damit autoescape=True den HTML-Code nicht escaped."""
     if v is None:
         return "—"
     sign = "▲" if v > 0 else "▼"
     css  = "delta-pos" if v > 0 else "delta-neg"
-    return f'<span class="{css}">{sign} {abs(v):.1f}%</span>'
+    html = f'<span class="{css}">{sign} {abs(v):.1f}%</span>'
+    try:
+        from markupsafe import Markup
+        return Markup(html)
+    except ImportError:
+        return html
 
 
 # ─── Chart-Hilfsfunktionen (v3.8.1: Type-Dispatcher) ─────────────────────────
@@ -1554,12 +1561,18 @@ def _plain_html_fallback(title, period, report_data, layout) -> str:
     Plain-HTML-Fallback nicht in einen XSS-Vektor verwandelt."""
     import html as _h
     e = lambda v: _h.escape("" if v is None else str(v), quote=True)
+    def _safe_cell(cell):
+        """Delta-Markup durchlassen, alles andere escapen."""
+        s = "" if cell is None else str(cell)
+        if '<span class="delta-' in s:
+            return s
+        return _h.escape(s, quote=True)
     lines = [f"<html><body><h1>{e(title)}</h1><p>{e(period)}</p>"]
     for section in report_data.get("sections", []):
         lines.append(f"<h2>{e(section.get('title', ''))}</h2><table border='1'>")
         lines.append("<tr>" + "".join(f"<th>{e(c)}</th>" for c in section.get("columns", [])) + "</tr>")
         for row in section.get("rows", []):
-            lines.append("<tr>" + "".join(f"<td>{e(cell)}</td>" for cell in row) + "</tr>")
+            lines.append("<tr>" + "".join(f"<td>{_safe_cell(cell)}</td>" for cell in row) + "</tr>")
         lines.append("</table>")
     lines.append("</body></html>")
     return "\n".join(lines)

@@ -148,6 +148,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE tenants ADD COLUMN alert_min_level TEXT NOT NULL DEFAULT 'ERROR'")
         if "mail_from_name" not in existing_t:
             conn.execute("ALTER TABLE tenants ADD COLUMN mail_from_name TEXT NOT NULL DEFAULT ''")
+        if "poller_state" not in existing_t:
+            conn.execute("ALTER TABLE tenants ADD COLUMN poller_state TEXT NOT NULL DEFAULT '{}'")
 
     # v3.9.1: bearer_token_hash — indexierter SHA-256-Lookup (O(1) statt
     # Full-Table-Scan über alle Tenants bei jedem authenticated Request).
@@ -769,7 +771,19 @@ def get_tenant_full_by_user_id(user_id: str) -> Optional[dict]:
         "mail_from_name":      d.get("mail_from_name", ""),
         "alert_recipients":    d.get("alert_recipients", ""),
         "alert_min_level":     d.get("alert_min_level", "ERROR"),
+        "poller_state":        d.get("poller_state", "{}"),
     }
+
+
+def update_poller_state(user_id: str, state: dict) -> None:
+    """Speichert den Event-Poller-Zustand fuer einen Tenant (als JSON)."""
+    import json as _json
+    state_str = _json.dumps(state)
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE tenants SET poller_state = ? WHERE user_id = ?",
+            (state_str, user_id),
+        )
 
 
 def update_tenant_credentials(

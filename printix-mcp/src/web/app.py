@@ -689,21 +689,26 @@ def create_app(session_secret: str) -> FastAPI:
         })
 
     def _get_base_url(request: Request) -> str:
-        """Ermittelt die Base-URL für Redirect URIs."""
-        try:
-            from db import get_setting
-            public_url = get_setting("public_url", "")
-            if public_url:
-                return public_url.rstrip("/")
-        except Exception:
-            pass
-        # Fallback: aus Request ableiten
+        """Ermittelt die Base-URL der Web-UI aus dem eingehenden Request.
+
+        Wichtig: Verwendet NICHT public_url (das ist fuer den MCP-Server).
+        Stattdessen wird die URL aus dem Request abgeleitet (Host-Header,
+        x-forwarded-* bei Reverse-Proxy).
+        """
         scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
-        host = request.headers.get("x-forwarded-host", request.url.hostname)
+        host = (
+            request.headers.get("x-forwarded-host")
+            or request.headers.get("host", "")
+        )
+        if host:
+            # Host-Header enthaelt bereits den externen Port (z.B. "192.168.1.100:8010")
+            return f"{scheme}://{host}".rstrip("/")
+        # Fallback: aus request.url
+        hostname = request.url.hostname
         port = request.url.port
         if port and port not in (80, 443):
-            return f"{scheme}://{host}:{port}"
-        return f"{scheme}://{host}"
+            return f"{scheme}://{hostname}:{port}"
+        return f"{scheme}://{hostname}"
 
     # ── Warteseite ────────────────────────────────────────────────────────────
 
