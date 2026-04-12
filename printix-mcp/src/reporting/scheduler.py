@@ -54,9 +54,9 @@ def _build_cron_trigger(schedule: dict) -> Any:
         return CronTrigger(day=day, hour=hour, minute=minute)
 
 
-def _load_tenant_mail_credentials(owner_user_id: str) -> tuple[str, str]:
+def _load_tenant_mail_credentials(owner_user_id: str) -> tuple[str, str, str]:
     if not owner_user_id:
-        return "", ""
+        return "", "", ""
     try:
         import sys
         if "/app" not in sys.path:
@@ -65,11 +65,15 @@ def _load_tenant_mail_credentials(owner_user_id: str) -> tuple[str, str]:
         tenant = get_tenant_full_by_user_id(owner_user_id)
         if not tenant:
             logger.warning("Kein Tenant fuer owner_user_id=%s gefunden", owner_user_id)
-            return "", ""
-        return tenant.get("mail_api_key", ""), tenant.get("mail_from", "")
+            return "", "", ""
+        return (
+            tenant.get("mail_api_key", ""),
+            tenant.get("mail_from", ""),
+            tenant.get("mail_from_name", ""),
+        )
     except Exception as e:
         logger.error("Fehler beim Laden der Tenant-Mail-Credentials: %s", e)
-        return "", ""
+        return "", "", ""
 
 
 def _resolve_subject(subject: str, params: dict) -> str:
@@ -214,7 +218,7 @@ def _run_report_job(report_id: str) -> None:
     formats       = template.get("output_formats", ["html"])
     owner_user_id = template.get("owner_user_id", "")
 
-    mail_api_key, mail_from = _load_tenant_mail_credentials(owner_user_id)
+    mail_api_key, mail_from, mail_from_name = _load_tenant_mail_credentials(owner_user_id)
     if not mail_api_key:
         logger.warning("Report '%s': kein mail_api_key — Mail nicht versendet", template.get("name"))
 
@@ -252,6 +256,7 @@ def _run_report_job(report_id: str) -> None:
                 html_body=html_body,
                 api_key=mail_api_key,
                 mail_from=mail_from,
+                mail_from_name=mail_from_name,
                 attachments=attachments if attachments else None,
             )
             logger.info("Report '%s' versendet an: %s (%d Anhaenge)",
@@ -355,7 +360,7 @@ def run_report_now(
 
     if not mail_api_key:
         owner_user_id = template.get("owner_user_id", "")
-        mail_api_key, mail_from = _load_tenant_mail_credentials(owner_user_id)
+        mail_api_key, mail_from, mail_from_name = _load_tenant_mail_credentials(owner_user_id)
 
     # v3.7.9: run_query dispatcht Stufe 1 + Stufe 2 (17 Query-Typen).
     # Vorher waren nur 6 Typen hardcoded; "Jetzt senden" f\u00fcr Stufe-2-Reports
