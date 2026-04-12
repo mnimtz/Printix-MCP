@@ -380,34 +380,21 @@ def _merge_aggregated(sql_rows: list[dict], demo_rows: list[dict],
 
 # ─── Reporting-View Fallback ──────────────────────────────────────────────────
 
-_view_cache: dict[tuple, bool] = {}
+# v4.4.8: reporting.v_* Views werden NICHT mehr verwendet.
+# Die Views machten UNION ALL aus dbo.* + demo.* — aber demo.* Tabellen
+# existieren in Azure SQL nicht mehr (Demo-Daten liegen seit v4.4.0 auf
+# lokaler SQLite und werden in Python gemerged).
+# _V() gibt jetzt immer dbo.{table} zurück.
 
 
 def _V(table: str) -> str:
-    """
-    Gibt 'reporting.v_{table}' zurück wenn die View in der aktuellen DB
-    existiert, sonst 'dbo.{table}' als Fallback.
-    v4.4.7: Prüft jede View einzeln statt globalem Schalter.
-    """
-    from .sql_client import get_current_db_key, query_fetchone
-    db_key = get_current_db_key()
-    cache_key = db_key + (table,)
-    if cache_key not in _view_cache:
-        try:
-            r = query_fetchone(
-                "SELECT COUNT(*) AS cnt FROM sys.views "
-                "WHERE schema_id = SCHEMA_ID('reporting') AND name = ?",
-                (f"v_{table}",),
-            )
-            _view_cache[cache_key] = bool((r or {}).get("cnt", 0) > 0)
-        except Exception:
-            _view_cache[cache_key] = False
-    return f"reporting.v_{table}" if _view_cache[cache_key] else f"dbo.{table}"
+    """Gibt den voll qualifizierten Tabellennamen zurück (immer dbo.{table})."""
+    return f"dbo.{table}"
 
 
 def invalidate_view_cache() -> None:
-    """Leert den View-Verfügbarkeits-Cache (nach setup_schema() aufrufen)."""
-    _view_cache.clear()
+    """Kompatibilitäts-Stub (Views werden nicht mehr verwendet)."""
+    pass
 
 
 # ─── Hilfsfunktionen ──────────────────────────────────────────────────────────

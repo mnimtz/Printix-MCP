@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.4.8 (2026-04-12) — reporting.v_* Views abgeschafft
+
+### Fix — "Invalid object name 'demo.jobs_scan'" bei Reports
+- **Ursache**: Die `reporting.v_*` Views machten `UNION ALL` aus `dbo.*` + `demo.*`
+- Seit v4.4.0 existieren `demo.*` Tabellen in Azure SQL nicht mehr (Demo auf SQLite)
+- Jede Query die über eine `reporting.v_*` View lief → 500er
+- **Fix**: `_V()` gibt jetzt immer `dbo.{table}` zurück — Views werden nicht mehr verwendet
+- Demo-Daten werden bereits in Python gemerged (`_has_active_demo()` / `_merge_aggregated()`)
+
 ## 4.4.7 (2026-04-12) — Demo-System Fix + View-Detection + Cleanup
 
 ### Fix — Rollback-All kaputt (demo_jobs_copy_details)
