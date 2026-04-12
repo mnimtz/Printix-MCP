@@ -107,12 +107,17 @@ class PaperlessNgxPlugin(CapturePlugin):
                 upload_url = f"{paperless_url}/api/documents/post_document/"
                 headers = {"Authorization": f"Token {token}"}
 
+                # Content-Type aus Dateiendung ableiten (v4.4.9)
+                import mimetypes
+                _fn = filename or "scan.pdf"
+                _ct = mimetypes.guess_type(_fn)[0] or "application/pdf"
+
                 form = aiohttp.FormData()
                 form.add_field(
                     "document",
                     doc_bytes,
-                    filename=filename or "scan.pdf",
-                    content_type="application/pdf",
+                    filename=_fn,
+                    content_type=_ct,
                 )
 
                 # Optional: title from metadata or filename

@@ -1,5 +1,24 @@
 # Changelog
 
+## 4.4.9 (2026-04-12) — Log-Sichtbarkeit, Versionskonsistenz, Webhook-Cleanup
+
+### Fix — Versionsangaben konsistent
+- README.md (war 4.3.1), run.sh Kommentar (war v4.0.0), webhook_handler (war v4.4.6) alle auf 4.4.9
+
+### Fix — Capture-Webhooks im Log unsichtbar
+- `uvicorn.access` war auf WARNING unterdrückt → eingehende HTTP-Requests komplett unsichtbar
+- Fix: Access-Logger wieder auf INFO belassen
+- Zusätzlich: `▶ CAPTURE REQUEST: POST /capture/webhook/...` im DualTransportApp bei jedem Capture-Request
+
+### Fix — Webhook-Antworten uneinheitlich
+- Frühe Fehler (404, 401, 400) gaben `{"error": "..."}` zurück
+- Plugin-Ergebnisse gaben `{"errorMessage": "..."}` zurück
+- Fix: Alle Antworten jetzt einheitlich `{"errorMessage": "..."}` (Printix-kompatibel)
+
+### Fix — Paperless erzwang immer application/pdf
+- Content-Type wurde hardcoded als `application/pdf` gesetzt
+- Fix: Automatische Erkennung via `mimetypes.guess_type()` aus Dateiendung
+
 ## 4.4.8 (2026-04-12) — reporting.v_* Views abgeschafft
 
 ### Fix — "Invalid object name 'demo.jobs_scan'" bei Reports
