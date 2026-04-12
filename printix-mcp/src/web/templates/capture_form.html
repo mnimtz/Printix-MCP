@@ -126,7 +126,7 @@
       <div style="margin-top: 16px;">
         <label>{{ _('cap_webhook_url') }}</label>
         <div class="webhook-preview">
-          <strong>POST</strong> {{ request.url.scheme }}://{{ request.url.netloc }}/capture/webhook/{{ profile.id }}
+          <strong>POST</strong> {{ webhook_base }}/capture/webhook/{{ profile.id }}
         </div>
         <div class="cap-hint">{{ _('cap_webhook_hint') }}</div>
       </div>

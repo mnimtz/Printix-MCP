@@ -2234,12 +2234,9 @@ def create_app(session_secret: str) -> FastAPI:
         """
         Demo-Übersicht.
 
-        v3.9.2: Rendert die Seite SOFORT ohne Azure SQL-Aufruf — die
-        Session-Liste und das schema_ready-Flag werden per JS aus
-        /tenant/demo/sessions nachgeladen. Damit verschwindet der
-        30–60s lange Erstaufruf bei Azure SQL Serverless (Auto-Pause-
-        Wake-up). Spätere Aufrufe sind ebenfalls instant, die SQL-Last
-        verlagert sich in den XHR-Endpunkt.
+        v4.4.0: Demo-Daten liegen jetzt lokal in SQLite — kein Azure SQL
+        Schreibzugriff mehr nötig. Die Seite rendert sofort, Sessions
+        werden per JS aus /tenant/demo/sessions nachgeladen.
         """
         user = require_login(request)
         if user is None:
@@ -2248,8 +2245,7 @@ def create_app(session_secret: str) -> FastAPI:
         flash     = request.query_params.get("flash")
         flash_msg = request.query_params.get("errmsg", request.query_params.get("flash_msg", ""))
         job_id    = request.query_params.get("job_id", "")
-        # Schneller Check: ist überhaupt SQL konfiguriert? — kein Roundtrip,
-        # nur ein Lookup im Tenant-Datensatz aus der lokalen SQLite.
+        # v4.4.0: Demo funktioniert auch OHNE SQL — lokale SQLite reicht
         has_sql = False
         try:
             from db import get_tenant_full_by_user_id
@@ -2276,63 +2272,34 @@ def create_app(session_secret: str) -> FastAPI:
     @app.get("/tenant/demo/sessions")
     async def tenant_demo_sessions(request: Request):
         """
-        Liefert {schema_ready, sessions} als JSON. Wird vom Demo-Template
-        per fetch() aufgerufen, sodass die Seite ohne Azure SQL gerendert
-        werden kann.
+        Liefert {schema_ready, sessions} als JSON.
+        v4.4.0: Liest aus lokaler SQLite — kein Azure SQL nötig.
         """
         user = require_login(request)
         if user is None:
             return JSONResponse({"error": "not_logged_in"}, status_code=401)
         try:
             from db import get_tenant_full_by_user_id
-            from reporting.sql_client import set_config_from_tenant, is_configured
             tenant = get_tenant_full_by_user_id(user["id"])
-            if not tenant or not tenant.get("sql_server"):
-                return JSONResponse({"schema_ready": False, "sessions": [], "has_sql": False})
-            set_config_from_tenant(tenant)
-            if not is_configured():
-                return JSONResponse({"schema_ready": False, "sessions": [], "has_sql": False})
+            tid = (tenant or {}).get("printix_tenant_id", "")
+            if not tid:
+                return JSONResponse({"schema_ready": True, "sessions": [], "has_sql": False})
 
-            tid = tenant.get("printix_tenant_id", "")
             cached = _demo_session_cache.get(tid)
             if cached and cached[0] > _time.time():
                 return JSONResponse(cached[1])
 
-            import asyncio as _aio
-            from reporting.sql_client import query_fetchall
-            try:
-                rows = await _aio.to_thread(
-                    query_fetchall,
-                    # WICHTIG: demo.* (nicht dbo.*) — der Generator legt die
-                    # Tabellen im 'demo'-Schema an (siehe demo_generator.py).
-                    "SELECT TOP 20 session_id, tenant_id, demo_tag, created_at, "
-                    "user_count, printer_count, network_count, "
-                    "print_job_count, scan_job_count, copy_job_count, "
-                    "status, params_json "
-                    "FROM demo.demo_sessions WHERE tenant_id = ? "
-                    "ORDER BY created_at DESC",
-                    (tid,),
-                )
-                schema_ready = True
-                sessions = rows or []
-            except Exception as ex:
-                # "Invalid object name 'demo.demo_sessions'" → Schema noch
-                # nicht eingerichtet. Das ist KEIN Fehler, sondern der
-                # Initial-Zustand: User soll den Setup-Button sehen.
-                msg = str(ex)
-                if "Invalid object name" in msg or "demo.demo_sessions" in msg:
-                    schema_ready = False
-                    sessions = []
-                else:
-                    logger.warning("tenant_demo_sessions SQL error: %s", ex)
-                    return JSONResponse({"error": str(ex)[:200], "has_sql": True}, status_code=500)
+            # v4.4.0: Lese Demo-Sessions aus lokaler SQLite
+            from reporting.local_demo_db import get_demo_sessions
+            sessions = get_demo_sessions(tid)[:20]
+
+            has_sql = bool(tenant and tenant.get("sql_server"))
 
             # ISO-Strings für JSON
             def _ser(s):
                 out = dict(s)
                 if out.get("created_at") is not None:
                     out["created_at"] = str(out["created_at"])
-                # preset aus params_json extrahieren (falls vorhanden)
                 pj = out.get("params_json") or ""
                 try:
                     import json as _j
@@ -2342,13 +2309,12 @@ def create_app(session_secret: str) -> FastAPI:
                 except Exception:
                     out["preset"] = "custom"
                     out["queue_count"] = 0
-                # params_json selbst nicht ans Frontend schicken
                 out.pop("params_json", None)
                 return out
 
             payload = {
-                "has_sql": True,
-                "schema_ready": schema_ready,
+                "has_sql": has_sql,
+                "schema_ready": True,  # Lokale SQLite ist immer bereit
                 "sessions": [_ser(s) for s in sessions],
             }
             _demo_session_cache[tid] = (_time.time() + 30, payload)
@@ -2363,16 +2329,11 @@ def create_app(session_secret: str) -> FastAPI:
 
     @app.post("/tenant/demo/setup", response_class=HTMLResponse)
     async def tenant_demo_setup(request: Request):
+        """v4.4.0: Initialisiert lokale SQLite Demo-DB — kein Azure SQL nötig."""
         user = require_login(request)
         if user is None: return RedirectResponse("/login", status_code=302)
         try:
-            from db import get_tenant_full_by_user_id
-            from reporting.sql_client import set_config_from_tenant
             from reporting.demo_generator import setup_schema
-            tenant = get_tenant_full_by_user_id(user["id"])
-            if not tenant or not tenant.get("sql_server"):
-                return RedirectResponse("/tenant/demo?flash=error&errmsg=SQL+nicht+konfiguriert", status_code=302)
-            set_config_from_tenant(tenant)
             result = setup_schema()
             if result.get("success"):
                 return RedirectResponse("/tenant/demo?flash=setup_ok", status_code=302)
@@ -2386,16 +2347,15 @@ def create_app(session_secret: str) -> FastAPI:
 
     @app.post("/tenant/demo/generate", response_class=HTMLResponse)
     async def tenant_demo_generate(request: Request):
+        """v4.4.0: Generiert Demo-Daten in lokaler SQLite — kein Azure SQL nötig."""
         user = require_login(request)
         if user is None: return RedirectResponse("/login", status_code=302)
         try:
             from db import get_tenant_full_by_user_id
-            from reporting.sql_client import set_config_from_tenant, get_tenant_id
-            from reporting.demo_generator import generate_demo_dataset
             tenant = get_tenant_full_by_user_id(user["id"])
-            if not tenant or not tenant.get("sql_server"):
-                return RedirectResponse("/tenant/demo?flash=error&errmsg=SQL+nicht+konfiguriert", status_code=302)
-            set_config_from_tenant(tenant)
+            tid = (tenant or {}).get("printix_tenant_id", "")
+            if not tid:
+                return RedirectResponse("/tenant/demo?flash=error&errmsg=Kein+Tenant+konfiguriert", status_code=302)
             form_data = await request.form()
             user_count    = max(1, min(200, int(form_data.get("user_count",    10))))
             printer_count = max(1, min(50,  int(form_data.get("printer_count",  4))))
@@ -2409,9 +2369,7 @@ def create_app(session_secret: str) -> FastAPI:
             preset        = (form_data.get("preset") or "custom").strip()[:20]
             if preset not in ("small", "medium", "large", "custom"):
                 preset = "custom"
-            tid = get_tenant_id()
             # Hintergrund-Task: sofort Redirect, Browser pollt /tenant/demo/status
-            # SUBPROCESS-Isolation: pyodbc/FreeTDS Segfaults töten nicht den Web-Server
             job_id = _uuid.uuid4().hex[:10]
             _demo_jobs[job_id] = {"status": "running", "started": _time.time(),
                                   "user_id": user["id"]}
@@ -2419,14 +2377,6 @@ def create_app(session_secret: str) -> FastAPI:
                 import json as _json, sys as _sys, os as _os
                 output_file = f"/tmp/demo_result_{job_id}.json"
                 try:
-                    # Tenant-Config und Parameter als JSON an den Worker-Prozess übergeben
-                    tenant_config = {
-                        "sql_server":        tenant.get("sql_server", ""),
-                        "sql_database":      tenant.get("sql_database", ""),
-                        "sql_username":      tenant.get("sql_username", ""),
-                        "sql_password":      tenant.get("sql_password", ""),
-                        "printix_tenant_id": tenant.get("printix_tenant_id", ""),
-                    }
                     demo_params = {
                         "tenant_id":         tid,
                         "user_count":        user_count,
@@ -2440,7 +2390,6 @@ def create_app(session_secret: str) -> FastAPI:
                         "preset":            preset,
                     }
                     env = dict(_os.environ)
-                    env["DEMO_TENANT_CONFIG"] = _json.dumps(tenant_config)
                     env["DEMO_PARAMS"]        = _json.dumps(demo_params)
                     env["DEMO_OUTPUT_FILE"]   = output_file
                     proc = await _asyncio.create_subprocess_exec(
@@ -2460,10 +2409,8 @@ def create_app(session_secret: str) -> FastAPI:
                             _demo_jobs[job_id] = {"status": "error", "error": str(result["error"])[:200]}
                         else:
                             _demo_jobs[job_id] = {"status": "done", "session_id": result.get("session_id", "")}
-                            # Cache invalidieren, damit die Sessions-Liste sofort aktualisiert wird
                             _demo_cache_invalidate(tid)
                     else:
-                        # Subprocess fehlgeschlagen (auch Segfault = exit -11)
                         err = ""
                         try:
                             with open(output_file) as _f:
@@ -2498,54 +2445,17 @@ def create_app(session_secret: str) -> FastAPI:
     async def tenant_demo_delete(request: Request, session_id: str):
         """
         Löscht alle Demo-Datenzeilen einer einzelnen Session.
-
-        v3.9.2 — Bug-Fix: vorher wurden Tabellen aus dem `dbo.*`-Schema
-        gelöscht, der Generator schreibt aber nach `demo.*`. Außerdem
-        wurde `execute_write` mit `[(a,b)]` aufgerufen statt mit `(a,b)` —
-        das hätte zur Laufzeit „wrong number of parameters" geworfen.
-        Beide Bugs sind hier behoben, plus jobs_copy_details wird in
-        DERSELBEN Verbindung VOR jobs_copy gelöscht (Reihenfolge wichtig).
+        v4.4.0: Arbeitet auf lokaler SQLite statt Azure SQL.
         """
         user = require_login(request)
         if user is None:
             return RedirectResponse("/login", status_code=302)
         try:
             from db import get_tenant_full_by_user_id
-            from reporting.sql_client import set_config_from_tenant, get_tenant_id, execute_write
+            from reporting.local_demo_db import rollback_demo_session
             tenant = get_tenant_full_by_user_id(user["id"])
-            if not tenant or not tenant.get("sql_server"):
-                return RedirectResponse("/tenant/demo?flash=error", status_code=302)
-            set_config_from_tenant(tenant)
-            tid = get_tenant_id()
-            # 1) jobs_copy_details ZUERST (FK-Reihenfolge auch wenn keine
-            #    explizite Constraint existiert — bei Subquery muss jobs_copy
-            #    noch da sein, damit der Lookup klappt).
-            try:
-                execute_write(
-                    "DELETE FROM demo.jobs_copy_details WHERE job_id IN "
-                    "(SELECT id FROM demo.jobs_copy WHERE demo_session_id=? AND tenant_id=?)",
-                    (session_id, tid),
-                )
-            except Exception as ex:
-                logger.warning("delete jobs_copy_details: %s", ex)
-            # 2) Restliche Daten-Tabellen
-            for tbl in ("tracking_data", "jobs", "jobs_scan", "jobs_copy",
-                        "users", "printers", "networks"):
-                try:
-                    execute_write(
-                        f"DELETE FROM demo.{tbl} WHERE demo_session_id=? AND tenant_id=?",
-                        (session_id, tid),
-                    )
-                except Exception as ex:
-                    logger.warning("delete demo.%s: %s", tbl, ex)
-            # 3) Session-Eintrag selbst
-            try:
-                execute_write(
-                    "DELETE FROM demo.demo_sessions WHERE session_id=? AND tenant_id=?",
-                    (session_id, tid),
-                )
-            except Exception as ex:
-                logger.warning("delete demo.demo_sessions: %s", ex)
+            tid = (tenant or {}).get("printix_tenant_id", "")
+            rollback_demo_session(session_id)
             _demo_cache_invalidate(tid)
             return RedirectResponse("/tenant/demo?flash=deleted", status_code=302)
         except Exception as e:
@@ -2560,28 +2470,21 @@ def create_app(session_secret: str) -> FastAPI:
     async def tenant_demo_rollback(request: Request):
         """
         Rollback per demo_tag — löscht ALLE Sessions mit dem angegebenen Tag.
-
-        v3.9.2: Diese Route fehlte, das Template (tenant_demo.html) hat aber
-        per <form action="/tenant/demo/rollback"> auf sie gepostet → 404.
-        Das hat den Per-Session-Rollback-Button komplett unbrauchbar gemacht.
+        v4.4.0: Arbeitet auf lokaler SQLite statt Azure SQL.
         """
         user = require_login(request)
         if user is None:
             return RedirectResponse("/login", status_code=302)
         try:
             from db import get_tenant_full_by_user_id
-            from reporting.sql_client import set_config_from_tenant, get_tenant_id
             from reporting.demo_generator import rollback_demo
             tenant = get_tenant_full_by_user_id(user["id"])
-            if not tenant or not tenant.get("sql_server"):
-                return RedirectResponse("/tenant/demo?flash=error&flash_msg=no_sql", status_code=302)
-            set_config_from_tenant(tenant)
+            tid = (tenant or {}).get("printix_tenant_id", "")
             form_data = await request.form()
             demo_tag = (form_data.get("demo_tag") or "").strip()[:80]
             if not demo_tag:
                 return RedirectResponse("/tenant/demo?flash=error&flash_msg=missing_tag",
                                         status_code=302)
-            tid = get_tenant_id()
             result = await _asyncio.to_thread(rollback_demo, tid, demo_tag)
             logger.info("Demo-Rollback (tag=%s): %d Zeilen gelöscht",
                         demo_tag, result.get("total_deleted", 0))
@@ -2598,24 +2501,21 @@ def create_app(session_secret: str) -> FastAPI:
 
     @app.post("/tenant/demo/rollback-all", response_class=HTMLResponse)
     async def tenant_demo_rollback_all(request: Request):
-        """Löscht ALLE Demo-Daten des Tenants – auch ohne bestehende Sessions."""
+        """
+        Löscht ALLE Demo-Daten des Tenants.
+        v4.4.0: Arbeitet auf lokaler SQLite statt Azure SQL.
+        """
         user = require_login(request)
         if user is None:
             return RedirectResponse("/login", status_code=302)
         try:
             from db import get_tenant_full_by_user_id
-            tenant = get_tenant_full_by_user_id(user["id"])
-            if not tenant or not tenant.get("sql_server"):
-                return RedirectResponse("/tenant/demo?flash=error&flash_msg=no_sql", status_code=302)
-            import sys as _sys, os as _os
-            src_dir = _os.path.dirname(_os.path.dirname(__file__))
-            if src_dir not in _sys.path:
-                _sys.path.insert(0, src_dir)
-            from reporting.sql_client import set_config_from_tenant
-            set_config_from_tenant(tenant)
             from reporting.demo_generator import rollback_demo_all
-            result = rollback_demo_all(tenant["printix_tenant_id"])
+            tenant = get_tenant_full_by_user_id(user["id"])
+            tid = (tenant or {}).get("printix_tenant_id", "")
+            result = rollback_demo_all(tid)
             logger.info("Demo-Rollback-All: %d Zeilen gelöscht", result.get("total_deleted", 0))
+            _demo_cache_invalidate(tid)
             return RedirectResponse("/tenant/demo?flash=rollback_ok", status_code=302)
         except Exception as e:
             logger.error("tenant_demo_rollback_all error: %s", e)

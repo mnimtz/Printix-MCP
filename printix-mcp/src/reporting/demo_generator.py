@@ -1,7 +1,8 @@
 """
-Demo Data Generator — Printix BI Datenbank
-==========================================
-Generiert realistische Demo-Daten für eine eigene Azure SQL-Datenbank.
+Demo Data Generator — Lokale SQLite Demo-Daten (v4.4.0)
+=======================================================
+Generiert realistische Demo-Daten und speichert sie in der lokalen SQLite-DB
+(/data/demo_data.db). Kein Azure SQL Schreibzugriff mehr nötig!
 
 Features:
   - Kulturell passende Namen in 8 Sprachen (DE, EN, FR, IT, ES, NL, SV, NO)
@@ -9,8 +10,9 @@ Features:
   - Realistische Druckvolumen-Verteilung (Saisonalität, Tageszeiten, Duplex/Farbe)
   - Print-, Scan- und Kopieraufträge mit Dateinamen und Capture-Workflows
   - Komplettes Rollback via demo_session_id — alle Demo-Daten löschbar
+  - Daten lokal in SQLite, Reports mergen automatisch mit Azure SQL (read-only)
 
-Schema: Spiegelt die Printix BI-Datenbank exakt, plus demo_session_id-Spalte.
+Schema: Lokale SQLite via local_demo_db.py, Azure SQL nur noch lesend.
 """
 
 import uuid
@@ -663,37 +665,17 @@ def _create_v_jobs_view() -> None:
 
 def setup_schema() -> dict:
     """
-    Erstellt alle erforderlichen Tabellen und Indexes in der konfigurierten Azure SQL.
-    Idempotent — bereits existierende Objekte werden nicht verändert.
+    v4.4.0: Initialisiert die lokale Demo-SQLite-DB (idempotent).
+    Azure SQL Schema/Views werden NICHT mehr erstellt — Demo-Daten
+    liegen jetzt komplett lokal. Azure SQL bleibt rein lesend.
     """
-    from .sql_client import execute_script
-    from .query_tools import invalidate_view_cache
-    errors = []
-    created = []
-    for stmt in SCHEMA_STATEMENTS:
-        label = stmt.strip().split("\n")[0].strip()[:80]
-        if label.startswith("-- v_jobs:"):
-            # Dynamische View-Erstellung statt statischem Statement
-            try:
-                _create_v_jobs_view()
-                created.append("CREATE OR ALTER VIEW reporting.v_jobs (dynamic)")
-            except Exception as e:
-                errors.append({"statement": "CREATE VIEW reporting.v_jobs", "error": str(e)})
-            continue
-        try:
-            execute_script([stmt])
-            created.append(label)
-        except Exception as e:
-            errors.append({"statement": label, "error": str(e)})
-
-    # View-Cache zurücksetzen damit neue reporting-Views sofort genutzt werden
-    invalidate_view_cache()
-
+    from .local_demo_db import init_demo_db
+    result = init_demo_db()
     return {
-        "success":  len(errors) == 0,
-        "executed": len(created),
-        "errors":   errors,
-        "message":  "Schema bereit." if not errors else f"{len(errors)} Fehler beim Setup.",
+        "success":  True,
+        "executed": 1,
+        "errors":   [],
+        "message":  "Demo-DB (lokal SQLite) bereit.",
     }
 
 
@@ -988,15 +970,12 @@ def _gen_copy_jobs(
     return copy_rows, detail_rows
 
 
-# ── Bulk-Insert Helfer ────────────────────────────────────────────────────────
+# ── Bulk-Insert Helfer (v4.4.0: lokal SQLite statt Azure SQL) ────────────────
 
-def _bulk_insert(sql: str, rows: list, batch_size: int = 2000) -> int:
-    from .sql_client import execute_many
-    total = 0
-    for i in range(0, len(rows), batch_size):
-        batch = rows[i:i + batch_size]
-        total += execute_many(sql, batch)
-    return total
+def _bulk_insert_local(table: str, columns: list[str], rows: list[tuple]) -> int:
+    """Bulk-Insert in die lokale Demo-SQLite-DB."""
+    from .local_demo_db import demo_bulk_insert
+    return demo_bulk_insert(table, columns, rows)
 
 
 # ── Öffentliche API ───────────────────────────────────────────────────────────
@@ -1015,9 +994,10 @@ def generate_demo_dataset(
     preset: str = "custom",
 ) -> dict:
     """
-    Generiert ein vollständiges Demo-Dataset und schreibt es in die konfigurierte Azure SQL.
+    Generiert ein vollständiges Demo-Dataset und schreibt es in die lokale SQLite-DB.
+    v4.4.0: Kein Azure SQL Schreibzugriff mehr nötig!
     """
-    from .sql_client import execute_write
+    from .local_demo_db import demo_bulk_insert, demo_execute
 
     user_count       = max(1, min(200, user_count))
     printer_count    = max(1, min(50, printer_count))
@@ -1025,8 +1005,6 @@ def generate_demo_dataset(
     languages        = [l for l in (languages or ["de"]) if l in NAMES] or ["de"]
     sites            = sites or ["Hauptsitz", "Niederlassung"]
     demo_tag         = demo_tag.strip() or f"DEMO_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    # Stabile Demo-Domain — RFC 2606 .example TLD ist eindeutig als Demo erkennbar
-    # und vermeidet das frühere "demo-demo2026...invalid"-Doppelpräfix.
     email_domain     = "printix-demo.example"
 
     rng        = random.Random(seed)
@@ -1036,7 +1014,7 @@ def generate_demo_dataset(
     start_dt   = (now - timedelta(days=months * 30)).replace(
                      hour=0, minute=0, second=0, microsecond=0)
 
-    logger.info("Demo-Generator gestartet: session=%s tenant=%s user=%d printer=%d months=%d",
+    logger.info("Demo-Generator gestartet (lokal SQLite): session=%s tenant=%s user=%d printer=%d months=%d",
                 session_id, tenant_id, user_count, printer_count, months)
 
     users    = _gen_users(tenant_id, user_count, languages, session_id, rng, email_domain)
@@ -1055,42 +1033,77 @@ def generate_demo_dataset(
     logger.info("Datenmenge: %d Druckjobs | %d Scans | %d Kopien",
                 len(jobs_rows), len(scan_rows), len(copy_rows))
 
-    errors = []
-
-    _bulk_insert(
-        "INSERT INTO demo.networks (id,tenant_id,name,demo_session_id) VALUES (?,?,?,?)",
+    # ── Alle Daten in lokale SQLite schreiben ──────────────────────────────
+    _bulk_insert_local(
+        "demo_networks",
+        ["id", "tenant_id", "name", "demo_session_id"],
         [(n["id"], n["tenant_id"], n["name"], n["demo_session_id"]) for n in networks],
     )
-    _bulk_insert(
-        "INSERT INTO demo.users (id,tenant_id,email,name,department,demo_session_id) VALUES (?,?,?,?,?,?)",
+    _bulk_insert_local(
+        "demo_users",
+        ["id", "tenant_id", "email", "name", "department", "demo_session_id"],
         [(u["id"], u["tenant_id"], u["email"], u["name"], u["department"], u["demo_session_id"])
          for u in users],
     )
-    _bulk_insert(
-        "INSERT INTO demo.printers (id,tenant_id,name,model_name,vendor_name,network_id,location,demo_session_id) VALUES (?,?,?,?,?,?,?,?)",
+    _bulk_insert_local(
+        "demo_printers",
+        ["id", "tenant_id", "name", "model_name", "vendor_name", "network_id", "location", "demo_session_id"],
         [(p["id"], p["tenant_id"], p["name"], p["model_name"], p["vendor_name"],
           p["network_id"], p["location"], p["demo_session_id"]) for p in printers],
     )
-    _bulk_insert(
-        "INSERT INTO demo.jobs (id,tenant_id,color,duplex,page_count,paper_size,printer_id,submit_time,tenant_user_id,filename,demo_session_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        jobs_rows,
+    # datetime → ISO string für SQLite
+    jobs_rows_sqlite = [
+        (r[0], r[1], r[2], r[3], r[4], r[5], r[6],
+         r[7].isoformat() if hasattr(r[7], 'isoformat') else str(r[7]),
+         r[8], r[9], r[10])
+        for r in jobs_rows
+    ]
+    _bulk_insert_local(
+        "demo_jobs",
+        ["id", "tenant_id", "color", "duplex", "page_count", "paper_size",
+         "printer_id", "submit_time", "tenant_user_id", "filename", "demo_session_id"],
+        jobs_rows_sqlite,
     )
-    _bulk_insert(
-        "INSERT INTO demo.tracking_data (job_id,tenant_id,page_count,color,duplex,print_time,printer_id,print_job_status,demo_session_id) VALUES (?,?,?,?,?,?,?,?,?)",
-        tracking_rows,
+    tracking_rows_sqlite = [
+        (r[0], r[1], r[2], r[3], r[4],
+         r[5].isoformat() if hasattr(r[5], 'isoformat') else str(r[5]),
+         r[6], r[7], r[8])
+        for r in tracking_rows
+    ]
+    _bulk_insert_local(
+        "demo_tracking_data",
+        ["job_id", "tenant_id", "page_count", "color", "duplex",
+         "print_time", "printer_id", "print_job_status", "demo_session_id"],
+        tracking_rows_sqlite,
     )
     if scan_rows:
-        _bulk_insert(
-            "INSERT INTO demo.jobs_scan (id,tenant_id,printer_id,tenant_user_id,scan_time,page_count,color,workflow_name,filename,demo_session_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            scan_rows,
+        scan_rows_sqlite = [
+            (r[0], r[1], r[2], r[3],
+             r[4].isoformat() if hasattr(r[4], 'isoformat') else str(r[4]),
+             r[5], r[6], r[7], r[8], r[9])
+            for r in scan_rows
+        ]
+        _bulk_insert_local(
+            "demo_jobs_scan",
+            ["id", "tenant_id", "printer_id", "tenant_user_id", "scan_time",
+             "page_count", "color", "workflow_name", "filename", "demo_session_id"],
+            scan_rows_sqlite,
         )
     if copy_rows:
-        _bulk_insert(
-            "INSERT INTO demo.jobs_copy (id,tenant_id,printer_id,tenant_user_id,copy_time,demo_session_id) VALUES (?,?,?,?,?,?)",
-            copy_rows,
+        copy_rows_sqlite = [
+            (r[0], r[1], r[2], r[3],
+             r[4].isoformat() if hasattr(r[4], 'isoformat') else str(r[4]),
+             r[5])
+            for r in copy_rows
+        ]
+        _bulk_insert_local(
+            "demo_jobs_copy",
+            ["id", "tenant_id", "printer_id", "tenant_user_id", "copy_time", "demo_session_id"],
+            copy_rows_sqlite,
         )
-        _bulk_insert(
-            "INSERT INTO demo.jobs_copy_details (id,job_id,page_count,paper_size,duplex,color,demo_session_id) VALUES (?,?,?,?,?,?,?)",
+        _bulk_insert_local(
+            "demo_jobs_copy_details",
+            ["id", "job_id", "page_count", "paper_size", "duplex", "color", "demo_session_id"],
             copy_detail_rows,
         )
 
@@ -1102,17 +1115,17 @@ def generate_demo_dataset(
         "start": start_dt.isoformat(), "end": end_dt.isoformat(),
         "preset": preset,
     })
-    execute_write(
-        "INSERT INTO demo.demo_sessions "
+    demo_execute(
+        "INSERT INTO demo_sessions "
         "(session_id,tenant_id,demo_tag,created_at,params_json,status,"
         "user_count,printer_count,network_count,print_job_count,scan_job_count,copy_job_count) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-        (session_id, tenant_id, demo_tag, now, params_json, "active",
+        (session_id, tenant_id, demo_tag, now.isoformat(), params_json, "active",
          len(users), len(printers), len(networks),
          len(jobs_rows), len(scan_rows), len(copy_rows)),
     )
 
-    logger.info("Demo-Datensatz fertig: session=%s", session_id)
+    logger.info("Demo-Datensatz fertig (lokal SQLite): session=%s", session_id)
 
     return {
         "session_id":    session_id,
@@ -1125,8 +1138,8 @@ def generate_demo_dataset(
         "print_jobs":    len(jobs_rows),
         "scan_jobs":     len(scan_rows),
         "copy_jobs":     len(copy_rows),
-        "errors":        errors,
-        "status":        "ok" if not errors else "partial",
+        "errors":        [],
+        "status":        "ok",
         "rollback_cmd":  f'printix_demo_rollback(demo_tag="{demo_tag}")',
     }
 
@@ -1134,11 +1147,12 @@ def generate_demo_dataset(
 def rollback_demo(tenant_id: str, demo_tag: str) -> dict:
     """
     Löscht alle Demo-Daten mit dem angegebenen demo_tag.
+    v4.4.0: Arbeitet auf lokaler SQLite statt Azure SQL.
     """
-    from .sql_client import execute_write, query_fetchall
+    from .local_demo_db import demo_query, demo_execute
 
-    sessions = query_fetchall(
-        "SELECT session_id FROM demo.demo_sessions WHERE tenant_id=? AND demo_tag=?",
+    sessions = demo_query(
+        "SELECT session_id FROM demo_sessions WHERE tenant_id=? AND demo_tag=?",
         (tenant_id, demo_tag),
     )
     session_ids = [s["session_id"] for s in sessions]
@@ -1147,21 +1161,21 @@ def rollback_demo(tenant_id: str, demo_tag: str) -> dict:
 
     deleted: dict[str, int] = {}
     tables_ordered = [
-        "demo.jobs_copy_details",
-        "demo.jobs_copy",
-        "demo.jobs_scan",
-        "demo.tracking_data",
-        "demo.jobs",
-        "demo.printers",
-        "demo.users",
-        "demo.networks",
-        "demo.demo_sessions",
+        "demo_jobs_copy_details",
+        "demo_jobs_copy",
+        "demo_jobs_scan",
+        "demo_tracking_data",
+        "demo_jobs",
+        "demo_printers",
+        "demo_users",
+        "demo_networks",
+        "demo_sessions",
     ]
     for sid in session_ids:
         for tbl in tables_ordered:
-            col = "session_id" if tbl == "demo.demo_sessions" else "demo_session_id"
+            col = "session_id" if tbl == "demo_sessions" else "demo_session_id"
             try:
-                n = execute_write(f"DELETE FROM {tbl} WHERE {col}=?", (sid,))
+                n = demo_execute(f"DELETE FROM {tbl} WHERE {col}=?", (sid,))
                 deleted[tbl] = deleted.get(tbl, 0) + n
             except Exception as e:
                 logger.warning("Rollback-Fehler %s session %s: %s", tbl, sid, e)
@@ -1180,56 +1194,15 @@ def rollback_demo(tenant_id: str, demo_tag: str) -> dict:
 def rollback_demo_all(tenant_id: str) -> dict:
     """
     Löscht ALLE Demo-Daten für den Tenant (alle Tags/Sessions).
-    Nützlich wenn man ohne bestehende Sessions alles bereinigen möchte.
+    v4.4.0: Arbeitet auf lokaler SQLite statt Azure SQL.
     """
-    from .sql_client import execute_write, query_fetchall
-
-    try:
-        sessions = query_fetchall(
-            "SELECT session_id, demo_tag FROM demo.demo_sessions WHERE tenant_id=?",
-            (tenant_id,),
-        )
-    except Exception as e:
-        return {"deleted": {}, "sessions_found": 0, "total_deleted": 0, "status": "ok",
-                "message": f"Keine Demo-Tabellen gefunden ({e})"}
-
-    tables_ordered = [
-        "demo.jobs_copy_details",
-        "demo.jobs_copy",
-        "demo.jobs_scan",
-        "demo.tracking_data",
-        "demo.jobs",
-        "demo.printers",
-        "demo.users",
-        "demo.networks",
-        "demo.demo_sessions",
-    ]
-    deleted: dict = {}
-    for tbl in tables_ordered:
-        if tbl == "demo.demo_sessions":
-            try:
-                n = execute_write("DELETE FROM demo.demo_sessions WHERE tenant_id=?", (tenant_id,))
-                deleted[tbl] = deleted.get(tbl, 0) + n
-            except Exception as e:
-                import logging; logging.getLogger(__name__).warning("Rollback-All %s: %s", tbl, e)
-        else:
-            col = "demo_session_id"
-            try:
-                n = execute_write(
-                    f"DELETE FROM {tbl} WHERE {col} IN "
-                    "(SELECT session_id FROM demo.demo_sessions WHERE tenant_id=?)",
-                    (tenant_id,),
-                )
-                deleted[tbl] = deleted.get(tbl, 0) + n
-            except Exception as e:
-                import logging; logging.getLogger(__name__).warning("Rollback-All %s: %s", tbl, e)
-
-    total = sum(deleted.values())
-    import logging; logging.getLogger(__name__).info(
-        "Rollback-All: %d Zeilen gelöscht für tenant_id=%s", total, tenant_id)
+    from .local_demo_db import rollback_all_demos
+    result = rollback_all_demos(tenant_id)
+    total = sum(result.get("deleted", {}).values())
+    logger.info("Rollback-All (lokal): %d Zeilen gelöscht für tenant_id=%s", total, tenant_id)
     return {
-        "deleted":        deleted,
-        "sessions_found": len(sessions),
+        "deleted":        result.get("deleted", {}),
+        "sessions_found": 0,
         "total_deleted":  total,
         "status":         "ok",
     }
@@ -1237,21 +1210,14 @@ def rollback_demo_all(tenant_id: str) -> dict:
 
 def get_demo_status(tenant_id: str) -> dict:
     """
-    Gibt eine Übersicht aller aktiven Demo-Sessions für den Tenant zurück.
+    Gibt eine Übersicht aller Demo-Sessions für den Tenant zurück.
+    v4.4.0: Liest aus lokaler SQLite statt Azure SQL.
     """
-    from .sql_client import query_fetchall
-    try:
-        sessions = query_fetchall(
-            # Perf v3.7.8: TOP 20 begrenzt die Round-Trip-Dauer bei Azure SQL
-            # (die Demo-Seite zeigt sowieso nur die neuesten Sessions).
-            "SELECT TOP 20 session_id,demo_tag,created_at,status,"
-            "user_count,printer_count,network_count,"
-            "print_job_count,scan_job_count,copy_job_count,params_json "
-            "FROM demo.demo_sessions WHERE tenant_id=? ORDER BY created_at DESC",
-            (tenant_id,),
-        )
-    except Exception as e:
-        return {"error": f"demo.demo_sessions Tabelle nicht gefunden — bitte zuerst printix_demo_setup_schema ausführen. ({e})"}
+    from .local_demo_db import get_demo_sessions
+
+    sessions = get_demo_sessions(tenant_id)
+    # Maximal 20 Sessions zurückgeben (bereits nach created_at DESC sortiert)
+    sessions = sessions[:20]
 
     total_jobs = sum((s.get("print_job_count") or 0) for s in sessions)
     total_rows = sum(
