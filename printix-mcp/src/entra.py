@@ -32,9 +32,13 @@ _SCOPES = "openid profile email"
 # Graph API
 _GRAPH_URL = "https://graph.microsoft.com/v1.0"
 
-# Azure CLI well-known client_id (Microsoft first-party app, supports device code flow
-# + Graph API permissions). Used by `az login` / `az ad app create`.
-_AZURE_CLI_CLIENT_ID = "04b07795-a710-4f83-a962-d65c70e4e3c2"
+# Azure CLI well-known client_id — kept for reference but NOT used for device code.
+# _AZURE_CLI_CLIENT_ID = "04b07795-a710-4f83-a962-d65c70e4e3c2"
+
+# Microsoft Graph Command Line Tools (first-party Microsoft app).
+# Supports device code flow + dynamic consent for Graph API permissions.
+# Used by Microsoft Graph CLI (mgc) and PowerShell SDK.
+_GRAPH_CLI_CLIENT_ID = "14d82eec-204b-4c2f-b7e8-296a70dab67e"
 
 
 # ─── Configuration ───────────────────────────────────────────────────────────
@@ -150,7 +154,7 @@ def exchange_code_for_user(code: str, redirect_uri: str) -> dict | None:
 
 # ─── Device Code Flow (Auto App Registration) ────────────────────────────────
 #
-# Truly automatic one-click setup using Azure CLI's well-known client_id.
+# Truly automatic one-click setup using Microsoft Graph CLI's client_id.
 # No bootstrap app or pre-registered credentials needed.
 #
 # Ablauf:
@@ -172,7 +176,7 @@ _GRAPH_SCOPES_DEVICE = (
 
 def start_device_code_flow(tenant: str = "common") -> dict | None:
     """
-    Startet den Device Code Flow mit der Azure CLI Client-ID.
+    Startet den Device Code Flow mit der Microsoft Graph CLI Client-ID.
 
     Returns dict mit keys: device_code, user_code, verification_uri,
     expires_in, interval — oder None bei Fehler.
@@ -181,7 +185,7 @@ def start_device_code_flow(tenant: str = "common") -> dict | None:
         resp = _requests.post(
             _DEVICE_CODE_URL.format(tenant=tenant),
             data={
-                "client_id": _AZURE_CLI_CLIENT_ID,
+                "client_id": _GRAPH_CLI_CLIENT_ID,
                 "scope":     _GRAPH_SCOPES_DEVICE,
             },
             timeout=15,
@@ -219,7 +223,7 @@ def poll_device_code_token(device_code: str, tenant: str = "common") -> dict:
         resp = _requests.post(
             _TOKEN_URL.format(tenant=tenant),
             data={
-                "client_id":  _AZURE_CLI_CLIENT_ID,
+                "client_id":  _GRAPH_CLI_CLIENT_ID,
                 "device_code": device_code,
                 "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
             },
