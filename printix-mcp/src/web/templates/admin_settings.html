@@ -62,7 +62,13 @@
 
         <div id="entra-fields" style="{{ '' if entra.enabled else 'display:none;' }}">
 
-          {% if not entra.client_id or not entra.has_secret %}
+          <!-- Auto-Setup immer sichtbar (auch fuer Neu-Einrichtung) -->
+          {% if entra.client_id and entra.has_secret %}
+          <details style="margin-bottom:16px;">
+            <summary style="cursor:pointer;font-size:.9em;color:#2563eb;font-weight:600;padding:8px 0;">
+              {{ _('entra_reconfigure_btn') }}
+            </summary>
+          {% endif %}
 
           <!-- ── Ein-Klick Auto-Setup (Device Code Flow) ───────────── -->
           <div id="entra-auto-setup-box"
@@ -290,7 +296,8 @@ echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\
             </div>
           </div>
 
-          {% else %}
+          {% if entra.client_id and entra.has_secret %}
+          </details>
           {% endif %}
 
           <!-- ── Credential-Felder (immer sichtbar) ──────────────────── -->
