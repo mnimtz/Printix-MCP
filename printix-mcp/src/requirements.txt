@@ -13,6 +13,9 @@ itsdangerous>=2.1.0
 cryptography>=42.0.0
 bcrypt>=4.1.0
 
+# Capture Store — HTTP Client für Plugin-Requests
+aiohttp>=3.9.0
+
 # Reporting — SQL, Scheduling, Mail
 pyodbc>=5.1.0
 pymssql>=2.3.0

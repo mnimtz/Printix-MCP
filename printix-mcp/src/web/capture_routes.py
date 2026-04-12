@@ -380,7 +380,11 @@ def register_capture_routes(
         if not plugin:
             return JSONResponse({"ok": False, "message": "Unknown plugin type"})
 
-        ok, msg = await plugin.test_connection()
+        try:
+            ok, msg = await plugin.test_connection()
+        except Exception as e:
+            logger.exception("Capture test_connection error: %s", e)
+            ok, msg = False, f"Server error: {e}"
 
         # Log result
         await asyncio.to_thread(
