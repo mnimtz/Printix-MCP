@@ -319,10 +319,10 @@ echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\
 
           <div class="form-group">
             <label>{{ _('entra_redirect_uri') }} <small style="color:#6b7280;">({{ _('entra_redirect_hint') }})</small></label>
-            <div class="code-block" id="entra-redirect-block">
-              <button type="button" class="copy-btn" onclick="copyToClipboard('entra-redirect-val', this)">&#x29C9;</button>
-              <span id="entra-redirect-val">{{ entra_redirect_uri }}</span>
-            </div>
+            <input type="url" name="entra_redirect_uri" id="entra-redirect-val"
+                   value="{{ entra_redirect_uri }}" class="input"
+                   placeholder="https://example.com/auth/entra/callback">
+            <small class="hint">{{ _('entra_redirect_uri_hint') }}</small>
           </div>
 
           <div class="divider" style="margin:16px 0;"></div>

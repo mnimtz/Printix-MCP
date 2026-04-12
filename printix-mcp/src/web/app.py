@@ -479,8 +479,16 @@ def create_app(session_secret: str) -> FastAPI:
 
         state = generate_state()
         request.session["entra_state"] = state
-        base = _get_base_url(request)
-        redirect_uri = f"{base}/auth/entra/callback"
+        # Gespeicherte Redirect URI verwenden (konsistent mit App-Registrierung)
+        try:
+            from db import get_setting
+            saved_uri = get_setting("entra_redirect_uri", "")
+        except Exception:
+            saved_uri = ""
+        if not saved_uri:
+            base = _get_base_url(request)
+            saved_uri = f"{base}/auth/entra/callback"
+        redirect_uri = saved_uri
         url = build_authorize_url(redirect_uri, state)
         return RedirectResponse(url, status_code=302)
 
@@ -529,8 +537,16 @@ def create_app(session_secret: str) -> FastAPI:
                 **_e, **tc,
             })
 
-        base = _get_base_url(request)
-        redirect_uri = f"{base}/auth/entra/callback"
+        # Gespeicherte Redirect URI verwenden (muss mit Login-Request übereinstimmen)
+        try:
+            from db import get_setting as _gs
+            saved_uri = _gs("entra_redirect_uri", "")
+        except Exception:
+            saved_uri = ""
+        if not saved_uri:
+            base = _get_base_url(request)
+            saved_uri = f"{base}/auth/entra/callback"
+        redirect_uri = saved_uri
         user_info = exchange_code_for_user(code, redirect_uri)
 
         if not user_info or not user_info.get("oid"):
@@ -672,9 +688,12 @@ def create_app(session_secret: str) -> FastAPI:
                 set_setting("entra_tenant_id", result["tenant_id"])
             set_setting("entra_auto_approve", "0")
 
+            set_setting("entra_redirect_uri", sso_redirect_uri)
+
             audit(user["id"], "entra_auto_setup",
-                  f"SSO-App via Device Code Flow erstellt (client_id={result['client_id']})")
-            logger.info("Entra Auto-Setup erfolgreich: client_id=%s", result["client_id"])
+                  f"SSO-App via Device Code Flow erstellt (client_id={result['client_id']}, redirect_uri={sso_redirect_uri})")
+            logger.info("Entra Auto-Setup erfolgreich: client_id=%s, redirect_uri=%s",
+                        result["client_id"], sso_redirect_uri)
         except Exception as e:
             logger.error("Entra Auto-Setup DB-Fehler: %s", e)
             return JSONResponse({
@@ -1281,12 +1300,19 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception:
             entra_cfg = {"enabled": False, "tenant_id": "", "client_id": "",
                          "has_secret": False, "auto_approve": False}
-        base = _get_base_url(request)
+        # Gespeicherte Redirect URI (aus Auto-Setup oder manuell gesetzt)
+        try:
+            saved_redirect = gs("entra_redirect_uri", "")
+        except Exception:
+            saved_redirect = ""
+        if not saved_redirect:
+            base = _get_base_url(request)
+            saved_redirect = f"{base}/auth/entra/callback"
         return {
             "request": request, "user": user,
             "public_url": public_url,
             "entra": entra_cfg,
-            "entra_redirect_uri": f"{base}/auth/entra/callback",
+            "entra_redirect_uri": saved_redirect,
             "auto_setup_success": auto_setup_success,
             "saved": saved, "error": error,
             **t_ctx(request),
@@ -1309,6 +1335,7 @@ def create_app(session_secret: str) -> FastAPI:
         entra_client_id:      str = Form(default=""),
         entra_client_secret:  str = Form(default=""),
         entra_auto_approve:   str = Form(default=""),
+        entra_redirect_uri:   str = Form(default=""),
     ):
         user = get_session_user(request)
         if not user or not user.get("is_admin"):
@@ -1327,6 +1354,9 @@ def create_app(session_secret: str) -> FastAPI:
             # Secret nur überschreiben wenn neuer Wert eingegeben wurde
             if entra_client_secret.strip():
                 set_setting("entra_client_secret", _enc(entra_client_secret.strip()))
+            # Redirect URI speichern (muss mit Azure App Registration übereinstimmen)
+            if entra_redirect_uri.strip():
+                set_setting("entra_redirect_uri", entra_redirect_uri.strip().rstrip("/"))
 
             changes = [f"public_url={url}"]
             if entra_enabled:
