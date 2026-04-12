@@ -588,11 +588,11 @@ def get_or_create_entra_user(
         if row:
             return _user_public(dict(row))
 
-    # 2. Suche nach E-Mail und verknüpfe
+    # 2. Suche nach E-Mail und verknüpfe (case-insensitive)
     if email:
         with _conn() as conn:
             row = conn.execute(
-                "SELECT * FROM users WHERE email = ?", (email.strip(),)
+                "SELECT * FROM users WHERE email COLLATE NOCASE = ?", (email.strip(),)
             ).fetchone()
             if row:
                 conn.execute(
