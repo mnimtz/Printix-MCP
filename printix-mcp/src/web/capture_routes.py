@@ -47,19 +47,24 @@ def register_capture_routes(
         from db import get_tenant_by_user_id
         return get_tenant_by_user_id(user["id"])
 
-    def _get_webhook_base(request: Request) -> str:
-        """Webhook Base-URL: public_url (HTTPS) > request URL."""
+    def _get_webhook_base(request: Request) -> tuple:
+        """
+        Webhook Base-URL: MCP_PUBLIC_URL (env) > public_url (DB) > request URL.
+        Returns (base_url, is_configured) — is_configured=False means fallback.
+        """
         import os
-        wb = os.environ.get("MCP_PUBLIC_URL", "").rstrip("/")
-        if not wb:
-            try:
-                from db import get_setting
-                wb = get_setting("public_url", "").rstrip("/")
-            except Exception:
-                pass
-        if not wb:
-            wb = f"{request.url.scheme}://{request.url.netloc}"
-        return wb
+        wb = os.environ.get("MCP_PUBLIC_URL", "").strip().rstrip("/")
+        if wb:
+            return wb, True
+        try:
+            from db import get_setting
+            wb = get_setting("public_url", "").strip().rstrip("/")
+        except Exception:
+            pass
+        if wb:
+            return wb, True
+        # Fallback: request URL — wahrscheinlich FALSCH für Webhooks
+        return f"{request.url.scheme}://{request.url.netloc}", False
 
     # ── GET /capture — Store Overview ───────────────────────────────────────
 
@@ -104,7 +109,8 @@ def register_capture_routes(
             "plugins": plugin_info,
             "profiles_count": len(profiles),
             "active_count": sum(1 for p in profiles if p["is_active"]),
-            "webhook_base": _get_webhook_base(request),
+            "webhook_base": _get_webhook_base(request)[0],
+            "webhook_base_configured": _get_webhook_base(request)[1],
         })
         return templates.TemplateResponse("capture_store.html", ctx)
 
@@ -141,7 +147,7 @@ def register_capture_routes(
             "config_fields": plugin_instance.config_schema(),
             "config_values": {},
             "error": "",
-            "webhook_base": _get_webhook_base(request),
+            "webhook_base": _get_webhook_base(request)[0],
         })
         return templates.TemplateResponse("capture_form.html", ctx)
 
@@ -188,7 +194,7 @@ def register_capture_routes(
                 "config_fields": plugin_instance.config_schema(),
                 "config_values": config,
                 "error": "Name is required",
-                "webhook_base": _get_webhook_base(request),
+                "webhook_base": _get_webhook_base(request)[0],
             })
             return templates.TemplateResponse("capture_form.html", ctx)
 
@@ -254,7 +260,7 @@ def register_capture_routes(
             "config_fields": plugin_instance.config_schema(),
             "config_values": config_values,
             "error": "",
-            "webhook_base": _get_webhook_base(request),
+            "webhook_base": _get_webhook_base(request)[0],
         })
         return templates.TemplateResponse("capture_form.html", ctx)
 
@@ -395,211 +401,65 @@ def register_capture_routes(
 
         return JSONResponse({"ok": ok, "message": msg})
 
-    # ── Debug-UUID — Printix akzeptiert nur /capture/webhook/{uuid} ────────
-    DEBUG_PROFILE_ID = "00000000-0000-0000-0000-000000000000"
-
     # ── POST /capture/webhook/{profile_id} — Printix Capture Webhook ───────
 
     @app.post("/capture/webhook/{profile_id}")
     async def capture_webhook_handler(request: Request, profile_id: str):
         """
-        Empfängt Printix Capture Notifications für ein bestimmtes Profil.
+        Empfängt Printix Capture Notifications — delegiert an shared handler.
         URL-Format: /capture/webhook/{profile_id}
-        Printix Connector URL: https://{FQDN}:{port}/capture/webhook/{profileId}
-
-        Spezial: profile_id == DEBUG_PROFILE_ID → Debug-Modus (loggt alles).
         """
-        # Debug-UUID → direkt an Debug-Handler weiterleiten
-        if profile_id == DEBUG_PROFILE_ID:
-            return await capture_debug(request)
-
-        from capture.hmac_verify import verify_hmac
-        from db import get_capture_profile_for_webhook, add_capture_log
+        from capture.webhook_handler import handle_webhook
         import asyncio
 
-        logger.info("━━━ Capture Webhook empfangen: profile=%s method=%s ━━━",
-                     profile_id[:8], request.method)
-        logger.info("  Headers: %s", dict(request.headers))
-
-        # 1. Profil laden
-        profile = await asyncio.to_thread(get_capture_profile_for_webhook, profile_id)
-        if not profile:
-            logger.warning("Capture webhook: unknown or inactive profile %s", profile_id)
-            return JSONResponse({"error": "Unknown profile"}, status_code=404)
-
-        logger.info("  Profile found: name=%s plugin=%s active=%s",
-                     profile["name"], profile["plugin_type"], profile.get("is_active"))
-
-        # 2. Body lesen
         body_bytes = await request.body()
         headers_dict = {k.lower(): v for k, v in request.headers.items()}
-        logger.info("  Body: %d bytes, Content-Type: %s",
-                     len(body_bytes), headers_dict.get("content-type", "?"))
 
-        # v4.4.1: Body-Preview für Debugging (erste 500 Zeichen)
-        if body_bytes:
-            logger.info("  Body preview: %s", body_bytes[:500].decode("utf-8", errors="replace"))
-
-        # 3. HMAC verifizieren
-        if not verify_hmac(body_bytes, headers_dict, profile.get("secret_key", "")):
-            logger.warning("Capture webhook: HMAC verification failed for profile %s", profile_id)
-            await asyncio.to_thread(
-                add_capture_log, profile["tenant_id"], profile_id, profile["name"],
-                "signature_failed", "error", "HMAC signature verification failed",
-            )
-            return JSONResponse({"error": "Signature verification failed"}, status_code=401)
-
-        # 4. Body parsen
-        try:
-            body = json.loads(body_bytes)
-        except (json.JSONDecodeError, ValueError) as parse_err:
-            logger.error("Capture webhook: JSON parse error: %s (body=%s)",
-                         parse_err, body_bytes[:200].decode("utf-8", errors="replace"))
-            await asyncio.to_thread(
-                add_capture_log, profile["tenant_id"], profile_id, profile["name"],
-                "parse_error", "error",
-                f"Invalid JSON body ({len(body_bytes)} bytes): {parse_err}",
-            )
-            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-
-        event_type = body.get("eventType", body.get("EventType", "unknown"))
-        document_url = body.get("documentUrl", body.get("DocumentUrl",
-                       body.get("documentURL", body.get("blobUrl", ""))))
-        filename = body.get("fileName", body.get("FileName",
-                   body.get("name", "scan.pdf")))
-        metadata = body.get("metadata", body.get("Metadata", {}))
-
-        logger.info(
-            "  Parsed: event=%s file=%s docUrl=%s...",
-            event_type, filename, document_url[:80] if document_url else "(none)",
+        status, data = await asyncio.to_thread(
+            lambda: None  # placeholder
+        ) if False else await handle_webhook(
+            profile_id=profile_id,
+            method=request.method,
+            headers=headers_dict,
+            body_bytes=body_bytes,
+            source="web",
         )
-        logger.info("  Full body keys: %s", list(body.keys()))
-
-        # 5. Plugin-Verarbeitung
-        plugin = create_plugin_instance(profile["plugin_type"], profile.get("config_json", "{}"))
-        if not plugin:
-            await asyncio.to_thread(
-                add_capture_log, profile["tenant_id"], profile_id, profile["name"],
-                event_type, "error", f"Unknown plugin: {profile['plugin_type']}",
-            )
-            return JSONResponse({"errorMessage": f"Unknown plugin: {profile['plugin_type']}"})
-
-        try:
-            ok, msg = await plugin.process_document(document_url, filename, metadata, body)
-        except Exception as e:
-            logger.exception("Capture plugin error: %s", e)
-            ok, msg = False, str(e)
-
-        logger.info("  Result: ok=%s msg=%s", ok, msg[:200] if msg else "")
-
-        # 6. Log
-        await asyncio.to_thread(
-            add_capture_log, profile["tenant_id"], profile_id, profile["name"],
-            event_type, "ok" if ok else "error", msg,
-        )
-
-        # 7. Callback-Antwort (Printix-Format)
-        if ok:
-            return JSONResponse({"errorMessage": ""})
-        else:
-            return JSONResponse({"errorMessage": msg})
+        return JSONResponse(data, status_code=status)
 
     # ── GET /capture/webhook/{profile_id} — Health Check ────────────────────
 
     @app.get("/capture/webhook/{profile_id}")
     async def capture_webhook_health(request: Request, profile_id: str):
-        """Health-Check: Printix prüft ob der Endpoint erreichbar ist."""
-        # Debug-UUID → auch GET an Debug-Handler
-        if profile_id == DEBUG_PROFILE_ID:
-            return await capture_debug(request)
-        return JSONResponse({
-            "status": "ok",
-            "profile_id": profile_id,
-            "endpoint": f"/capture/webhook/{profile_id}",
-        })
+        """Health-Check / Debug: GET an shared handler."""
+        from capture.webhook_handler import handle_webhook
 
-    # ── Debug Endpoint — loggt ALLES was reinkommt ────────────────────────
+        headers_dict = {k.lower(): v for k, v in request.headers.items()}
+        status, data = await handle_webhook(
+            profile_id=profile_id,
+            method="GET",
+            headers=headers_dict,
+            body_bytes=b"",
+            source="web",
+        )
+        return JSONResponse(data, status_code=status)
+
+    # ── Debug Endpoint — für direkte Browser-Aufrufe ─────────────────────────
 
     @app.api_route("/capture/debug", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     async def capture_debug(request: Request):
-        """
-        Debug-Endpoint: Loggt alle Details eines eingehenden Requests.
-        Nützlich um zu sehen was Printix genau sendet.
-        URL: /capture/debug
-        """
+        """Debug-Endpoint: delegiert an shared handler mit Debug-UUID."""
+        from capture.webhook_handler import handle_webhook
+
         body_bytes = await request.body()
-        headers_dict = dict(request.headers)
-        query_params = dict(request.query_params)
-
-        # Body parsen (versuchen)
-        body_parsed = None
-        body_text = ""
-        try:
-            body_parsed = json.loads(body_bytes) if body_bytes else None
-        except Exception:
-            body_text = body_bytes.decode("utf-8", errors="replace")[:2000] if body_bytes else ""
-
-        debug_info = {
-            "timestamp": __import__("datetime").datetime.now().isoformat(),
-            "method": request.method,
-            "url": str(request.url),
-            "path": request.url.path,
-            "query_params": query_params,
-            "headers": headers_dict,
-            "body_size": len(body_bytes),
-            "body_json": body_parsed,
-            "body_text": body_text if not body_parsed else "",
-            "client": f"{request.client.host}:{request.client.port}" if request.client else "unknown",
-        }
-
-        # In Server-Log ausgeben
-        logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        logger.info("  CAPTURE DEBUG ENDPOINT")
-        logger.info("  Method:  %s", request.method)
-        logger.info("  URL:     %s", request.url)
-        logger.info("  Client:  %s", debug_info["client"])
-        logger.info("  Headers:")
-        for k, v in headers_dict.items():
-            logger.info("    %s: %s", k, v)
-        logger.info("  Query:   %s", query_params)
-        logger.info("  Body (%d bytes):", len(body_bytes))
-        if body_parsed:
-            for k, v in body_parsed.items():
-                val_str = str(v)
-                if len(val_str) > 200:
-                    val_str = val_str[:200] + "..."
-                logger.info("    %s: %s", k, val_str)
-        elif body_text:
-            logger.info("    (raw) %s", body_text[:500])
-        else:
-            logger.info("    (empty)")
-        logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-        # Auch ins Capture-Log schreiben (falls ein User eingeloggt ist)
-        try:
-            user = require_login(request)
-            if user:
-                from db import get_tenant_by_user_id, add_tenant_log
-                import asyncio
-                tenant = get_tenant_by_user_id(user["id"])
-                if tenant:
-                    summary = (
-                        f"DEBUG {request.method} | "
-                        f"Body: {len(body_bytes)}B | "
-                        f"Keys: {list(body_parsed.keys()) if body_parsed else '(none)'}"
-                    )
-                    await asyncio.to_thread(
-                        add_tenant_log, tenant["id"], "INFO", "CAPTURE",
-                        f"[Debug Endpoint] {summary}"
-                    )
-        except Exception:
-            pass
-
-        return JSONResponse({
-            "status": "ok",
-            "message": "Debug info logged — check server logs and /logs (CAPTURE category)",
-            "received": debug_info,
-        })
+        headers_dict = {k.lower(): v for k, v in request.headers.items()}
+        status, data = await handle_webhook(
+            profile_id="00000000-0000-0000-0000-000000000000",
+            method=request.method,
+            headers=headers_dict,
+            body_bytes=body_bytes,
+            source="web",
+        )
+        return JSONResponse(data, status_code=status)
 
     @app.api_route("/capture/debug/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     async def capture_debug_subpath(request: Request, path: str):

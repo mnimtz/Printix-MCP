@@ -550,7 +550,11 @@ def query_print_stats(
         ORDER BY {group_expr}
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    sql_results = query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (print_stats), using demo-only: %s", e)
+        sql_results = []
 
     # v4.4.0: Demo-Daten aus lokaler SQLite mergen
     if _has_active_demo():
@@ -633,7 +637,11 @@ def query_cost_report(
         ORDER BY {group_expr}
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    sql_results = query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (cost_report), using demo-only: %s", e)
+        sql_results = []
 
     # v4.4.0: Demo-Daten aus lokaler SQLite mergen
     if _has_active_demo():
@@ -707,7 +715,11 @@ def query_top_users(
         ORDER BY {order_col}
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    sql_results = query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (top_users), using demo-only: %s", e)
+        sql_results = []
 
     # v4.4.0: Demo-Daten aus lokaler SQLite mergen
     if _has_active_demo():
@@ -786,7 +798,11 @@ def query_top_printers(
         ORDER BY {order_col}
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    sql_results = query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (top_printers), using demo-only: %s", e)
+        sql_results = []
 
     # v4.4.0: Demo-Daten aus lokaler SQLite mergen
     if _has_active_demo():

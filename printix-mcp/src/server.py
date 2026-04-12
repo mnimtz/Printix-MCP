@@ -1,5 +1,5 @@
 """
-Printix MCP Server — Home Assistant Add-on v2.1.0 (Multi-Tenant)
+Printix MCP Server — Home Assistant Add-on v4.4.6 (Multi-Tenant)
 =================================================================
 Model Context Protocol server for the Printix Cloud Print API.
 
@@ -2291,21 +2291,13 @@ class DualTransportApp:
     """
     ASGI-Router: leitet Anfragen an den passenden MCP-Transport weiter.
 
-      POST /mcp           → Streamable HTTP Transport (claude.ai, neuere MCP-Clients)
-      GET  /sse            → SSE Transport             (ChatGPT, ältere MCP-Clients)
-      POST /messages/      → SSE Message Handler
-      POST /capture/webhook/{id} → Capture Webhook     (Printix Capture Connector)
+      POST /mcp                    → Streamable HTTP Transport (claude.ai)
+      GET  /sse                    → SSE Transport (ChatGPT)
+      POST /capture/webhook/{id}   → Capture Webhook (shared handler)
 
-    Lifespan wird an http_app weitergeleitet, damit der StreamableHTTP-
-    SessionManager seinen anyio-TaskGroup beim Start initialisieren kann.
-    Der SSE-Transport benötigt kein Lifespan (no-op).
-
-    Auth-Middleware sitzt davor und schützt beide Endpunkte gleichermaßen.
     Capture Webhooks werden in BearerAuthMiddleware von der Bearer-Prüfung
     ausgenommen — sie nutzen HMAC-Verifizierung.
     """
-
-    DEBUG_PROFILE_ID = "00000000-0000-0000-0000-000000000000"
 
     def __init__(self, sse_app, http_app):
         self.sse_app = sse_app
@@ -2324,7 +2316,7 @@ class DualTransportApp:
         else:
             await self.sse_app(scope, receive, send)
 
-    # ── Capture Webhook Handler (v4.4.3) ──────────────────────────────────────
+    # ── Capture Webhook — delegiert an shared handler (v4.4.6) ─────────────
 
     async def _read_body(self, receive) -> bytes:
         body = b""
@@ -2348,9 +2340,8 @@ class DualTransportApp:
         await send({"type": "http.response.body", "body": body})
 
     async def _handle_capture(self, scope, receive, send):
-        """Capture Webhook / Debug auf dem MCP-Port (8765)."""
-        import json as _j
-        import datetime as _dt
+        """Delegiert an den shared capture webhook handler (v4.4.6)."""
+        from capture.webhook_handler import handle_webhook
 
         path = scope.get("path", "")
         method = scope.get("method", "GET")
@@ -2361,175 +2352,27 @@ class DualTransportApp:
         }
         body_bytes = await self._read_body(receive)
 
-        # ── Profile-ID aus Pfad extrahieren ────────────────────────���──────
-        # /capture/webhook/{profile_id}  oder  /capture/debug[/...]
-        profile_id = ""
+        # Profile-ID aus Pfad extrahieren
         if path.startswith("/capture/webhook/"):
             profile_id = path[len("/capture/webhook/"):].strip("/")
         elif path.startswith("/capture/debug"):
-            profile_id = self.DEBUG_PROFILE_ID  # Debug-Modus
-
-        # ── Debug-UUID → alles loggen ─────────────────────────────────────
-        if profile_id == self.DEBUG_PROFILE_ID:
-            body_parsed = None
-            body_text = ""
-            try:
-                body_parsed = _j.loads(body_bytes) if body_bytes else None
-            except Exception:
-                body_text = body_bytes.decode("utf-8", errors="replace")[:2000] if body_bytes else ""
-
-            debug_info = {
-                "timestamp": _dt.datetime.now().isoformat(),
-                "method": method,
-                "path": path,
-                "headers": headers_str,
-                "body_size": len(body_bytes),
-                "body_json": body_parsed,
-                "body_text": body_text if not body_parsed else "",
-            }
-            logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            logger.info("  CAPTURE DEBUG (MCP-Port)")
-            logger.info("  Method:  %s", method)
-            logger.info("  Path:    %s", path)
-            logger.info("  Headers:")
-            for k, v in headers_str.items():
-                logger.info("    %s: %s", k, v)
-            logger.info("  Body (%d bytes):", len(body_bytes))
-            if body_parsed:
-                for k, v in body_parsed.items():
-                    val_str = str(v)[:200]
-                    logger.info("    %s: %s", k, val_str)
-            elif body_text:
-                logger.info("    (raw) %s", body_text[:500])
-            else:
-                logger.info("    (empty)")
-            logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-            await self._json_response(send, 200, {
-                "status": "ok",
-                "message": "Debug info logged — check add-on logs",
-                "received": debug_info,
-            })
-            return
-
-        # ── Normaler Webhook: Profil laden, HMAC prüfen, Plugin dispatchen ─
-        if method == "GET":
-            await self._json_response(send, 200, {
-                "status": "ok",
-                "profile_id": profile_id,
-                "endpoint": f"/capture/webhook/{profile_id}",
-            })
-            return
-
-        if method != "POST":
-            await self._json_response(send, 405, {"error": "Method not allowed"})
-            return
+            profile_id = "00000000-0000-0000-0000-000000000000"
+        else:
+            profile_id = ""
 
         try:
-            from db import get_capture_profile_for_webhook, add_capture_log
-            from capture.hmac_verify import verify_hmac
-            from capture.base_plugin import create_plugin_instance
-
-            logger.info("━━━ Capture Webhook (MCP-Port): profile=%s ━━━", profile_id[:8])
-            logger.info("  Headers: %s", headers_str)
-
-            profile = get_capture_profile_for_webhook(profile_id)
-            if not profile:
-                logger.warning("  Profil nicht gefunden: %s", profile_id)
-                await self._json_response(send, 404, {"error": "Profile not found"})
-                return
-
-            tenant_id = profile["tenant_id"]
-
-            # HMAC-Verifizierung
-            secret_key = (_j.loads(profile.get("config_json", "{}"))
-                          .get("secret_key", ""))
-            if secret_key:
-                ok, reason = verify_hmac(headers_str, body_bytes, secret_key)
-                if not ok:
-                    logger.warning("  HMAC fehlgeschlagen: %s", reason)
-                    add_capture_log(tenant_id, profile["id"], "HMAC_FAIL", reason)
-                    await self._json_response(send, 401, {"error": reason})
-                    return
-
-            # Body parsen
-            try:
-                payload = _j.loads(body_bytes) if body_bytes else {}
-            except Exception as e:
-                logger.warning("  JSON-Parse-Fehler: %s", e)
-                add_capture_log(tenant_id, profile["id"], "ERROR",
-                                f"JSON parse error: {e}")
-                await self._json_response(send, 400, {"error": "Invalid JSON"})
-                return
-
-            logger.info("  Body-Keys: %s", list(payload.keys()))
-
-            # Flexible Feld-Erkennung (Printix-Format-Varianten)
-            doc_url = (payload.get("documentUrl")
-                       or payload.get("DocumentUrl")
-                       or payload.get("blobUrl")
-                       or payload.get("BlobUrl", ""))
-            file_name = (payload.get("fileName")
-                         or payload.get("FileName")
-                         or payload.get("name")
-                         or payload.get("Name", "document.pdf"))
-            event_type = (payload.get("eventType")
-                          or payload.get("EventType", "unknown"))
-
-            if not doc_url:
-                logger.warning("  Keine Document-URL im Payload")
-                add_capture_log(tenant_id, profile["id"], "ERROR",
-                                f"No document URL. Keys: {list(payload.keys())}")
-                await self._json_response(send, 400, {
-                    "error": "No document URL found in payload"
-                })
-                return
-
-            # Plugin instanziieren und verarbeiten
-            config = _j.loads(profile.get("config_json", "{}"))
-            plugin = create_plugin_instance(profile["plugin_id"], config)
-            if not plugin:
-                add_capture_log(tenant_id, profile["id"], "ERROR",
-                                f"Plugin '{profile['plugin_id']}' nicht gefunden")
-                await self._json_response(send, 500, {"error": "Plugin not found"})
-                return
-
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                # Dokument herunterladen
-                logger.info("  Lade Dokument: %s", doc_url[:100])
-                async with session.get(doc_url) as resp:
-                    if resp.status != 200:
-                        add_capture_log(tenant_id, profile["id"], "ERROR",
-                                        f"Download fehlgeschlagen: HTTP {resp.status}")
-                        await self._json_response(send, 502, {
-                            "error": f"Document download failed: HTTP {resp.status}"
-                        })
-                        return
-                    doc_bytes = await resp.read()
-
-                # An Plugin weiterleiten
-                logger.info("  Sende an Plugin '%s' (%d bytes, name=%s)",
-                             profile["plugin_id"], len(doc_bytes), file_name)
-                result = await plugin.process_document(
-                    session, doc_bytes, file_name, payload
-                )
-
-            status = "OK" if result.get("success") else "ERROR"
-            add_capture_log(tenant_id, profile["id"], status,
-                            f"{event_type}: {file_name} → {result.get('message', '')}")
-
-            await self._json_response(send, 200, {
-                "status": "ok",
-                "result": result,
-            })
-
-        except ImportError as e:
-            logger.error("  Import-Fehler: %s", e)
-            await self._json_response(send, 500, {"error": f"Missing dependency: {e}"})
+            status, data = await handle_webhook(
+                profile_id=profile_id,
+                method=method,
+                headers=headers_str,
+                body_bytes=body_bytes,
+                source="mcp",
+            )
         except Exception as e:
-            logger.error("  Webhook-Fehler: %s", e, exc_info=True)
-            await self._json_response(send, 500, {"error": str(e)})
+            logger.error("Capture handler error: %s", e, exc_info=True)
+            status, data = 500, {"error": str(e)}
+
+        await self._json_response(send, status, data)
 
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────
@@ -2562,7 +2405,7 @@ if __name__ == "__main__":
             logger.warning("Scheduler-Init fehlgeschlagen: %s", _sched_err)
 
     logger.info("╔══════════════════════════════════════════════════════════════╗")
-    logger.info("║        PRINTIX MCP SERVER v4.4.4 — MULTI-TENANT             ║")
+    logger.info("║        PRINTIX MCP SERVER v4.4.5 — MULTI-TENANT             ║")
     logger.info("╠══════════════════════════════════════════════════════════════╣")
     logger.info("║  MCP (claude.ai):  %s/mcp", base)
     logger.info("║  SSE (ChatGPT):    %s/sse", base)

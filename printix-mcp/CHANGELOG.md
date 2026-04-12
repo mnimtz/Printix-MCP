@@ -1,5 +1,39 @@
 # Changelog
 
+## 4.4.6 (2026-04-12) — Kanonischer Capture Handler + Demo-Data Fix
+
+### Architektur — Ein einziger Capture Webhook Handler
+- **NEU**: `capture/webhook_handler.py` — kanonischer Handler für alle Capture Webhooks
+- Sowohl Web-UI (Port 8080) als auch MCP-Server (Port 8765) delegieren an `handle_webhook()`
+- Eliminiert ~180 Zeilen duplizierten Code aus `server.py` und `capture_routes.py`
+- Korrekte HMAC-Verifizierung: `verify_hmac(body_bytes, headers, secret_key)`
+- Korrekte Plugin-Instanziierung: `create_plugin_instance(plugin_type, config_json)`
+- Korrekte Plugin-API: `plugin.process_document(document_url, filename, metadata, body)`
+- Korrekte Capture-Log-Signatur: `add_capture_log(tenant_id, profile_id, profile_name, event_type, status, msg)`
+- Strukturiertes Logging mit `[source]` Prefix (web/mcp)
+
+### Fix — MCP Capture Handler hatte 6 kritische Bugs
+1. HMAC-Parameter in falscher Reihenfolge (`headers, body` statt `body, headers`)
+2. Secret-Key aus `config_json` statt aus `profile["secret_key"]` gelesen
+3. `plugin_id` statt `plugin_type` für Plugin-Instanziierung verwendet
+4. Dokument manuell heruntergeladen statt URL an Plugin zu übergeben
+5. Falsche `add_capture_log` Signatur (4 statt 6 Parameter)
+6. Plugin.process_document mit falscher Signatur aufgerufen
+
+### Fix — Demo-Daten in Reports nicht sichtbar
+- Wenn Azure SQL fehlschlägt (z.B. Free-Tier Limit), blockierte die Exception den Demo-Merge
+- `query_fetchall()` in allen 4 Report-Funktionen jetzt mit try/except geschützt
+- Bei SQL-Fehler: `sql_results = []` → Demo-Daten werden trotzdem angezeigt
+- Betrifft: `query_print_stats`, `query_cost_report`, `query_top_users`, `query_top_printers`
+
+## 4.4.5 (2026-04-12) — Webhook-URL Warnung + korrekte Anzeige
+
+### Fix — Webhook Base-URL im Capture Store
+- `_get_webhook_base()` gibt jetzt `(url, is_configured)` Tuple zurück
+- **Warnung** auf der Capture Store Seite wenn `public_url` nicht konfiguriert ist
+- Erklärt dem Benutzer: Webhook-URLs müssen auf den MCP-Port zeigen
+- Link zu Admin-Einstellungen zum Konfigurieren der `public_url`
+
 ## 4.4.4 (2026-04-12) — Capture Webhook auf MCP-Port
 
 ### Fix — Webhook auf falschem Port
