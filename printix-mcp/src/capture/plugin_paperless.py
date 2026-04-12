@@ -1,23 +1,131 @@
 """
-Paperless-ngx Plugin — Dokumente an Paperless-ngx weiterleiten
-==============================================================
+Paperless-ngx Plugin — Dokumente an Paperless-ngx weiterleiten (v4.4.12)
+========================================================================
 Lädt das Dokument von der Azure Blob SAS URL herunter und sendet es
 an die Paperless-ngx REST API: POST /api/documents/post_document/
+
+Die API erwartet IDs (integers) für Tags, Correspondent und Document Type.
+Dieses Plugin löst konfigurierte Namen automatisch in IDs auf und legt
+fehlende Einträge bei Bedarf automatisch an.
 
 Konfiguration:
   - paperless_url: Base-URL der Paperless-Instanz (z.B. http://192.168.1.10:8000)
   - paperless_token: API-Token für die Authentifizierung
-  - default_tags: Komma-getrennte Tags (optional)
-  - default_correspondent: Korrespondent-Name (optional)
-  - default_document_type: Dokumenttyp (optional)
+  - default_tags: Komma-getrennte Tag-Namen (optional) — werden zu IDs aufgelöst
+  - default_correspondent: Korrespondent-Name (optional) — wird zu ID aufgelöst
+  - default_document_type: Dokumenttyp-Name (optional) — wird zu ID aufgelöst
 """
 
 import logging
+import mimetypes
 from typing import Any
+
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
 from capture.base_plugin import CapturePlugin, register_plugin
+
+
+async def _resolve_tag_id(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    headers: dict,
+    tag_name: str,
+) -> int | None:
+    """Resolve a tag name to its ID. Creates the tag if it doesn't exist."""
+    # Search by exact name (case-insensitive)
+    url = f"{base_url}/api/tags/?name__iexact={tag_name}"
+    async with session.get(url, headers=headers) as resp:
+        if resp.status == 200:
+            data = await resp.json()
+            results = data.get("results", [])
+            if results:
+                tag_id = results[0]["id"]
+                logger.debug("Tag '%s' → ID %d", tag_name, tag_id)
+                return tag_id
+
+    # Tag doesn't exist — create it
+    logger.info("Creating tag '%s' in Paperless-ngx", tag_name)
+    create_url = f"{base_url}/api/tags/"
+    async with session.post(
+        create_url, json={"name": tag_name}, headers=headers
+    ) as resp:
+        if resp.status in (200, 201):
+            data = await resp.json()
+            tag_id = data["id"]
+            logger.info("Created tag '%s' → ID %d", tag_name, tag_id)
+            return tag_id
+        else:
+            text = await resp.text()
+            logger.warning("Failed to create tag '%s': HTTP %d — %s", tag_name, resp.status, text[:200])
+            return None
+
+
+async def _resolve_correspondent_id(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    headers: dict,
+    name: str,
+) -> int | None:
+    """Resolve a correspondent name to its ID. Creates if not found."""
+    url = f"{base_url}/api/correspondents/?name__iexact={name}"
+    async with session.get(url, headers=headers) as resp:
+        if resp.status == 200:
+            data = await resp.json()
+            results = data.get("results", [])
+            if results:
+                cid = results[0]["id"]
+                logger.debug("Correspondent '%s' → ID %d", name, cid)
+                return cid
+
+    logger.info("Creating correspondent '%s' in Paperless-ngx", name)
+    create_url = f"{base_url}/api/correspondents/"
+    async with session.post(
+        create_url, json={"name": name}, headers=headers
+    ) as resp:
+        if resp.status in (200, 201):
+            data = await resp.json()
+            cid = data["id"]
+            logger.info("Created correspondent '%s' → ID %d", name, cid)
+            return cid
+        else:
+            text = await resp.text()
+            logger.warning("Failed to create correspondent '%s': HTTP %d — %s", name, resp.status, text[:200])
+            return None
+
+
+async def _resolve_document_type_id(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    headers: dict,
+    name: str,
+) -> int | None:
+    """Resolve a document type name to its ID. Creates if not found."""
+    url = f"{base_url}/api/document_types/?name__iexact={name}"
+    async with session.get(url, headers=headers) as resp:
+        if resp.status == 200:
+            data = await resp.json()
+            results = data.get("results", [])
+            if results:
+                dtid = results[0]["id"]
+                logger.debug("Document type '%s' → ID %d", name, dtid)
+                return dtid
+
+    logger.info("Creating document type '%s' in Paperless-ngx", name)
+    create_url = f"{base_url}/api/document_types/"
+    async with session.post(
+        create_url, json={"name": name}, headers=headers
+    ) as resp:
+        if resp.status in (200, 201):
+            data = await resp.json()
+            dtid = data["id"]
+            logger.info("Created document type '%s' → ID %d", name, dtid)
+            return dtid
+        else:
+            text = await resp.text()
+            logger.warning("Failed to create document type '%s': HTTP %d — %s", name, resp.status, text[:200])
+            return None
 
 
 @register_plugin
@@ -51,7 +159,7 @@ class PaperlessNgxPlugin(CapturePlugin):
                 "label": "Default Tags",
                 "type": "text",
                 "required": False,
-                "hint": "Comma-separated tags (e.g. printix,scan)",
+                "hint": "Comma-separated tag names (e.g. printix,scan) — auto-created if missing",
                 "default": "printix",
             },
             {
@@ -59,7 +167,7 @@ class PaperlessNgxPlugin(CapturePlugin):
                 "label": "Default Correspondent",
                 "type": "text",
                 "required": False,
-                "hint": "Correspondent name (optional)",
+                "hint": "Correspondent name — auto-created if missing",
                 "default": "",
             },
             {
@@ -67,7 +175,7 @@ class PaperlessNgxPlugin(CapturePlugin):
                 "label": "Default Document Type",
                 "type": "text",
                 "required": False,
-                "hint": "Document type name (optional)",
+                "hint": "Document type name — auto-created if missing",
                 "default": "",
             },
         ]
@@ -79,9 +187,7 @@ class PaperlessNgxPlugin(CapturePlugin):
         metadata: dict[str, Any],
         event_data: dict,
     ) -> tuple[bool, str]:
-        """Downloads the document from Azure Blob and uploads to Paperless-ngx."""
-        import aiohttp
-
+        """Downloads the document from Azure Blob and uploads to Paperless-ngx (v4.4.12)."""
         paperless_url = self.config.get("paperless_url", "").rstrip("/")
         token = self.config.get("paperless_token", "")
 
@@ -90,6 +196,11 @@ class PaperlessNgxPlugin(CapturePlugin):
 
         if not document_url:
             return False, "No document URL provided in webhook"
+
+        api_headers = {
+            "Authorization": f"Token {token}",
+            "Accept": "application/json",
+        }
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -103,12 +214,34 @@ class PaperlessNgxPlugin(CapturePlugin):
                         return False, "Downloaded document is empty"
                     logger.info("Downloaded %d bytes", len(doc_bytes))
 
-                # 2. Build multipart form for Paperless-ngx
-                upload_url = f"{paperless_url}/api/documents/post_document/"
-                headers = {"Authorization": f"Token {token}"}
+                # 2. Resolve names → IDs for tags, correspondent, document_type
+                tag_ids: list[int] = []
+                tags_cfg = self.config.get("default_tags", "")
+                if tags_cfg:
+                    for tag_name in tags_cfg.split(","):
+                        tag_name = tag_name.strip()
+                        if tag_name:
+                            tid = await _resolve_tag_id(session, paperless_url, api_headers, tag_name)
+                            if tid is not None:
+                                tag_ids.append(tid)
 
-                # Content-Type aus Dateiendung ableiten (v4.4.9)
-                import mimetypes
+                correspondent_id: int | None = None
+                correspondent_name = self.config.get("default_correspondent", "").strip()
+                if correspondent_name:
+                    correspondent_id = await _resolve_correspondent_id(
+                        session, paperless_url, api_headers, correspondent_name
+                    )
+
+                doc_type_id: int | None = None
+                doc_type_name = self.config.get("default_document_type", "").strip()
+                if doc_type_name:
+                    doc_type_id = await _resolve_document_type_id(
+                        session, paperless_url, api_headers, doc_type_name
+                    )
+
+                # 3. Build multipart form for Paperless-ngx
+                upload_url = f"{paperless_url}/api/documents/post_document/"
+
                 _fn = filename or "scan.pdf"
                 _ct = mimetypes.guess_type(_fn)[0] or "application/pdf"
 
@@ -120,32 +253,27 @@ class PaperlessNgxPlugin(CapturePlugin):
                     content_type=_ct,
                 )
 
-                # Optional: title from metadata or filename
+                # Title from metadata or filename
                 title = metadata.get("title") or metadata.get("Title") or filename or ""
                 if title:
                     form.add_field("title", title)
 
-                # Tags
-                tags = self.config.get("default_tags", "")
-                if tags:
-                    for tag in tags.split(","):
-                        tag = tag.strip()
-                        if tag:
-                            form.add_field("tags", tag)
+                # Tags — API expects IDs, one form field per tag
+                for tid in tag_ids:
+                    form.add_field("tags", str(tid))
 
-                # Correspondent
-                correspondent = self.config.get("default_correspondent", "")
-                if correspondent:
-                    form.add_field("correspondent", correspondent)
+                # Correspondent — API expects ID
+                if correspondent_id is not None:
+                    form.add_field("correspondent", str(correspondent_id))
 
-                # Document type
-                doc_type = self.config.get("default_document_type", "")
-                if doc_type:
-                    form.add_field("document_type", doc_type)
+                # Document type — API expects ID
+                if doc_type_id is not None:
+                    form.add_field("document_type", str(doc_type_id))
 
-                # 3. Upload to Paperless-ngx
-                logger.info("Uploading to Paperless-ngx: %s", upload_url)
-                async with session.post(upload_url, data=form, headers=headers) as resp:
+                # 4. Upload to Paperless-ngx
+                logger.info("Uploading to Paperless-ngx: %s (tags=%s, corr=%s, dtype=%s)",
+                            upload_url, tag_ids, correspondent_id, doc_type_id)
+                async with session.post(upload_url, data=form, headers=api_headers) as resp:
                     resp_text = await resp.text()
                     if resp.status in (200, 201, 202):
                         logger.info("Paperless-ngx accepted document: %s", resp_text[:200])

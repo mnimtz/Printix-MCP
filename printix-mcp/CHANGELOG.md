@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.4.12 (2026-04-12) — Paperless Upload: Name→ID Auflösung
+
+### Fix — Tags, Correspondent, Document Type wurden als Namen statt IDs gesendet
+- Paperless-ngx API `/api/documents/post_document/` erwartet **IDs** (integers)
+- Plugin sendete bisher **Namen** (strings) → wurden silently ignoriert
+- Fix: Automatische Name→ID Auflösung via Paperless REST API
+  - Tags: `/api/tags/?name__iexact=...` — pro Tag einzeln aufgelöst
+  - Correspondent: `/api/correspondents/?name__iexact=...`
+  - Document Type: `/api/document_types/?name__iexact=...`
+- **Auto-Create**: Existiert ein Tag/Correspondent/DocType noch nicht, wird er automatisch angelegt
+- Upload-Log zeigt jetzt aufgelöste IDs: `tags=[1,3], corr=5, dtype=2`
+- `Accept: application/json` Header auch beim Upload-Request
+- Pattern aligned mit `mnimtz/Paperless-MCP` Client (`paperless_client.py`)
+
 ## 4.4.11 (2026-04-12) — Paperless test_connection: HTTP 406 fix
 
 ### Fix — Paperless test_connection HTTP 406
