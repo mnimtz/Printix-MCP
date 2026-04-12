@@ -751,17 +751,415 @@ def create_app(session_secret: str) -> FastAPI:
         base   = mcp_base_url()
         tenant = None
         try:
-            from db import get_tenant_by_user_id
-            tenant = get_tenant_by_user_id(user["id"])
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
         except Exception:
             pass
+
+        # KPIs aus SQL laden (falls verfügbar)
+        has_sql = bool(tenant and tenant.get("sql_server"))
+        kpis = {}
+        env_summary = {}
+        sparkline_data = []
+        forecast = {}
+
+        if has_sql:
+            try:
+                import asyncio as _aio
+                from reporting.sql_client import set_config_from_tenant
+                set_config_from_tenant(tenant)
+
+                from datetime import date as _date, timedelta as _td
+                today = _date.today()
+                week_start = today - _td(days=today.weekday())
+                month_start = today.replace(day=1)
+
+                def _load_dashboard_data():
+                    from reporting.query_tools import query_print_stats, query_tree_meter, query_forecast
+                    # Tages/Wochen/Monats-Statistiken
+                    day_data = query_print_stats(str(today), str(today), group_by="day")
+                    week_data = query_print_stats(str(week_start), str(today), group_by="day")
+                    month_data = query_print_stats(str(month_start), str(today), group_by="day")
+
+                    def _sum_field(rows, field):
+                        return sum(int(r.get(field) or 0) for r in rows)
+
+                    today_pages = _sum_field(day_data, "total_pages")
+                    today_jobs  = _sum_field(day_data, "total_jobs")
+                    week_pages  = _sum_field(week_data, "total_pages")
+                    week_jobs   = _sum_field(week_data, "total_jobs")
+                    month_pages = _sum_field(month_data, "total_pages")
+                    month_jobs  = _sum_field(month_data, "total_jobs")
+
+                    # Farb/Duplex-Raten aus Monatsdaten
+                    month_color  = _sum_field(month_data, "color_pages")
+                    month_duplex = _sum_field(month_data, "duplex_pages")
+                    color_ratio  = round(month_color / month_pages * 100, 1) if month_pages else 0
+                    duplex_rate  = round(month_duplex / month_pages * 100, 1) if month_pages else 0
+
+                    # Aktive Drucker
+                    active_printers = 0
+                    for r in month_data:
+                        active_printers = max(active_printers, int(r.get("active_printers") or 0))
+
+                    _kpis = {
+                        "today_pages": today_pages, "today_jobs": today_jobs,
+                        "week_pages": week_pages, "week_jobs": week_jobs,
+                        "month_pages": month_pages, "month_jobs": month_jobs,
+                        "color_ratio": color_ratio, "duplex_rate": duplex_rate,
+                        "active_printers": active_printers,
+                    }
+
+                    # Sparkline: letzte 7 Tage
+                    spark_start = today - _td(days=6)
+                    spark_data = query_print_stats(str(spark_start), str(today), group_by="day")
+                    _sparkline = [0] * 7
+                    for r in spark_data:
+                        try:
+                            from reporting.query_tools import _fmt_date
+                            d = _fmt_date(r["period"])
+                            idx = (d - spark_start).days
+                            if 0 <= idx < 7:
+                                _sparkline[idx] = int(r.get("total_pages") or 0)
+                        except Exception:
+                            pass
+
+                    # Umwelt-Summary (ganzer Monat)
+                    tree = query_tree_meter(str(month_start), str(today))
+                    from reporting.report_engine import compute_env_impact
+                    _env = compute_env_impact(
+                        tree.get("total_pages", 0),
+                        tree.get("duplex_pages", 0),
+                        tree.get("saved_sheets_duplex", 0),
+                    )
+
+                    # Forecast (letzte 6 Monate → nächster Monat)
+                    from dateutil.relativedelta import relativedelta
+                    fc_start = (today - relativedelta(months=6)).replace(day=1)
+                    try:
+                        _fc = query_forecast(str(fc_start), str(today), group_by="month")
+                    except Exception:
+                        _fc = {}
+
+                    return _kpis, _sparkline, _env, _fc
+
+                kpis, sparkline_data, env_summary, forecast = await _aio.to_thread(
+                    _load_dashboard_data
+                )
+            except Exception as e:
+                logger.warning("Dashboard-KPI-Laden fehlgeschlagen: %s", e)
 
         return templates.TemplateResponse("dashboard.html", {
             "request": request, "user": user, "tenant": tenant,
             "base_url": base,
             "mcp_url":  f"{base}/mcp",
             "sse_url":  f"{base}/sse",
+            "has_sql": has_sql,
+            "kpis": kpis,
+            "env_summary": env_summary,
+            "sparkline_data": sparkline_data,
+            "forecast": forecast,
             **t_ctx(request),
+        })
+
+    @app.get("/dashboard/data")
+    async def dashboard_data(request: Request):
+        """JSON-Endpunkt für Auto-Refresh des Dashboards."""
+        user = get_session_user(request)
+        if not user:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+        except Exception:
+            return JSONResponse({"has_sql": False})
+
+        if not tenant or not tenant.get("sql_server"):
+            return JSONResponse({"has_sql": False})
+
+        try:
+            import asyncio as _aio
+            from reporting.sql_client import set_config_from_tenant
+            set_config_from_tenant(tenant)
+
+            from datetime import date as _date, timedelta as _td
+            today = _date.today()
+            week_start = today - _td(days=today.weekday())
+            month_start = today.replace(day=1)
+
+            def _load():
+                from reporting.query_tools import query_print_stats
+                day_data = query_print_stats(str(today), str(today), group_by="day")
+                week_data = query_print_stats(str(week_start), str(today), group_by="day")
+                month_data = query_print_stats(str(month_start), str(today), group_by="day")
+
+                def _s(rows, f):
+                    return sum(int(r.get(f) or 0) for r in rows)
+
+                mp = _s(month_data, "total_pages")
+                return {
+                    "has_sql": True,
+                    "today_pages": _s(day_data, "total_pages"),
+                    "today_jobs": _s(day_data, "total_jobs"),
+                    "week_pages": _s(week_data, "total_pages"),
+                    "week_jobs": _s(week_data, "total_jobs"),
+                    "month_pages": mp,
+                    "month_jobs": _s(month_data, "total_jobs"),
+                    "color_ratio": round(_s(month_data, "color_pages") / mp * 100, 1) if mp else 0,
+                    "duplex_rate": round(_s(month_data, "duplex_pages") / mp * 100, 1) if mp else 0,
+                }
+
+            return JSONResponse(await _aio.to_thread(_load))
+        except Exception as e:
+            logger.warning("Dashboard-Data-Fehler: %s", e)
+            return JSONResponse({"has_sql": True, "error": str(e)})
+
+    # ── Fleet Health Monitor (v4.3.3) ─────────────────────────────────────────
+
+    @app.get("/fleet", response_class=HTMLResponse)
+    async def fleet_health(request: Request):
+        user = get_session_user(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+        if user.get("status") == "pending":
+            return RedirectResponse("/pending", status_code=302)
+
+        tc = t_ctx(request)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+        except Exception:
+            tenant = None
+
+        has_printers = bool(tenant and tenant.get("printix_tenant_id"))
+        has_sql = bool(tenant and tenant.get("sql_server"))
+        printers_list = []
+        fleet_kpis = {"total": 0, "active_today": 0, "inactive_7d": 0, "avg_utilization": 0}
+        alerts = []
+
+        if has_printers and tenant:
+            # Drucker von Printix API laden
+            try:
+                import asyncio as _aio
+                client = _make_printix_client(tenant)
+                api_printers = await _aio.to_thread(client.list_printers)
+                if isinstance(api_printers, dict):
+                    api_printers = api_printers.get("value", [])
+            except Exception as e:
+                logger.warning("Fleet: Printix API Fehler: %s", e)
+                api_printers = []
+
+            # SQL-Daten laden (falls verfügbar)
+            sql_readings = {}
+            if has_sql:
+                try:
+                    import asyncio as _aio
+                    from reporting.sql_client import set_config_from_tenant
+                    set_config_from_tenant(tenant)
+
+                    from datetime import date as _date, timedelta as _td
+                    today = _date.today()
+                    start_90d = today - _td(days=90)
+
+                    def _load_fleet_sql():
+                        from reporting.query_tools import query_device_readings
+                        readings = query_device_readings(str(start_90d), str(today))
+                        return {r.get("printer_name", ""): r for r in readings}
+
+                    sql_readings = await _aio.to_thread(_load_fleet_sql)
+                except Exception as e:
+                    logger.warning("Fleet: SQL-Daten Fehler: %s", e)
+
+            # API + SQL mergen
+            from datetime import date as _date, timedelta as _td, datetime as _dt
+            today = _date.today()
+            total_util = 0
+            util_count = 0
+
+            for p in api_printers:
+                name = p.get("name", "Unknown")
+                sql_data = sql_readings.get(name, {})
+
+                last_act = sql_data.get("last_activity")
+                total_jobs = int(sql_data.get("total_jobs") or 0)
+                total_pages = int(sql_data.get("total_pages") or 0)
+                active_days = int(sql_data.get("active_days") or 0)
+                error_rate = 0  # Wird ggf. aus service_desk erweitert
+
+                # Status bestimmen
+                if last_act:
+                    try:
+                        last_date = _dt.fromisoformat(str(last_act)).date() if not isinstance(last_act, _date) else last_act
+                        days_ago = (today - last_date).days
+                    except Exception:
+                        days_ago = 999
+                else:
+                    days_ago = 999
+
+                if days_ago == 0:
+                    status = "active"
+                elif days_ago <= 7:
+                    status = "warning"
+                elif days_ago > 7 and last_act:
+                    status = "critical"
+                else:
+                    status = "unknown"
+
+                # Utilization (active_days / 90 Tage)
+                utilization = round(active_days / 90 * 100, 1) if active_days else 0
+                total_util += utilization
+                util_count += 1
+
+                printers_list.append({
+                    "name": name,
+                    "model": sql_data.get("model_name") or p.get("model", ""),
+                    "location": sql_data.get("location") or p.get("location", ""),
+                    "site": sql_data.get("site_name", ""),
+                    "status": status,
+                    "last_activity": str(last_act) if last_act else None,
+                    "days_ago": days_ago if days_ago < 999 else None,
+                    "total_jobs": total_jobs,
+                    "total_pages": total_pages,
+                    "utilization": utilization,
+                    "error_rate": error_rate,
+                })
+
+            # Sortieren: Critical zuerst, dann Warning, dann Active
+            status_order = {"critical": 0, "warning": 1, "unknown": 2, "active": 3}
+            printers_list.sort(key=lambda p: status_order.get(p["status"], 9))
+
+            # KPIs
+            fleet_kpis = {
+                "total": len(printers_list),
+                "active_today": sum(1 for p in printers_list if p["status"] == "active"),
+                "inactive_7d": sum(1 for p in printers_list if p["status"] == "critical"),
+                "avg_utilization": round(total_util / util_count, 1) if util_count else 0,
+            }
+
+            # Alerts
+            for p in printers_list:
+                if p["status"] == "critical":
+                    alerts.append({
+                        "type": "inactive",
+                        "printer_name": p["name"],
+                        "detail": f"{p.get('days_ago', '?')} days",
+                    })
+                if p["error_rate"] > 10:
+                    alerts.append({
+                        "type": "high_errors",
+                        "printer_name": p["name"],
+                        "detail": f"{p['error_rate']:.1f}%",
+                    })
+
+        return templates.TemplateResponse("fleet.html", {
+            "request": request, "user": user,
+            "has_printers": has_printers, "has_sql": has_sql,
+            "fleet_kpis": fleet_kpis,
+            "printers": printers_list,
+            "alerts": alerts,
+            **tc,
+        })
+
+    @app.get("/fleet/data")
+    async def fleet_data(request: Request):
+        """JSON-Endpunkt für Fleet Auto-Refresh."""
+        user = get_session_user(request)
+        if not user:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        # Für Auto-Refresh: Fleet-Daten als JSON
+        # (vereinfachte Version — vollständiger Reload)
+        return JSONResponse({"reload": True})
+
+    # ── Sustainability Report (v4.3.3) ────────────────────────────────────────
+
+    @app.get("/reports/sustainability", response_class=HTMLResponse)
+    async def sustainability_report(request: Request):
+        user = get_session_user(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+        if user.get("status") == "pending":
+            return RedirectResponse("/pending", status_code=302)
+
+        tc = t_ctx(request)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+        except Exception:
+            tenant = None
+
+        has_sql = bool(tenant and tenant.get("sql_server"))
+
+        # Default-Zeitraum: aktuelles Jahr
+        from datetime import date as _date
+        today = _date.today()
+        start_date = request.query_params.get("start_date", str(today.replace(month=1, day=1)))
+        end_date = request.query_params.get("end_date", str(today))
+
+        env = {}
+        tree_data = {}
+        equivalents = {}
+        monthly_trend = []
+
+        if has_sql:
+            try:
+                import asyncio as _aio
+                from reporting.sql_client import set_config_from_tenant
+                set_config_from_tenant(tenant)
+
+                def _load_sustainability():
+                    from reporting.query_tools import query_tree_meter, query_print_stats
+                    from reporting.report_engine import compute_env_impact
+
+                    tree = query_tree_meter(start_date, end_date)
+                    _env = compute_env_impact(
+                        tree.get("total_pages", 0),
+                        tree.get("duplex_pages", 0),
+                        tree.get("saved_sheets_duplex", 0),
+                    )
+
+                    # Äquivalenzen berechnen
+                    _eq = {
+                        "car_km": round(_env.get("co2_kg", 0) / 0.21, 1),     # 210g CO2/km
+                        "bathtubs": round(_env.get("water_l", 0) / 150, 1),    # 150L/Wanne
+                        "phone_charges": round(_env.get("energy_kwh", 0) * 1000 / 12, 0),  # 12Wh/Ladung
+                    }
+
+                    # Monatlicher Trend
+                    monthly = query_print_stats(start_date, end_date, group_by="month")
+                    _trend = []
+                    for m in monthly:
+                        m_tree = query_tree_meter(str(m["period"]), str(m["period"]))
+                        m_env = compute_env_impact(
+                            m_tree.get("total_pages", 0),
+                            m_tree.get("duplex_pages", 0),
+                            m_tree.get("saved_sheets_duplex", 0),
+                        )
+                        _trend.append({
+                            "period": str(m["period"]),
+                            "co2_kg": m_env.get("co2_kg", 0),
+                            "trees": m_env.get("trees", 0),
+                            "water_l": m_env.get("water_l", 0),
+                            "saved_sheets": m_tree.get("saved_sheets_duplex", 0),
+                        })
+
+                    return tree, _env, _eq, _trend
+
+                tree_data, env, equivalents, monthly_trend = await _aio.to_thread(
+                    _load_sustainability
+                )
+            except Exception as e:
+                logger.warning("Sustainability-Laden fehlgeschlagen: %s", e)
+
+        return templates.TemplateResponse("sustainability.html", {
+            "request": request, "user": user,
+            "has_sql": has_sql,
+            "env": env,
+            "tree_data": tree_data,
+            "equivalents": equivalents,
+            "monthly_trend": monthly_trend,
+            "start_date": start_date,
+            "end_date": end_date,
+            **tc,
         })
 
     # ── Settings (Selbstverwaltung) ────────────────────────────────────────────

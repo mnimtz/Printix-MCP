@@ -1,70 +1,654 @@
 {% extends "base.html" %}
 {% block title %}{{ _('dash_title') }} — Printix MCP{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── KPI Grid ─────────────────────────────────────────────────────────── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 768px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  }
+  @media (max-width: 480px) {
+    .kpi-grid { grid-template-columns: 1fr !important; }
+  }
+
+  .kpi-tile {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 20px 18px;
+    text-align: center;
+    transition: box-shadow .15s;
+  }
+  .kpi-tile:hover {
+    box-shadow: 0 2px 12px rgba(0,0,0,.08);
+  }
+  .kpi-number {
+    font-size: 2em;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .kpi-label {
+    font-size: .82em;
+    color: #6b7280;
+    margin-top: 6px;
+    font-weight: 500;
+  }
+  .kpi-subtitle {
+    font-size: .72em;
+    color: #9ca3af;
+    margin-top: 2px;
+  }
+
+  /* KPI color accents */
+  .kpi-tile--prints  { border-top: 3px solid #3b82f6; }
+  .kpi-tile--prints .kpi-number { color: #1d4ed8; }
+  .kpi-tile--color   { border-top: 3px solid #f59e0b; }
+  .kpi-tile--color .kpi-number  { color: #d97706; }
+  .kpi-tile--duplex  { border-top: 3px solid #22c55e; }
+  .kpi-tile--duplex .kpi-number { color: #16a34a; }
+  .kpi-tile--printers { border-top: 3px solid #6366f1; }
+  .kpi-tile--printers .kpi-number { color: #4f46e5; }
+
+  /* Indicator bar (color ratio / duplex rate) */
+  .indicator-bar {
+    width: 100%;
+    height: 6px;
+    background: #f1f5f9;
+    border-radius: 3px;
+    margin-top: 10px;
+    overflow: hidden;
+  }
+  .indicator-bar__fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width .4s ease;
+  }
+  .indicator-bar__fill--orange { background: #f59e0b; }
+  .indicator-bar__fill--green  { background: #22c55e; }
+
+  /* ── Middle row ───────────────────────────────────────────────────────── */
+  .mid-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 768px) {
+    .mid-row { grid-template-columns: 1fr !important; }
+  }
+  .mid-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 20px 22px;
+  }
+  .mid-card__title {
+    font-size: .88em;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 12px;
+  }
+
+  /* Sparkline */
+  .sparkline-wrap {
+    width: 100%;
+    max-width: 340px;
+  }
+  .sparkline-wrap svg {
+    width: 100%;
+    height: 80px;
+    display: block;
+  }
+  .sparkline-line {
+    fill: none;
+    stroke: #3b82f6;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .sparkline-area {
+    fill: url(#sparkGrad);
+    opacity: .18;
+  }
+  .sparkline-dot {
+    fill: #3b82f6;
+    r: 3.5;
+  }
+  .sparkline-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: .7em;
+    color: #9ca3af;
+    margin-top: 4px;
+    padding: 0 2px;
+  }
+
+  /* Forecast */
+  .forecast-value {
+    font-size: 1.5em;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .forecast-text {
+    font-size: .88em;
+    color: #6b7280;
+    line-height: 1.5;
+  }
+  .trend-up    { color: #dc2626; }
+  .trend-down  { color: #16a34a; }
+  .trend-stable{ color: #6b7280; }
+  .trend-arrow {
+    font-size: 1.1em;
+    margin-right: 4px;
+  }
+
+  /* ── Environmental card ───────────────────────────────────────────────── */
+  .env-card {
+    background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+    border: 1px solid #bbf7d0;
+    border-radius: 10px;
+    padding: 22px 24px;
+    margin-bottom: 24px;
+  }
+  .env-card__title {
+    font-size: .92em;
+    font-weight: 700;
+    color: #166534;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .env-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .env-metric {
+    text-align: center;
+    min-width: 90px;
+    flex: 1;
+  }
+  .env-metric__value {
+    font-size: 1.35em;
+    font-weight: 700;
+    color: #15803d;
+  }
+  .env-metric__label {
+    font-size: .75em;
+    color: #166534;
+    margin-top: 2px;
+  }
+  @media (max-width: 480px) {
+    .env-metrics {
+      gap: 12px;
+    }
+    .env-metric {
+      min-width: 70px;
+      flex: 0 0 calc(50% - 6px);
+    }
+  }
+
+  /* ── Info banner ──────────────────────────────────────────────────────── */
+  .info-banner {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: .9em;
+    color: #1e40af;
+  }
+  .info-banner__icon {
+    font-size: 1.3em;
+    flex-shrink: 0;
+  }
+
+  /* ── Credentials details ──────────────────────────────────────────────── */
+  .creds-details {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+    margin-bottom: 24px;
+  }
+  .creds-details summary {
+    padding: 16px 20px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: .92em;
+    color: #374151;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+    border-radius: 10px;
+    transition: background .15s;
+  }
+  .creds-details summary:hover {
+    background: #f8fafc;
+  }
+  .creds-details summary::-webkit-details-marker { display: none; }
+  .creds-details summary::before {
+    content: "\25B6";
+    font-size: .7em;
+    transition: transform .2s;
+    color: #9ca3af;
+  }
+  .creds-details[open] summary::before {
+    transform: rotate(90deg);
+  }
+  .creds-details__body {
+    padding: 0 20px 20px;
+  }
+
+  /* ── Auto-refresh toggle ──────────────────────────────────────────────── */
+  .dash-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .dash-header__left {
+    flex: 1;
+    min-width: 200px;
+  }
+  .auto-refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    font-size: .82em;
+    font-weight: 500;
+    color: #374151;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+    white-space: nowrap;
+  }
+  .auto-refresh-btn:hover {
+    background: #f8fafc;
+    border-color: #9ca3af;
+  }
+  .auto-refresh-btn.active {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    color: #1d4ed8;
+  }
+  .refresh-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #d1d5db;
+    transition: background .2s;
+  }
+  .auto-refresh-btn.active .refresh-dot {
+    background: #3b82f6;
+    animation: pulse-dot 2s infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .4; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container">
+
+  {% if tenant %}
+
+  {# ── Dashboard header with auto-refresh ──────────────────────────────── #}
+  <div class="dash-header">
+    <div class="dash-header__left">
+      <div class="section-title">{{ _('dash_title') }}</div>
+      <div class="section-sub">{{ _('dash_connection') }}</div>
+    </div>
+    {% if has_sql %}
+    <button class="auto-refresh-btn" id="autoRefreshBtn" onclick="toggleAutoRefresh()" title="{{ _('dash_auto_refresh') }}">
+      <span class="refresh-dot" id="refreshDot"></span>
+      <span id="refreshLabel">{{ _('dash_auto_refresh') }}</span>
+    </button>
+    {% endif %}
+  </div>
+
+  {# ── No-SQL info banner ──────────────────────────────────────────────── #}
+  {% if not has_sql %}
+  <div class="info-banner">
+    <span class="info-banner__icon">&#x2139;&#xFE0F;</span>
+    <span>{{ _('dash_no_sql_banner') }}</span>
+  </div>
+  {% endif %}
+
+  {# ── KPI Tiles ───────────────────────────────────────────────────────── #}
+  {% if has_sql and kpis %}
+  <div class="kpi-grid" id="kpiGrid">
+    {# Prints today #}
+    <div class="kpi-tile kpi-tile--prints">
+      <div class="kpi-number" id="kpi-today-pages">{{ kpis.today_pages | default(0) }}</div>
+      <div class="kpi-label">{{ _('dash_kpi_today') }}</div>
+      <div class="kpi-subtitle">{{ kpis.today_jobs | default(0) }} {{ _('dash_kpi_jobs') }}</div>
+    </div>
+    {# Prints this week #}
+    <div class="kpi-tile kpi-tile--prints">
+      <div class="kpi-number" id="kpi-week-pages">{{ kpis.week_pages | default(0) }}</div>
+      <div class="kpi-label">{{ _('dash_kpi_week') }}</div>
+      <div class="kpi-subtitle">{{ kpis.week_jobs | default(0) }} {{ _('dash_kpi_jobs') }}</div>
+    </div>
+    {# Prints this month #}
+    <div class="kpi-tile kpi-tile--prints">
+      <div class="kpi-number" id="kpi-month-pages">{{ kpis.month_pages | default(0) }}</div>
+      <div class="kpi-label">{{ _('dash_kpi_month') }}</div>
+      <div class="kpi-subtitle">{{ kpis.month_jobs | default(0) }} {{ _('dash_kpi_jobs') }}</div>
+    </div>
+    {# Color ratio #}
+    <div class="kpi-tile kpi-tile--color">
+      <div class="kpi-number" id="kpi-color-ratio">{{ "%.1f" | format(kpis.color_ratio | default(0)) }}%</div>
+      <div class="kpi-label">{{ _('dash_kpi_color') }}</div>
+      <div class="indicator-bar">
+        <div class="indicator-bar__fill indicator-bar__fill--orange" id="color-bar" style="width: {{ kpis.color_ratio | default(0) }}%"></div>
+      </div>
+    </div>
+    {# Duplex rate #}
+    <div class="kpi-tile kpi-tile--duplex">
+      <div class="kpi-number" id="kpi-duplex-rate">{{ "%.1f" | format(kpis.duplex_rate | default(0)) }}%</div>
+      <div class="kpi-label">{{ _('dash_kpi_duplex') }}</div>
+      <div class="indicator-bar">
+        <div class="indicator-bar__fill indicator-bar__fill--green" id="duplex-bar" style="width: {{ kpis.duplex_rate | default(0) }}%"></div>
+      </div>
+    </div>
+    {# Active printers #}
+    <div class="kpi-tile kpi-tile--printers">
+      <div class="kpi-number" id="kpi-active-printers">{{ kpis.active_printers | default(0) }}</div>
+      <div class="kpi-label">{{ _('dash_kpi_printers') }}</div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Middle row: Sparkline + Forecast ────────────────────────────────── #}
+  {% if has_sql %}
+  <div class="mid-row">
+    {# Sparkline card #}
+    <div class="mid-card">
+      <div class="mid-card__title">{{ _('dash_sparkline_title') }}</div>
+      {% if sparkline_data and sparkline_data | length == 7 %}
+      {% set spark_max = sparkline_data | max if sparkline_data | max > 0 else 1 %}
+      {% set svg_w = 300 %}
+      {% set svg_h = 70 %}
+      {% set pad = 6 %}
+      {% set step_x = (svg_w - 2 * pad) / 6 %}
+      {# Compute points #}
+      {% set ns = namespace(points='', area_points='') %}
+      {% for val in sparkline_data %}
+        {% set x = pad + loop.index0 * step_x %}
+        {% set y = pad + (svg_h - 2 * pad) - ((val / spark_max) * (svg_h - 2 * pad)) %}
+        {% if loop.first %}
+          {% set ns.points = "%.1f,%.1f" | format(x, y) %}
+          {% set ns.area_points = "%.1f,%.1f %.1f,%.1f" | format(x, svg_h - pad, x, y) %}
+        {% else %}
+          {% set ns.points = ns.points ~ " " ~ ("%.1f,%.1f" | format(x, y)) %}
+          {% set ns.area_points = ns.area_points ~ " " ~ ("%.1f,%.1f" | format(x, y)) %}
+        {% endif %}
+        {% if loop.last %}
+          {% set ns.area_points = ns.area_points ~ " " ~ ("%.1f,%.1f" | format(x, svg_h - pad)) %}
+        {% endif %}
+      {% endfor %}
+      <div class="sparkline-wrap">
+        <svg viewBox="0 0 {{ svg_w }} {{ svg_h }}" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.3"/>
+              <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.02"/>
+            </linearGradient>
+          </defs>
+          <polygon class="sparkline-area" points="{{ ns.area_points }}"/>
+          <polyline class="sparkline-line" points="{{ ns.points }}"/>
+          {% for val in sparkline_data %}
+            {% set x = pad + loop.index0 * step_x %}
+            {% set y = pad + (svg_h - 2 * pad) - ((val / spark_max) * (svg_h - 2 * pad)) %}
+            <circle class="sparkline-dot" cx="{{ "%.1f" | format(x) }}" cy="{{ "%.1f" | format(y) }}" r="3.5"/>
+          {% endfor %}
+        </svg>
+        <div class="sparkline-labels">
+          <span>{{ _('dash_spark_day_6') }}</span>
+          <span>{{ _('dash_spark_day_5') }}</span>
+          <span>{{ _('dash_spark_day_4') }}</span>
+          <span>{{ _('dash_spark_day_3') }}</span>
+          <span>{{ _('dash_spark_day_2') }}</span>
+          <span>{{ _('dash_spark_day_1') }}</span>
+          <span>{{ _('dash_spark_today') }}</span>
+        </div>
+      </div>
+      {% else %}
+      <div style="color:#9ca3af; font-size:.88em;">{{ _('dash_sparkline_nodata') }}</div>
+      {% endif %}
+    </div>
+
+    {# Forecast card #}
+    <div class="mid-card">
+      <div class="mid-card__title">{{ _('dash_forecast_title') }}</div>
+      {% if forecast %}
+      <div class="forecast-value">
+        {% if forecast.trend == 'up' %}
+          <span class="trend-arrow trend-up">&#x25B2;</span>
+        {% elif forecast.trend == 'down' %}
+          <span class="trend-arrow trend-down">&#x25BC;</span>
+        {% else %}
+          <span class="trend-arrow trend-stable">&#x2192;</span>
+        {% endif %}
+        <span class="{% if forecast.trend == 'up' %}trend-up{% elif forecast.trend == 'down' %}trend-down{% else %}trend-stable{% endif %}" id="forecast-pct">
+          {{ "%.1f" | format(forecast.change_pct | default(0)) }}%
+        </span>
+      </div>
+      <div class="forecast-text" id="forecast-text">{{ forecast.prediction_text }}</div>
+      {% else %}
+      <div style="color:#9ca3af; font-size:.88em;">{{ _('dash_forecast_nodata') }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Environmental summary ───────────────────────────────────────────── #}
+  {% if has_sql and env_summary %}
+  <div class="env-card" id="envCard">
+    <div class="env-card__title">
+      <span>&#x1F33F;</span> {{ _('dash_env_title') }}
+    </div>
+    <div class="env-metrics">
+      <div class="env-metric">
+        <div class="env-metric__value" id="env-co2">{{ "%.1f" | format(env_summary.co2_kg | default(0)) }}</div>
+        <div class="env-metric__label">{{ _('dash_env_co2') }}</div>
+      </div>
+      <div class="env-metric">
+        <div class="env-metric__value" id="env-trees">{{ "%.1f" | format(env_summary.trees | default(0)) }}</div>
+        <div class="env-metric__label">{{ _('dash_env_trees') }}</div>
+      </div>
+      <div class="env-metric">
+        <div class="env-metric__value" id="env-paper">{{ "%.1f" | format(env_summary.paper_kg | default(0)) }}</div>
+        <div class="env-metric__label">{{ _('dash_env_paper') }}</div>
+      </div>
+      <div class="env-metric">
+        <div class="env-metric__value" id="env-water">{{ "%.0f" | format(env_summary.water_l | default(0)) }}</div>
+        <div class="env-metric__label">{{ _('dash_env_water') }}</div>
+      </div>
+      <div class="env-metric">
+        <div class="env-metric__value" id="env-energy">{{ "%.1f" | format(env_summary.energy_kwh | default(0)) }}</div>
+        <div class="env-metric__label">{{ _('dash_env_energy') }}</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Credentials section (collapsible) ───────────────────────────────── #}
+  <details class="creds-details" id="credsDetails" {% if not has_sql %}open{% endif %}>
+    <summary>{{ _('dash_creds_title') }}</summary>
+    <div class="creds-details__body">
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:24px;">
+      <table>
+        <tr><th>Tenant</th><td>{{ tenant.name }}</td></tr>
+        <tr>
+          <th>Printix Tenant-ID</th>
+          <td><code>{{ tenant.printix_tenant_id }}</code></td>
+        </tr>
+        <tr>
+          <th>MCP (claude.ai)</th>
+          <td>
+            <div class="code-block" id="mcp-url-block">
+              <button class="copy-btn" onclick="copyToClipboard('mcp-url-val', this)">&#x29C9;</button>
+              <span id="mcp-url-val">{{ mcp_url }}</span>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <th>SSE (ChatGPT)</th>
+          <td>
+            <div class="code-block" id="sse-url-block">
+              <button class="copy-btn" onclick="copyToClipboard('sse-url-val', this)">&#x29C9;</button>
+              <span id="sse-url-val">{{ sse_url }}</span>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <th>{{ _('dash_bearer') }}</th>
+          <td>
+            <div class="code-block" id="bearer-block">
+              <button class="copy-btn" onclick="copyToClipboard('bearer-val', this)">&#x29C9;</button>
+              <span id="bearer-val">{{ tenant.bearer_token }}</span>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <th>{{ _('dash_oauth_id') }}</th>
+          <td>
+            <div class="code-block" id="oauth-id-block">
+              <button class="copy-btn" onclick="copyToClipboard('oauth-id-val', this)">&#x29C9;</button>
+              <span id="oauth-id-val">{{ tenant.oauth_client_id }}</span>
+            </div>
+          </td>
+        </tr>
+      </table>
+      </div>
+    </div>
+  </details>
+
+  {# ── Action buttons ──────────────────────────────────────────────────── #}
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
+    <a href="/help" class="btn btn-primary">&#x1F4D6; {{ _('dash_connection') }}</a>
+    <a href="/settings" class="btn btn-secondary">&#x2699;&#xFE0F; {{ _('dash_edit_creds') }}</a>
+    <a href="/settings/password" class="btn btn-secondary">&#x1F511; {{ _('dash_change_pw') }}</a>
+  </div>
+
+  {% else %}
+  {# ── No tenant configured ───────────────────────────────────────────── #}
   <div class="card">
     <div class="section-title">{{ _('dash_title') }}</div>
     <div class="section-sub">{{ _('dash_connection') }}</div>
-
-    {% if tenant %}
-    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:24px;">
-    <table>
-      <tr><th>Tenant</th><td>{{ tenant.name }}</td></tr>
-      <tr>
-        <th>Printix Tenant-ID</th>
-        <td><code>{{ tenant.printix_tenant_id }}</code></td>
-      </tr>
-      <tr>
-        <th>MCP (claude.ai)</th>
-        <td>
-          <div class="code-block" id="mcp-url-block">
-            <button class="copy-btn" onclick="copyToClipboard('mcp-url-val', this)">⧉</button>
-            <span id="mcp-url-val">{{ mcp_url }}</span>
-          </div>
-        </td>
-      </tr>
-      <tr>
-        <th>SSE (ChatGPT)</th>
-        <td>
-          <div class="code-block" id="sse-url-block">
-            <button class="copy-btn" onclick="copyToClipboard('sse-url-val', this)">⧉</button>
-            <span id="sse-url-val">{{ sse_url }}</span>
-          </div>
-        </td>
-      </tr>
-      <tr>
-        <th>{{ _('dash_bearer') }}</th>
-        <td>
-          <div class="code-block" id="bearer-block">
-            <button class="copy-btn" onclick="copyToClipboard('bearer-val', this)">⧉</button>
-            <span id="bearer-val">{{ tenant.bearer_token }}</span>
-          </div>
-        </td>
-      </tr>
-      <tr>
-        <th>{{ _('dash_oauth_id') }}</th>
-        <td>
-          <div class="code-block" id="oauth-id-block">
-            <button class="copy-btn" onclick="copyToClipboard('oauth-id-val', this)">⧉</button>
-            <span id="oauth-id-val">{{ tenant.oauth_client_id }}</span>
-          </div>
-        </td>
-      </tr>
-    </table>
-    </div>
-
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
-      <a href="/help" class="btn btn-primary">📖 {{ _('dash_connection') }}</a>
-      <a href="/settings" class="btn btn-secondary">⚙️ {{ _('dash_edit_creds') }}</a>
-      <a href="/settings/password" class="btn btn-secondary">🔑 {{ _('dash_change_pw') }}</a>
-    </div>
-
-    {% else %}
     <div class="alert alert-warning">
       Kein Tenant-Account gefunden. Bitte
-      <a href="/settings">Einstellungen</a> öffnen und Printix-Credentials eintragen.
+      <a href="/settings">Einstellungen</a> &ouml;ffnen und Printix-Credentials eintragen.
     </div>
-    {% endif %}
   </div>
+  {% endif %}
+
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function() {
+  // ── Auto-refresh ──────────────────────────────────────────────────────
+  var refreshTimer = null;
+  var refreshActive = false;
+  var REFRESH_INTERVAL = 30000; // 30 seconds
+
+  window.toggleAutoRefresh = function() {
+    var btn = document.getElementById('autoRefreshBtn');
+    if (!btn) return;
+    refreshActive = !refreshActive;
+    btn.classList.toggle('active', refreshActive);
+
+    if (refreshActive) {
+      fetchDashboardData();
+      refreshTimer = setInterval(fetchDashboardData, REFRESH_INTERVAL);
+    } else {
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+    }
+  };
+
+  function fetchDashboardData() {
+    fetch('/dashboard/data', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    })
+    .then(function(resp) {
+      if (!resp.ok) throw new Error('fetch failed');
+      return resp.json();
+    })
+    .then(function(data) {
+      // Update KPI tiles
+      if (data.kpis) {
+        updateText('kpi-today-pages', data.kpis.today_pages);
+        updateText('kpi-week-pages', data.kpis.week_pages);
+        updateText('kpi-month-pages', data.kpis.month_pages);
+        updateText('kpi-color-ratio', data.kpis.color_ratio.toFixed(1) + '%');
+        updateText('kpi-duplex-rate', data.kpis.duplex_rate.toFixed(1) + '%');
+        updateText('kpi-active-printers', data.kpis.active_printers);
+
+        // Update subtitle job counts
+        var tiles = document.querySelectorAll('.kpi-tile--prints .kpi-subtitle');
+        if (tiles.length >= 3) {
+          tiles[0].textContent = data.kpis.today_jobs + ' {{ _("dash_kpi_jobs") }}';
+          tiles[1].textContent = data.kpis.week_jobs + ' {{ _("dash_kpi_jobs") }}';
+          tiles[2].textContent = data.kpis.month_jobs + ' {{ _("dash_kpi_jobs") }}';
+        }
+
+        // Update indicator bars
+        var colorBar = document.getElementById('color-bar');
+        if (colorBar) colorBar.style.width = data.kpis.color_ratio + '%';
+        var duplexBar = document.getElementById('duplex-bar');
+        if (duplexBar) duplexBar.style.width = data.kpis.duplex_rate + '%';
+      }
+
+      // Update environmental metrics
+      if (data.env_summary) {
+        updateText('env-co2', data.env_summary.co2_kg.toFixed(1));
+        updateText('env-trees', data.env_summary.trees.toFixed(1));
+        updateText('env-paper', data.env_summary.paper_kg.toFixed(1));
+        updateText('env-water', Math.round(data.env_summary.water_l));
+        updateText('env-energy', data.env_summary.energy_kwh.toFixed(1));
+      }
+
+      // Update forecast
+      if (data.forecast) {
+        updateText('forecast-pct', data.forecast.change_pct.toFixed(1) + '%');
+        updateText('forecast-text', data.forecast.prediction_text);
+      }
+    })
+    .catch(function(err) {
+      console.warn('Dashboard refresh failed:', err);
+    });
+  }
+
+  function updateText(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+})();
+</script>
 {% endblock %}

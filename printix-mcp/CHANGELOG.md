@@ -1,5 +1,41 @@
 # Changelog
 
+## 4.3.3 (2026-04-12) — Dashboard, Fleet Health, Sustainability, Forecast
+
+### Feature — Live Dashboard
+- **KPI-Kacheln**: Druckvolumen heute/Woche/Monat, Farbanteil, Duplex-Rate, aktive Drucker
+- **Sparkline**: Letzte 7 Tage als SVG-Linienchart
+- **Umweltbilanz**: CO2, Bäume, Papier, Wasser, Energie auf einen Blick
+- **Prognose**: Trend-Pfeil + erwartetes Volumen nächster Monat
+- **Auto-Refresh**: JSON-Endpunkt `/dashboard/data` für live KPI-Updates
+- Verbindungsdaten als aufklappbarer Bereich (statt Hauptinhalt)
+
+### Feature — Fleet Health Monitor (`/fleet`)
+- **Neues Hauptregister** in der Navigation
+- **Drucker-Statusgrid**: Karten mit Ampel (grün/gelb/rot/grau)
+- **Fleet-KPIs**: Gesamt, Heute aktiv, Inaktiv >7 Tage, Ø Auslastung
+- **Warnungen**: Automatische Alerts für inaktive Drucker
+- **Filter**: Suche + Status-Filter (Alle/Aktiv/Warnung/Kritisch)
+- Daten: Printix API (live) + Azure SQL (historisch)
+
+### Feature — Sustainability Report (`/reports/sustainability`)
+- **Infografik-Seite**: CO2, Bäume, Wasser, Energie als große Zahlen
+- **Äquivalenzen**: "X km nicht gefahren", "X Badewannen Wasser"
+- **Duplex-Analyse**: Visueller Balken mit Einsparungen
+- **Monatlicher Verlauf**: CSS-Balkenchart der Einsparungen
+- Zeitraum-Filter (Standard: aktuelles Jahr)
+
+### Feature — Forecast / Prognose
+- **Lineare Regression** in `query_forecast()` (reine Python-Implementierung)
+- Historische Daten + projizierte Werte für nächsten Zeitraum
+- R²-Konfidenzwert, Trend-Erkennung (steigend/sinkend/stabil)
+- Integriert in Dashboard-Prognose-Karte
+
+### i18n
+- ~65 neue Keys × 14 Sprachen für alle neuen Features
+
+---
+
 ## 4.3.2 (2026-04-12) — Entra Login Fixes
 
 ### Fix — Redirect URI Mismatch (AADSTS50011)

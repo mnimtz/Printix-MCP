@@ -1745,5 +1745,122 @@ def run_query(query_type: str, tenant_id: str = "", **kwargs):
         return query_off_hours_print(
             **_filter_kwargs_to_sig(query_off_hours_print, kwargs)
         )
+    elif query_type == "forecast":
+        return query_forecast(**_filter_kwargs_to_sig(query_forecast, kwargs))
     else:
         raise ValueError(f"Unbekannter query_type: {query_type!r}")
+
+
+# ─── Forecast / Prognose (v4.3.3) ───────────────────────────────────────────
+
+def query_forecast(
+    start_date: str,
+    end_date: str,
+    group_by: str = "month",      # day | week | month
+    forecast_periods: int = 1,
+    cost_per_sheet: float = 0.01,
+    cost_per_mono: float  = 0.02,
+    cost_per_color: float = 0.08,
+) -> dict[str, Any]:
+    """
+    Historische Druckdaten + lineare Regression für Prognose.
+
+    Gibt historische Datenpunkte und projizierte Werte zurück.
+    Reine Python-Implementierung (kein numpy nötig).
+    """
+    # Historische Daten über query_print_stats holen
+    historical = query_print_stats(
+        start_date=start_date,
+        end_date=end_date,
+        group_by=group_by,
+    )
+
+    if not historical:
+        return {
+            "historical": [],
+            "forecast": [],
+            "slope": 0, "intercept": 0, "r_squared": 0,
+            "prediction_text": "",
+        }
+
+    # Datenpunkte für Regression: x = Index, y = total_pages
+    n = len(historical)
+    xs = list(range(n))
+    ys = [float(r.get("total_pages") or 0) for r in historical]
+
+    slope, intercept, r_sq = _linear_regression(xs, ys)
+
+    # Prognose-Punkte generieren
+    forecasted = []
+    for i in range(1, forecast_periods + 1):
+        x_new = n - 1 + i
+        y_pred = max(slope * x_new + intercept, 0)  # Nicht negativ
+        forecasted.append({
+            "period_index": x_new,
+            "total_pages": round(y_pred),
+            "is_forecast": True,
+        })
+
+    # Trend-Text
+    if forecasted:
+        next_val = forecasted[0]["total_pages"]
+        last_val = ys[-1] if ys else 0
+        if last_val > 0:
+            change_pct = round((next_val - last_val) / last_val * 100, 1)
+        else:
+            change_pct = 0
+
+        if change_pct > 5:
+            trend = "up"
+        elif change_pct < -5:
+            trend = "down"
+        else:
+            trend = "stable"
+
+        prediction_text = f"~{next_val:,.0f}"
+    else:
+        trend = "stable"
+        prediction_text = ""
+        change_pct = 0
+
+    return {
+        "historical": historical,
+        "forecast": forecasted,
+        "slope": round(slope, 2),
+        "intercept": round(intercept, 2),
+        "r_squared": round(r_sq, 3),
+        "trend": trend,
+        "change_pct": change_pct,
+        "prediction_text": prediction_text,
+    }
+
+
+def _linear_regression(xs: list, ys: list) -> tuple[float, float, float]:
+    """
+    Einfache lineare Regression (Least Squares).
+    Gibt (slope, intercept, r_squared) zurück.
+    """
+    n = len(xs)
+    if n < 2:
+        return (0.0, ys[0] if ys else 0.0, 0.0)
+
+    sum_x  = sum(xs)
+    sum_y  = sum(ys)
+    sum_xy = sum(x * y for x, y in zip(xs, ys))
+    sum_x2 = sum(x * x for x in xs)
+    sum_y2 = sum(y * y for y in ys)
+
+    denom = n * sum_x2 - sum_x * sum_x
+    if denom == 0:
+        return (0.0, sum_y / n, 0.0)
+
+    slope = (n * sum_xy - sum_x * sum_y) / denom
+    intercept = (sum_y - slope * sum_x) / n
+
+    # R² berechnen
+    ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(xs, ys))
+    mean_y = sum_y / n
+    ss_tot = sum((y - mean_y) ** 2 for y in ys)
+    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+
+    return (slope, intercept, max(r_squared, 0.0))
