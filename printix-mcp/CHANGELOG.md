@@ -1,6 +1,25 @@
 # Changelog
 
-## 4.4.1 (2026-04-12) — Capture Webhook Debug + HMAC Fix
+## 4.4.3 (2026-04-12) — Debug Webhook URL für Printix
+
+### Fix — Debug-URL Printix-kompatibel
+- Printix akzeptiert nur URLs im Format `/capture/webhook/{uuid}`
+- Debug-Endpoint jetzt erreichbar über: `/capture/webhook/00000000-0000-0000-0000-000000000000`
+- POST + GET (Health-Check) auf die Debug-UUID leiten an Debug-Handler weiter
+- Bisherige `/capture/debug` Pfade funktionieren weiterhin
+
+## 4.4.2 (2026-04-12) — Capture Debug Endpoint + aiohttp Fix
+
+### Feature — Debug Endpoint
+- **`/capture/debug`**: Neuer Test-Endpoint zum Analysieren eingehender Printix Webhooks
+- Loggt alle Headers, Body, Query-Params und gibt alles als JSON zurück
+- Catch-All für Sub-Pfade (`/capture/debug/{path}`)
+- Hilfreich zum Debuggen des Printix Capture Connector Formats
+
+### Fix — aiohttp fehlte in requirements.txt
+- **`aiohttp>=3.9.0`** war nicht in `requirements.txt` — Ursache für ALLE Capture-Store-Fehler
+- Paperless-ngx Plugin konnte `import aiohttp` nicht ausführen → "The string did not match the expected pattern"
+- Test-Button und Webhook-Verarbeitung schlugen beide fehl
 
 ### Fix — Capture Webhook
 - **Verbose Logging**: Webhook-Handler loggt jetzt alle eingehenden Headers, Body-Preview, parsed Keys
@@ -9,6 +28,7 @@
 - **Flexible Feld-Erkennung**: `documentUrl`/`DocumentUrl`/`blobUrl`, `fileName`/`FileName`/`name`, `eventType`/`EventType`
 - **JSON-Parse-Fehler** werden jetzt ins Capture-Log geschrieben (mit Body-Preview)
 - **CAPTURE Log-Kategorie** im `/logs`-Filter ergänzt (fehlte vorher)
+- **test_connection()**: Exception-Handling für fehlende Abhängigkeiten
 
 ### Fix — Webhook URL HTTPS
 - Capture Store + Form nutzen jetzt `MCP_PUBLIC_URL`/`public_url` statt `request.url.scheme`

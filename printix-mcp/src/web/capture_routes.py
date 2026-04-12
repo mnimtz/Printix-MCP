@@ -395,6 +395,9 @@ def register_capture_routes(
 
         return JSONResponse({"ok": ok, "message": msg})
 
+    # ── Debug-UUID — Printix akzeptiert nur /capture/webhook/{uuid} ────────
+    DEBUG_PROFILE_ID = "00000000-0000-0000-0000-000000000000"
+
     # ── POST /capture/webhook/{profile_id} — Printix Capture Webhook ───────
 
     @app.post("/capture/webhook/{profile_id}")
@@ -403,7 +406,13 @@ def register_capture_routes(
         Empfängt Printix Capture Notifications für ein bestimmtes Profil.
         URL-Format: /capture/webhook/{profile_id}
         Printix Connector URL: https://{FQDN}:{port}/capture/webhook/{profileId}
+
+        Spezial: profile_id == DEBUG_PROFILE_ID → Debug-Modus (loggt alles).
         """
+        # Debug-UUID → direkt an Debug-Handler weiterleiten
+        if profile_id == DEBUG_PROFILE_ID:
+            return await capture_debug(request)
+
         from capture.hmac_verify import verify_hmac
         from db import get_capture_profile_for_webhook, add_capture_log
         import asyncio
@@ -500,6 +509,9 @@ def register_capture_routes(
     @app.get("/capture/webhook/{profile_id}")
     async def capture_webhook_health(request: Request, profile_id: str):
         """Health-Check: Printix prüft ob der Endpoint erreichbar ist."""
+        # Debug-UUID → auch GET an Debug-Handler
+        if profile_id == DEBUG_PROFILE_ID:
+            return await capture_debug(request)
         return JSONResponse({
             "status": "ok",
             "profile_id": profile_id,
