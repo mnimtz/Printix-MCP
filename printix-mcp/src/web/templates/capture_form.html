@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == 'create' %}{{ _('cap_new_title') }}{% else %}{{ _('cap_edit_title') }}{% endif %} — Printix MCP{% endblock %}
+
+{% block extra_head %}
+<style>
+  .cap-form-hero {
+    background: linear-gradient(135deg, {{ plugin.color }} 0%, {{ plugin.color }}cc 100%);
+    color: #fff; border-radius: 16px; padding: 28px 32px; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .cap-form-hero .icon { font-size: 2em; }
+  .cap-form-hero h1 { font-size: 1.25em; font-weight: 800; }
+  .cap-form-hero p { opacity: .85; font-size: .88em; margin-top: 2px; }
+
+  .cap-form-card {
+    background: #fff; border-radius: 12px; padding: 28px 32px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.07); margin-bottom: 24px;
+  }
+  .cap-section-title {
+    font-size: .95em; font-weight: 700; color: #6366f1;
+    margin-bottom: 16px; padding-bottom: 8px;
+    border-bottom: 2px solid #f1f5f9;
+  }
+  .cap-field-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  }
+  .cap-field-full { grid-column: 1 / -1; }
+  .cap-hint { font-size: .78em; color: #9ca3af; margin-top: 3px; }
+
+  /* Webhook URL preview */
+  .webhook-preview {
+    background: #1e293b; color: #a5b4fc; padding: 12px 16px;
+    border-radius: 8px; font-family: monospace; font-size: .82em;
+    margin-top: 12px; word-break: break-all;
+  }
+  .webhook-preview strong { color: #e2e8f0; }
+
+  .form-actions {
+    display: flex; gap: 10px; margin-top: 24px;
+    flex-wrap: wrap; align-items: center;
+  }
+
+  @media (max-width: 768px) {
+    .cap-form-hero { padding: 18px 16px; }
+    .cap-form-card { padding: 18px 16px; }
+    .cap-field-grid { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <!-- Hero -->
+  <div class="cap-form-hero">
+    <div class="icon">{{ plugin.icon }}</div>
+    <div>
+      <h1>{% if mode == 'create' %}{{ _('cap_new_title') }}{% else %}{{ _('cap_edit_title') }}{% endif %}</h1>
+      <p>{{ plugin.name }} — {{ _('cap_plugin_desc_' + plugin.id) }}</p>
+    </div>
+  </div>
+
+  {% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+
+  <form method="POST" action="{% if mode == 'create' %}/capture/new{% else %}/capture/{{ profile.id }}/edit{% endif %}">
+    {% if mode == 'create' %}
+    <input type="hidden" name="plugin_type" value="{{ plugin.id }}">
+    {% endif %}
+
+    <!-- Basic Settings -->
+    <div class="cap-form-card">
+      <div class="cap-section-title">{{ _('cap_section_basic') }}</div>
+      <div class="cap-field-grid">
+        <div class="form-group cap-field-full">
+          <label for="name">{{ _('cap_field_name') }}</label>
+          <input type="text" id="name" name="name"
+                 value="{{ profile.name if profile else '' }}"
+                 placeholder="{{ _('cap_field_name_hint') }}" required>
+        </div>
+      </div>
+    </div>
+
+    <!-- Plugin Configuration -->
+    <div class="cap-form-card">
+      <div class="cap-section-title">{{ _('cap_section_plugin') }} — {{ plugin.name }}</div>
+      <div class="cap-field-grid">
+        {% for field in config_fields %}
+        <div class="form-group {% if field.type == 'url' or loop.last and loop.length % 2 == 1 %}cap-field-full{% endif %}">
+          <label for="cfg_{{ field.key }}">{{ field.label }}{% if field.required %} *{% endif %}</label>
+          <input type="{{ field.type }}" id="cfg_{{ field.key }}" name="cfg_{{ field.key }}"
+                 value="{{ config_values.get(field.key, field.get('default', '')) }}"
+                 placeholder="{{ field.get('hint', '') }}"
+                 {% if field.required %}required{% endif %}>
+          {% if field.hint %}
+          <div class="cap-hint">{{ field.hint }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Security Settings -->
+    <div class="cap-form-card">
+      <div class="cap-section-title">{{ _('cap_section_security') }}</div>
+      <div class="cap-field-grid">
+        <div class="form-group">
+          <label for="secret_key">{{ _('cap_field_secret') }}</label>
+          <input type="password" id="secret_key" name="secret_key"
+                 value="{{ profile.secret_key if profile else '' }}"
+                 placeholder="{{ _('cap_field_secret_hint') }}">
+          <div class="cap-hint">{{ _('cap_field_secret_desc') }}</div>
+        </div>
+        <div class="form-group">
+          <label for="connector_token">{{ _('cap_field_token') }}</label>
+          <input type="password" id="connector_token" name="connector_token"
+                 value="{{ profile.connector_token if profile else '' }}"
+                 placeholder="{{ _('cap_field_token_hint') }}">
+          <div class="cap-hint">{{ _('cap_field_token_desc') }}</div>
+        </div>
+      </div>
+
+      {% if mode == 'edit' %}
+      <!-- Webhook URL -->
+      <div style="margin-top: 16px;">
+        <label>{{ _('cap_webhook_url') }}</label>
+        <div class="webhook-preview">
+          <strong>POST</strong> {{ request.url.scheme }}://{{ request.url.netloc }}/capture/webhook/{{ profile.id }}
+        </div>
+        <div class="cap-hint">{{ _('cap_webhook_hint') }}</div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Actions -->
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">
+        {% if mode == 'create' %}{{ _('cap_btn_create') }}{% else %}{{ _('cap_btn_save') }}{% endif %}
+      </button>
+      <a href="/capture" class="btn btn-secondary">{{ _('cap_btn_cancel') }}</a>
+    </div>
+  </form>
+
+</div>
+{% endblock %}

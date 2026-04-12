@@ -756,13 +756,45 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception:
             pass
 
-        # KPIs aus SQL laden (falls verfügbar)
+        # Printix API = primäre Datenquelle, SQL = optional für historische Daten
+        has_api = bool(tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")))
         has_sql = bool(tenant and tenant.get("sql_server"))
         kpis = {}
         env_summary = {}
         sparkline_data = []
         forecast = {}
 
+        # 1. Druckerzahl immer von Printix API holen (Live-Daten)
+        active_printers = 0
+        if has_api and tenant:
+            try:
+                import asyncio as _aio
+                import re as _re
+                client = _make_printix_client(tenant)
+                raw_data = await _aio.to_thread(lambda: client.list_printers(size=200))
+                if isinstance(raw_data, dict):
+                    raw_list = raw_data.get("printers", raw_data.get("content", []))
+                elif isinstance(raw_data, list):
+                    raw_list = raw_data
+                else:
+                    raw_list = []
+                # Deduplizieren nach printer_id
+                seen = set()
+                for p in raw_list:
+                    href = (p.get("_links") or {}).get("self", {}).get("href", "")
+                    m = _re.search(r"/printers/([^/]+)/queues/([^/?]+)", href)
+                    pid = m.group(1) if m else p.get("id", str(id(p)))
+                    if pid not in seen:
+                        seen.add(pid)
+                        cs = (p.get("connectionStatus") or "").lower()
+                        if cs in ("connected", "online"):
+                            active_printers += 1
+                kpis["active_printers"] = active_printers
+                kpis["total_printers"] = len(seen)
+            except Exception as e:
+                logger.warning("Dashboard: Printix API Fehler: %s", e)
+
+        # 2. SQL-Daten für historische KPIs (optional)
         if has_sql:
             try:
                 import asyncio as _aio
@@ -774,9 +806,9 @@ def create_app(session_secret: str) -> FastAPI:
                 week_start = today - _td(days=today.weekday())
                 month_start = today.replace(day=1)
 
-                def _load_dashboard_data():
+                def _load_dashboard_sql():
                     from reporting.query_tools import query_print_stats, query_tree_meter, query_forecast
-                    # Tages/Wochen/Monats-Statistiken
+
                     day_data = query_print_stats(str(today), str(today), group_by="day")
                     week_data = query_print_stats(str(week_start), str(today), group_by="day")
                     month_data = query_print_stats(str(month_start), str(today), group_by="day")
@@ -791,26 +823,19 @@ def create_app(session_secret: str) -> FastAPI:
                     month_pages = _sum_field(month_data, "total_pages")
                     month_jobs  = _sum_field(month_data, "total_jobs")
 
-                    # Farb/Duplex-Raten aus Monatsdaten
                     month_color  = _sum_field(month_data, "color_pages")
                     month_duplex = _sum_field(month_data, "duplex_pages")
                     color_ratio  = round(month_color / month_pages * 100, 1) if month_pages else 0
                     duplex_rate  = round(month_duplex / month_pages * 100, 1) if month_pages else 0
-
-                    # Aktive Drucker
-                    active_printers = 0
-                    for r in month_data:
-                        active_printers = max(active_printers, int(r.get("active_printers") or 0))
 
                     _kpis = {
                         "today_pages": today_pages, "today_jobs": today_jobs,
                         "week_pages": week_pages, "week_jobs": week_jobs,
                         "month_pages": month_pages, "month_jobs": month_jobs,
                         "color_ratio": color_ratio, "duplex_rate": duplex_rate,
-                        "active_printers": active_printers,
                     }
 
-                    # Sparkline: letzte 7 Tage
+                    # Sparkline
                     spark_start = today - _td(days=6)
                     spark_data = query_print_stats(str(spark_start), str(today), group_by="day")
                     _sparkline = [0] * 7
@@ -824,7 +849,6 @@ def create_app(session_secret: str) -> FastAPI:
                         except Exception:
                             pass
 
-                    # Umwelt-Summary (ganzer Monat)
                     tree = query_tree_meter(str(month_start), str(today))
                     from reporting.report_engine import compute_env_impact
                     _env = compute_env_impact(
@@ -833,7 +857,6 @@ def create_app(session_secret: str) -> FastAPI:
                         tree.get("saved_sheets_duplex", 0),
                     )
 
-                    # Forecast (letzte 6 Monate → nächster Monat)
                     from dateutil.relativedelta import relativedelta
                     fc_start = (today - relativedelta(months=6)).replace(day=1)
                     try:
@@ -843,17 +866,19 @@ def create_app(session_secret: str) -> FastAPI:
 
                     return _kpis, _sparkline, _env, _fc
 
-                kpis, sparkline_data, env_summary, forecast = await _aio.to_thread(
-                    _load_dashboard_data
+                sql_kpis, sparkline_data, env_summary, forecast = await _aio.to_thread(
+                    _load_dashboard_sql
                 )
+                kpis.update(sql_kpis)
             except Exception as e:
-                logger.warning("Dashboard-KPI-Laden fehlgeschlagen: %s", e)
+                logger.warning("Dashboard-SQL-Laden fehlgeschlagen: %s", e)
 
         return templates.TemplateResponse("dashboard.html", {
             "request": request, "user": user, "tenant": tenant,
             "base_url": base,
             "mcp_url":  f"{base}/mcp",
             "sse_url":  f"{base}/sse",
+            "has_api": has_api,
             "has_sql": has_sql,
             "kpis": kpis,
             "env_summary": env_summary,
@@ -931,25 +956,51 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception:
             tenant = None
 
-        has_printers = bool(tenant and tenant.get("printix_tenant_id"))
+        # Printix API ist primäre Datenquelle — SQL nur supplemental
+        has_api = bool(tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")))
         has_sql = bool(tenant and tenant.get("sql_server"))
         printers_list = []
         fleet_kpis = {"total": 0, "active_today": 0, "inactive_7d": 0, "avg_utilization": 0}
         alerts = []
 
-        if has_printers and tenant:
-            # Drucker von Printix API laden
+        if has_api and tenant:
+            # 1. Drucker von Printix API laden (primäre Datenquelle)
             try:
                 import asyncio as _aio
+                import re as _re
                 client = _make_printix_client(tenant)
-                api_printers = await _aio.to_thread(client.list_printers)
-                if isinstance(api_printers, dict):
-                    api_printers = api_printers.get("value", [])
+                raw_data = await _aio.to_thread(lambda: client.list_printers(size=200))
+                if isinstance(raw_data, dict):
+                    raw_list = raw_data.get("printers", raw_data.get("content", []))
+                elif isinstance(raw_data, list):
+                    raw_list = raw_data
+                else:
+                    raw_list = []
+
+                # Deduplizieren nach printer_id (wie tenant_printers)
+                printer_map = {}
+                for p in raw_list:
+                    href = (p.get("_links") or {}).get("self", {}).get("href", "")
+                    m = _re.search(r"/printers/([^/]+)/queues/([^/?]+)", href)
+                    pid = m.group(1) if m else p.get("id", str(id(p)))
+                    if pid not in printer_map:
+                        vendor = p.get("vendor", "")
+                        model = p.get("model", "")
+                        api_status = (p.get("connectionStatus") or "").lower()
+                        printer_map[pid] = {
+                            "name": f"{vendor} {model}".strip() if (vendor or model) else p.get("name", "Unknown"),
+                            "model": model,
+                            "vendor": vendor,
+                            "location": p.get("location", ""),
+                            "api_status": api_status,
+                            "printerSignId": p.get("printerSignId", ""),
+                        }
+                api_printers = list(printer_map.values())
             except Exception as e:
                 logger.warning("Fleet: Printix API Fehler: %s", e)
                 api_printers = []
 
-            # SQL-Daten laden (falls verfügbar)
+            # 2. SQL-Daten laden (optional, nur Enrichment)
             sql_readings = {}
             if has_sql:
                 try:
@@ -970,42 +1021,47 @@ def create_app(session_secret: str) -> FastAPI:
                 except Exception as e:
                     logger.warning("Fleet: SQL-Daten Fehler: %s", e)
 
-            # API + SQL mergen
+            # 3. API + SQL mergen — API ist Basis, SQL ergänzt
             from datetime import date as _date, timedelta as _td, datetime as _dt
             today = _date.today()
             total_util = 0
             util_count = 0
 
             for p in api_printers:
-                name = p.get("name", "Unknown")
+                name = p["name"]
                 sql_data = sql_readings.get(name, {})
 
-                last_act = sql_data.get("last_activity")
-                total_jobs = int(sql_data.get("total_jobs") or 0)
-                total_pages = int(sql_data.get("total_pages") or 0)
-                active_days = int(sql_data.get("active_days") or 0)
-                error_rate = 0  # Wird ggf. aus service_desk erweitert
-
-                # Status bestimmen
-                if last_act:
-                    try:
-                        last_date = _dt.fromisoformat(str(last_act)).date() if not isinstance(last_act, _date) else last_act
-                        days_ago = (today - last_date).days
-                    except Exception:
-                        days_ago = 999
-                else:
-                    days_ago = 999
-
-                if days_ago == 0:
+                # API connectionStatus → primärer Status
+                api_status = p.get("api_status", "")
+                if api_status in ("connected", "online"):
                     status = "active"
-                elif days_ago <= 7:
-                    status = "warning"
-                elif days_ago > 7 and last_act:
+                elif api_status in ("disconnected", "offline"):
                     status = "critical"
                 else:
                     status = "unknown"
 
-                # Utilization (active_days / 90 Tage)
+                # SQL-Daten als Enrichment (optional)
+                last_act = sql_data.get("last_activity")
+                total_jobs = int(sql_data.get("total_jobs") or 0)
+                total_pages = int(sql_data.get("total_pages") or 0)
+                active_days = int(sql_data.get("active_days") or 0)
+                days_ago = None
+
+                if last_act:
+                    try:
+                        last_date = _dt.fromisoformat(str(last_act)).date() if not isinstance(last_act, _date) else last_act
+                        days_ago = (today - last_date).days
+                        # Verfeinere Status mit SQL-Aktivitätsdaten
+                        if status == "unknown":
+                            if days_ago == 0:
+                                status = "active"
+                            elif days_ago <= 7:
+                                status = "warning"
+                            else:
+                                status = "critical"
+                    except Exception:
+                        pass
+
                 utilization = round(active_days / 90 * 100, 1) if active_days else 0
                 total_util += utilization
                 util_count += 1
@@ -1016,12 +1072,12 @@ def create_app(session_secret: str) -> FastAPI:
                     "location": sql_data.get("location") or p.get("location", ""),
                     "site": sql_data.get("site_name", ""),
                     "status": status,
+                    "api_status": api_status,
                     "last_activity": str(last_act) if last_act else None,
-                    "days_ago": days_ago if days_ago < 999 else None,
+                    "days_ago": days_ago,
                     "total_jobs": total_jobs,
                     "total_pages": total_pages,
                     "utilization": utilization,
-                    "error_rate": error_rate,
                 })
 
             # Sortieren: Critical zuerst, dann Warning, dann Active
@@ -1042,18 +1098,12 @@ def create_app(session_secret: str) -> FastAPI:
                     alerts.append({
                         "type": "inactive",
                         "printer_name": p["name"],
-                        "detail": f"{p.get('days_ago', '?')} days",
-                    })
-                if p["error_rate"] > 10:
-                    alerts.append({
-                        "type": "high_errors",
-                        "printer_name": p["name"],
-                        "detail": f"{p['error_rate']:.1f}%",
+                        "detail": p.get("api_status") or (f"{p['days_ago']}d" if p.get("days_ago") else "?"),
                     })
 
         return templates.TemplateResponse("fleet.html", {
             "request": request, "user": user,
-            "has_printers": has_printers, "has_sql": has_sql,
+            "has_printers": has_api, "has_sql": has_sql,
             "fleet_kpis": fleet_kpis,
             "printers": printers_list,
             "alerts": alerts,
@@ -2582,103 +2632,11 @@ def create_app(session_secret: str) -> FastAPI:
     except Exception as _re:
         logger.error("Reports-Routen konnten nicht registriert werden: %s", _re)
 
-    # ── Capture Connector Test-Endpoint (v4.3.3) ─────────────────────────────
-
-    @app.post("/capture/webhook")
-    async def capture_webhook(request: Request):
-        """
-        Empfängt Printix Capture Connector Notifications.
-        Loggt alles für Test/Debug. Antwortet immer mit 200 OK.
-        """
-        import json as _json
-        from datetime import datetime as _dt
-
-        # Headers loggen (inkl. Signatur-Headers)
-        headers_dict = dict(request.headers)
-        sig_headers = {
-            k: v for k, v in headers_dict.items()
-            if k.startswith("x-printix-")
-        }
-
-        # Body lesen
-        try:
-            body = await request.json()
-        except Exception:
-            body = {"_raw": (await request.body()).decode("utf-8", errors="replace")[:2000]}
-
-        log_entry = {
-            "timestamp": _dt.utcnow().isoformat() + "Z",
-            "endpoint": "/capture/webhook",
-            "method": request.method,
-            "printix_headers": sig_headers,
-            "content_type": headers_dict.get("content-type", ""),
-            "body": body,
-        }
-
-        logger.info("╔═══ CAPTURE WEBHOOK RECEIVED ═══╗")
-        logger.info("║ Event: %s", body.get("eventType", "unknown"))
-        logger.info("║ Job:   %s", body.get("jobId", "?"))
-        logger.info("║ File:  %s", body.get("fileName", "?"))
-        logger.info("║ Scan:  %s", body.get("scanId", "?"))
-        logger.info("║ Doc:   %s", (body.get("documentUrl", "?") or "?")[:80])
-        logger.info("║ Meta:  %s", body.get("metadataNames", []))
-        logger.info("║ Sig-Headers: %s", sig_headers)
-        logger.info("╚════════════════════════════════╝")
-
-        # Optional: In Datei loggen für spätere Analyse
-        try:
-            import os
-            log_dir = "/data"
-            if not os.path.isdir(log_dir):
-                log_dir = "/tmp"
-            log_file = os.path.join(log_dir, "capture_webhooks.jsonl")
-            with open(log_file, "a") as f:
-                f.write(_json.dumps(log_entry, default=str) + "\n")
-            logger.info("Capture webhook logged to %s", log_file)
-        except Exception as e:
-            logger.warning("Could not write capture log: %s", e)
-
-        # Printix erwartet 2xx als Bestätigung
-        return JSONResponse({
-            "status": "received",
-            "message": "Capture webhook test endpoint — logged successfully",
-        })
-
-    @app.get("/capture/webhook")
-    async def capture_webhook_status(request: Request):
-        """Health-Check für den Capture Endpoint."""
-        return JSONResponse({
-            "status": "ok",
-            "endpoint": "/capture/webhook",
-            "description": "Printix Capture Connector test endpoint. POST notifications here.",
-        })
-
-    @app.get("/capture/log")
-    async def capture_log_view(request: Request):
-        """Zeigt die letzten empfangenen Capture Webhooks."""
-        user = get_session_user(request)
-        if not user or not user.get("is_admin"):
-            return JSONResponse({"error": "admin required"}, status_code=403)
-
-        import os, json as _json
-        log_file = "/data/capture_webhooks.jsonl"
-        if not os.path.exists(log_file):
-            log_file = "/tmp/capture_webhooks.jsonl"
-        if not os.path.exists(log_file):
-            return JSONResponse({"entries": [], "message": "No webhooks received yet."})
-
-        entries = []
-        try:
-            with open(log_file) as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        entries.append(_json.loads(line))
-        except Exception as e:
-            return JSONResponse({"error": str(e)})
-
-        # Neueste zuerst
-        entries.reverse()
-        return JSONResponse({"entries": entries[:50], "total": len(entries)})
+    # ── Capture Store (v4.4.0) ────────────────────────────────────────────────
+    try:
+        from web.capture_routes import register_capture_routes
+        register_capture_routes(app, templates, t_ctx, require_login)
+    except Exception as _ce:
+        logger.error("Capture-Routen konnten nicht registriert werden: %s", _ce)
 
     return app

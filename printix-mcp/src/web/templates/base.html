@@ -356,6 +356,7 @@
           <a href="/fleet">{{ _('nav_fleet') }}</a>
           <a href="/reports">{{ _('nav_reports') }}</a>
           <a href="/logs">{{ _('nav_logs') }}</a>
+          <a href="/capture">{{ _('nav_capture') }}</a>
           <a href="/help">{{ _('nav_help') }}</a>
           <a href="/feedback">{{ _('nav_feedback') }}{% if user.is_admin and feedback_new_count %} <span class="nav-badge">{{ feedback_new_count }}</span>{% endif %}</a>
           <a href="/logout">{{ _('nav_logout') }}</a>
@@ -401,6 +402,7 @@
       <a href="/fleet"     onclick="closeMobileMenu()">🩺 {{ _('nav_fleet') }}</a>
       <a href="/reports"   onclick="closeMobileMenu()">📊 {{ _('nav_reports') }}</a>
       <a href="/logs"      onclick="closeMobileMenu()">📋 {{ _('nav_logs') }}</a>
+      <a href="/capture"   onclick="closeMobileMenu()">📥 {{ _('nav_capture') }}</a>
       <a href="/help"      onclick="closeMobileMenu()">❓ {{ _('nav_help') }}</a>
       <a href="/feedback"  onclick="closeMobileMenu()">💬 {{ _('nav_feedback') }}{% if user.is_admin and feedback_new_count %} <span class="nav-badge">{{ feedback_new_count }}</span>{% endif %}</a>
       <a href="/logout"    onclick="closeMobileMenu()">🚪 {{ _('nav_logout') }}</a>

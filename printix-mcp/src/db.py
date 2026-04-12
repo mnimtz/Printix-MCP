@@ -227,6 +227,25 @@ def init_db() -> None:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feature_requests_status ON feature_requests (status, created_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feature_requests_user ON feature_requests (user_id, created_at DESC)")
+    # v4.4.0: Capture Profiles — pro Tenant konfigurierbare Capture-Ziele
+    with _conn() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS capture_profiles (
+                id               TEXT PRIMARY KEY,
+                tenant_id        TEXT NOT NULL REFERENCES tenants(id),
+                name             TEXT NOT NULL,
+                plugin_type      TEXT NOT NULL DEFAULT 'paperless_ngx',
+                secret_key       TEXT NOT NULL DEFAULT '',
+                connector_token  TEXT NOT NULL DEFAULT '',
+                config_json      TEXT NOT NULL DEFAULT '{}',
+                is_active        INTEGER NOT NULL DEFAULT 1,
+                created_at       TEXT NOT NULL,
+                updated_at       TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_capture_profiles_tenant
+                ON capture_profiles (tenant_id);
+        """)
+
     logger.info("DB initialisiert: %s", DB_PATH)
 
 
@@ -1179,6 +1198,164 @@ def count_feature_requests_by_status() -> dict:
             "SELECT status, COUNT(*) AS n FROM feature_requests GROUP BY status"
         ).fetchall()
     return {r[0]: r[1] for r in rows}
+
+
+# ─── Capture Profiles (v4.4.0) ──────────────────────────────────────────────
+
+def create_capture_profile(
+    tenant_id: str,
+    name: str,
+    plugin_type: str,
+    secret_key: str = "",
+    connector_token: str = "",
+    config_json: str = "{}",
+    is_active: bool = True,
+) -> dict:
+    """Erstellt ein neues Capture-Profil für einen Tenant."""
+    pid = str(uuid.uuid4())
+    now = _now()
+    with _conn() as conn:
+        conn.execute("""
+            INSERT INTO capture_profiles
+                (id, tenant_id, name, plugin_type, secret_key, connector_token,
+                 config_json, is_active, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, (
+            pid, tenant_id, name.strip(), plugin_type,
+            _enc(secret_key), _enc(connector_token),
+            _enc(config_json), 1 if is_active else 0,
+            now, now,
+        ))
+    return get_capture_profile(pid)
+
+
+def get_capture_profile(profile_id: str) -> Optional[dict]:
+    """Gibt ein einzelnes Capture-Profil zurück (Secrets entschlüsselt)."""
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM capture_profiles WHERE id = ?", (profile_id,)
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    return {
+        "id":              d["id"],
+        "tenant_id":       d["tenant_id"],
+        "name":            d["name"],
+        "plugin_type":     d["plugin_type"],
+        "secret_key":      _dec(d.get("secret_key", "")),
+        "connector_token": _dec(d.get("connector_token", "")),
+        "config_json":     _dec(d.get("config_json", "{}")),
+        "is_active":       bool(d["is_active"]),
+        "created_at":      d["created_at"],
+        "updated_at":      d["updated_at"],
+    }
+
+
+def get_capture_profiles_by_tenant(tenant_id: str) -> list[dict]:
+    """Gibt alle Capture-Profile eines Tenants zurück."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM capture_profiles WHERE tenant_id = ? ORDER BY created_at DESC",
+            (tenant_id,),
+        ).fetchall()
+    results = []
+    for row in rows:
+        d = dict(row)
+        results.append({
+            "id":              d["id"],
+            "tenant_id":       d["tenant_id"],
+            "name":            d["name"],
+            "plugin_type":     d["plugin_type"],
+            "secret_key":      _dec(d.get("secret_key", "")),
+            "connector_token": _dec(d.get("connector_token", "")),
+            "config_json":     _dec(d.get("config_json", "{}")),
+            "is_active":       bool(d["is_active"]),
+            "created_at":      d["created_at"],
+            "updated_at":      d["updated_at"],
+        })
+    return results
+
+
+def update_capture_profile(
+    profile_id: str,
+    name: Optional[str] = None,
+    plugin_type: Optional[str] = None,
+    secret_key: Optional[str] = None,
+    connector_token: Optional[str] = None,
+    config_json: Optional[str] = None,
+    is_active: Optional[bool] = None,
+) -> Optional[dict]:
+    """Aktualisiert ein Capture-Profil (nur gesetzte Felder)."""
+    parts, params = [], []
+    if name is not None:
+        parts.append("name=?"); params.append(name.strip())
+    if plugin_type is not None:
+        parts.append("plugin_type=?"); params.append(plugin_type)
+    if secret_key is not None:
+        parts.append("secret_key=?"); params.append(_enc(secret_key))
+    if connector_token is not None:
+        parts.append("connector_token=?"); params.append(_enc(connector_token))
+    if config_json is not None:
+        parts.append("config_json=?"); params.append(_enc(config_json))
+    if is_active is not None:
+        parts.append("is_active=?"); params.append(1 if is_active else 0)
+    if not parts:
+        return get_capture_profile(profile_id)
+    parts.append("updated_at=?"); params.append(_now())
+    params.append(profile_id)
+    with _conn() as conn:
+        conn.execute(
+            f"UPDATE capture_profiles SET {', '.join(parts)} WHERE id = ?", params
+        )
+    return get_capture_profile(profile_id)
+
+
+def delete_capture_profile(profile_id: str) -> bool:
+    """Löscht ein Capture-Profil."""
+    with _conn() as conn:
+        cur = conn.execute("DELETE FROM capture_profiles WHERE id = ?", (profile_id,))
+    return cur.rowcount > 0
+
+
+def get_capture_profile_for_webhook(profile_id: str) -> Optional[dict]:
+    """
+    Schneller Lookup für den Webhook-Handler — gibt nur die nötigen Felder
+    zurück (Secret, Token, Plugin-Config). Kein Tenant-Join nötig.
+    """
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT id, tenant_id, name, plugin_type, secret_key, connector_token, "
+            "config_json, is_active FROM capture_profiles WHERE id = ?",
+            (profile_id,),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    if not d["is_active"]:
+        return None
+    return {
+        "id":              d["id"],
+        "tenant_id":       d["tenant_id"],
+        "name":            d["name"],
+        "plugin_type":     d["plugin_type"],
+        "secret_key":      _dec(d.get("secret_key", "")),
+        "connector_token": _dec(d.get("connector_token", "")),
+        "config_json":     _dec(d.get("config_json", "{}")),
+    }
+
+
+def add_capture_log(
+    tenant_id: str, profile_id: str, profile_name: str,
+    event_type: str, status: str, message: str,
+    details: str = "",
+) -> None:
+    """Schreibt einen Capture-Log-Eintrag in die tenant_logs Tabelle."""
+    prefix = f"[{profile_name}] [{event_type}] [{status}]"
+    full_msg = f"{prefix} {message}"
+    if details:
+        full_msg += f" | {details[:500]}"
+    add_tenant_log(tenant_id, "INFO" if status == "ok" else "ERROR", "CAPTURE", full_msg)
 
 
 # ─── Hilfsfunktionen ──────────────────────────────────────────────────────────
