@@ -2,7 +2,7 @@
 {% block title %}{{ _('admin_settings') }} — Printix MCP{% endblock %}
 {% block content %}
 <div class="container">
-  <div class="card" style="max-width:560px;margin:40px auto;">
+  <div class="card" style="max-width:680px;margin:40px auto;">
     <h2 class="section-title">{{ _('admin_settings') }}</h2>
     <p class="section-sub" style="margin-bottom:24px;">
       Server-weite Einstellungen — gelten für alle Benutzer.
@@ -16,6 +16,8 @@
     {% endif %}
 
     <form method="post" action="/admin/settings">
+
+      <!-- ── Server-URL ──────────────────────────────────────────────────── -->
       <div class="form-group">
         <label>{{ _('admin_base_url') }}</label>
         <input type="url" name="public_url" value="{{ public_url | default('') }}"
@@ -29,6 +31,109 @@
         SSE: <code>{{ public_url or 'http://&lt;HA-IP&gt;:8765' }}/sse</code><br>
         OAuth: <code>{{ public_url or 'http://&lt;HA-IP&gt;:8765' }}/oauth/authorize</code>
       </div>
+
+      <div class="divider"></div>
+
+      <!-- ── Entra ID (Azure AD) SSO ─────────────────────────────────────── -->
+      <div style="margin-bottom:24px;">
+        <div class="section-title" style="margin-bottom:4px;">
+          <img src="https://learn.microsoft.com/favicon.ico" alt="" style="width:18px;height:18px;vertical-align:text-bottom;margin-right:4px;">
+          Entra ID (Azure AD) — Single Sign-On
+        </div>
+        <div class="section-sub" style="margin-bottom:16px;">
+          Ermöglicht die Anmeldung über ein Microsoft-Konto. Benutzer aus jedem Entra-Tenant
+          können sich anmelden — du brauchst nur eine App-Registration in deinem eigenen Tenant.
+        </div>
+
+        <!-- Toggle -->
+        <div class="form-group">
+          <label class="fmt-item" style="font-size:.95em;cursor:pointer;">
+            <input type="checkbox" name="entra_enabled" value="1"
+                   {{ 'checked' if entra.enabled else '' }}
+                   onchange="document.getElementById('entra-fields').style.display=this.checked?'block':'none'">
+            Entra-Login aktivieren
+          </label>
+        </div>
+
+        <div id="entra-fields" style="{{ '' if entra.enabled else 'display:none;' }}">
+
+          <!-- Setup-Anleitung -->
+          <div class="alert alert-info" style="font-size:.85em;margin-bottom:16px;">
+            <strong>Einrichtung in 3 Schritten:</strong>
+            <ol style="margin:8px 0 0 16px;line-height:1.8;">
+              <li>Öffne das <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" style="font-weight:700;">Azure Portal → App-Registrierungen → Neue Registrierung</a></li>
+              <li>Name: <strong>Printix MCP</strong>, Unterstützte Kontotypen: <strong>Konten in einem beliebigen Organisationsverzeichnis</strong> (Multi-Tenant)</li>
+              <li>Umleitungs-URI (Web): <code style="user-select:all;">{{ entra_redirect_uri }}</code></li>
+            </ol>
+            <div style="margin-top:8px;">
+              Nach dem Erstellen: <strong>Client-ID</strong> von der Übersichtsseite kopieren,
+              unter <strong>Zertifikate &amp; Geheimnisse → Neuer geheimer Clientschlüssel</strong>
+              ein Secret erstellen und den <strong>Wert</strong> kopieren.
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="form-group">
+              <label>Entra Tenant-ID <small style="color:#6b7280;">(Directory-ID)</small></label>
+              <input type="text" name="entra_tenant_id"
+                     value="{{ entra.tenant_id }}"
+                     placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+              <small class="hint">Zu finden im Azure Portal → Entra ID → Übersicht. Leer lassen = „common" (alle Tenants).</small>
+            </div>
+            <div class="form-group">
+              <label>Application (Client) ID</label>
+              <input type="text" name="entra_client_id"
+                     value="{{ entra.client_id }}"
+                     placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Client Secret</label>
+            <input type="password" name="entra_client_secret" value=""
+                   placeholder="{{ '(gespeichert — nur ändern wenn nötig)' if entra.has_secret else 'Geheimen Clientschlüssel hier einfügen' }}">
+            <small class="hint">Wird verschlüsselt gespeichert. Leer lassen = bestehender Wert bleibt erhalten.</small>
+          </div>
+
+          <div class="form-group">
+            <label>Redirect URI <small style="color:#6b7280;">(in Azure eintragen)</small></label>
+            <div class="code-block" id="entra-redirect-block">
+              <button type="button" class="copy-btn" onclick="copyToClipboard('entra-redirect-val', this)">⧉</button>
+              <span id="entra-redirect-val">{{ entra_redirect_uri }}</span>
+            </div>
+          </div>
+
+          <div class="divider" style="margin:16px 0;"></div>
+
+          <!-- Optionen -->
+          <div class="form-group">
+            <label class="fmt-item" style="font-size:.9em;cursor:pointer;">
+              <input type="checkbox" name="entra_auto_approve" value="1"
+                     {{ 'checked' if entra.auto_approve else '' }}>
+              Neue Entra-Benutzer automatisch freischalten
+            </label>
+            <small class="hint" style="display:block;margin-top:4px;">
+              Wenn deaktiviert: Entra-Benutzer werden mit Status „Ausstehend" angelegt und müssen
+              von einem Admin genehmigt werden (Standard-Verhalten, empfohlen).
+            </small>
+          </div>
+
+          <!-- Status -->
+          {% if entra.enabled and entra.client_id and entra.has_secret %}
+          <div class="alert alert-success" style="font-size:.88em;">
+            ✓ <strong>Entra-Login ist aktiv.</strong>
+            Auf der Login-Seite erscheint der Button „Mit Microsoft anmelden".
+          </div>
+          {% elif entra.enabled %}
+          <div class="alert alert-warning" style="font-size:.88em;">
+            ⚠️ Entra ist aktiviert, aber Client-ID oder Secret fehlt.
+            Der Login-Button wird erst angezeigt, wenn beide Felder ausgefüllt sind.
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="divider"></div>
 
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <button type="submit" class="btn btn-primary">{{ _('admin_save') }}</button>

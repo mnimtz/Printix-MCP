@@ -14,6 +14,31 @@
       <div class="alert alert-error">{{ error }}</div>
       {% endif %}
 
+      {% if entra_enabled | default(false) %}
+      <a href="/auth/entra/login"
+         style="display:flex;align-items:center;justify-content:center;gap:10px;
+                width:100%;padding:10px 16px;border:1px solid #d1d5db;border-radius:8px;
+                background:#fff;color:#374151;font-size:.95em;font-weight:600;
+                text-decoration:none;transition:background .15s,box-shadow .15s;
+                margin-bottom:20px;"
+         onmouseover="this.style.background='#f8fafc';this.style.boxShadow='0 2px 8px rgba(0,0,0,.08)'"
+         onmouseout="this.style.background='#fff';this.style.boxShadow='none'">
+        <svg width="20" height="20" viewBox="0 0 21 21">
+          <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+          <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+          <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+          <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+        </svg>
+        Mit Microsoft anmelden
+      </a>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+        <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+        <span style="font-size:.82em;color:#9ca3af;white-space:nowrap;">oder</span>
+        <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+      </div>
+      {% endif %}
+
       <form method="post" action="/login">
         <div class="form-group">
           <label for="username">{{ _('login_username') }}</label>

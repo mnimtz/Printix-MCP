@@ -1,5 +1,35 @@
 # Changelog
 
+## 4.1.0 (2026-04-12) — „Entra ID (Azure AD) SSO"
+
+### Feature — Entra ID Single Sign-On
+- **Neues Modul `src/entra.py`** — Entra ID (Azure AD) OAuth2 Authorization Code Flow für Web-Login.
+  Multi-Tenant-fähig: eine App-Registration in einem beliebigen Entra-Tenant, Login für Benutzer
+  aus jedem Entra-Tenant möglich.
+- **Admin-Settings** (`/admin/settings`) — neue Sektion „Entra ID — Single Sign-On":
+  - Entra Tenant-ID, Client-ID, Client-Secret (Fernet-verschlüsselt)
+  - Toggle: Entra-Login aktivieren/deaktivieren
+  - Toggle: Neue Entra-Benutzer automatisch freischalten (Standard: aus → pending)
+  - Setup-Anleitung mit direktem Link zum Azure Portal für App-Registrierung
+  - Redirect-URI wird automatisch generiert und mit Copy-Button angezeigt
+- **Login-Seite** — „Mit Microsoft anmelden"-Button mit Microsoft-Logo (SVG),
+  erscheint nur wenn Entra in Admin-Settings aktiviert und konfiguriert ist.
+  Bestehendes Username/Passwort-Login bleibt parallel verfügbar.
+- **Auth-Flow**: `GET /auth/entra/login` → Microsoft-Login → `GET /auth/entra/callback` →
+  User wird per Entra Object-ID oder E-Mail dem lokalen Account zugeordnet (oder neu angelegt).
+  CSRF-Schutz via State-Parameter in der Session.
+- **DB-Migration**: `users.entra_oid`-Spalte (automatisch beim Start, idempotent) +
+  Index für schnellen Lookup. Neue Funktion `get_or_create_entra_user()`.
+- **Keine neuen Dependencies** — nutzt `requests` (bereits vorhanden) für Token-Exchange,
+  JWT-Payload wird ohne externe Bibliothek dekodiert (Transport-Level-Sicherheit über HTTPS).
+
+### Touched Files
+- `src/entra.py` (neu) — Entra-Konfiguration, OAuth-Flow, JWT-Decode, Graph-API-Helper
+- `src/db.py` — `entra_oid`-Migration, `get_or_create_entra_user()`
+- `src/web/app.py` — Entra-Routen, erweiterte Admin-Settings
+- `src/web/templates/admin_settings.html` — Entra-Konfigurationssektion
+- `src/web/templates/login.html` — Microsoft-Login-Button
+
 ## 4.0.3 (2026-04-12) — „Mobile Responsive UI"
 
 ### UI — Mobile & Smartphone Responsive

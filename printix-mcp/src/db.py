@@ -135,6 +135,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE users ADD COLUMN full_name TEXT NOT NULL DEFAULT ''")
         if "company" not in existing_cols:
             conn.execute("ALTER TABLE users ADD COLUMN company TEXT NOT NULL DEFAULT ''")
+        # v4.1.0: Entra ID (Azure AD) SSO — Object-ID für User-Zuordnung
+        if "entra_oid" not in existing_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN entra_oid TEXT NOT NULL DEFAULT ''")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_entra_oid ON users (entra_oid)")
     # Sichere Migration für tenants-Tabelle: Alert-Spalten hinzufügen
     with _conn() as conn:
         existing_t = {r[1] for r in conn.execute("PRAGMA table_info(tenants)").fetchall()}
@@ -552,7 +556,87 @@ def _user_public(user: dict) -> dict:
         "is_admin":   bool(user["is_admin"]),
         "status":     user["status"],
         "created_at": user.get("created_at", ""),
+        "entra_oid":  user.get("entra_oid", ""),
     }
+
+
+# ─── Entra ID SSO ───────────────────────────────────────────────────────────
+
+def get_or_create_entra_user(
+    entra_oid: str,
+    email: str,
+    display_name: str,
+) -> Optional[dict]:
+    """
+    Findet oder erstellt einen Benutzer anhand der Entra Object-ID.
+
+    Reihenfolge:
+      1. User mit passender entra_oid → direkt zurückgeben
+      2. User mit passender E-Mail → entra_oid verknüpfen
+      3. Neuen User anlegen (Status: pending oder approved je nach Einstellung)
+    """
+    if not entra_oid:
+        return None
+
+    # 1. Suche nach entra_oid
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE entra_oid = ?", (entra_oid,)
+        ).fetchone()
+        if row:
+            return _user_public(dict(row))
+
+    # 2. Suche nach E-Mail und verknüpfe
+    if email:
+        with _conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE email = ?", (email.strip(),)
+            ).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE users SET entra_oid = ? WHERE id = ?",
+                    (entra_oid, row["id"]),
+                )
+                user = dict(row)
+                user["entra_oid"] = entra_oid
+                return _user_public(user)
+
+    # 3. Neuen User anlegen
+    uid = str(uuid.uuid4())
+    now = _now()
+
+    # Username aus E-Mail ableiten
+    username = email.split("@")[0] if email else display_name.replace(" ", ".").lower()
+    username = username.strip() or f"entra_{entra_oid[:8]}"
+    base = username
+    suffix = 1
+    while username_exists(username):
+        username = f"{base}{suffix}"
+        suffix += 1
+
+    # Zufälliges Passwort (User meldet sich via Entra an, nicht per Passwort)
+    random_pw = secrets.token_urlsafe(32)
+    from crypto import hash_password
+    pw_hash = hash_password(random_pw)
+
+    # Auto-Approve prüfen
+    auto_approve = get_setting("entra_auto_approve", "0") == "1"
+    status = "approved" if auto_approve else "pending"
+
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO users "
+            "(id, username, email, full_name, company, password_hash, "
+            " is_admin, status, created_at, entra_oid) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (uid, username, email.strip(), display_name, "",
+             pw_hash, 0, status, now, entra_oid),
+        )
+
+    # Leeren Tenant anlegen
+    _create_empty_tenant(uid, display_name or username)
+    logger.info("Entra-User angelegt: %s (%s) → status=%s", username, email, status)
+    return get_user_by_id(uid)
 
 
 # ─── Tenants ──────────────────────────────────────────────────────────────────

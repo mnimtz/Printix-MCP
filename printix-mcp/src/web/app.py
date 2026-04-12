@@ -395,12 +395,22 @@ def create_app(session_secret: str) -> FastAPI:
 
     # ── Login ──────────────────────────────────────────────────────────────────
 
+    def _entra_login_enabled() -> bool:
+        """Prüft ob Entra-Login für die Login-Seite angezeigt werden soll."""
+        try:
+            from entra import is_enabled
+            return is_enabled()
+        except Exception:
+            return False
+
     @app.get("/login", response_class=HTMLResponse)
     async def login_get(request: Request):
         if get_session_user(request):
             return RedirectResponse("/", status_code=302)
         return templates.TemplateResponse("login.html", {
-            "request": request, "error": None, **t_ctx(request)
+            "request": request, "error": None,
+            "entra_enabled": _entra_login_enabled(),
+            **t_ctx(request),
         })
 
     @app.post("/login", response_class=HTMLResponse)
@@ -411,26 +421,27 @@ def create_app(session_secret: str) -> FastAPI:
     ):
         tc = t_ctx(request)
         _  = tc["_"]
+        entra_on = _entra_login_enabled()
         try:
             from db import authenticate_user, audit
             user = authenticate_user(username, password)
         except Exception as e:
             return templates.TemplateResponse("login.html", {
                 "request": request, "error": f"Datenbankfehler: {e}",
-                "username": username, **tc,
+                "username": username, "entra_enabled": entra_on, **tc,
             })
 
         if not user:
             return templates.TemplateResponse("login.html", {
                 "request": request, "error": _("login_error"),
-                "username": username, **tc,
+                "username": username, "entra_enabled": entra_on, **tc,
             })
 
         status = user.get("status", "")
         if status == "disabled" or status == "suspended":
             return templates.TemplateResponse("login.html", {
                 "request": request, "error": _("login_suspended"),
-                "username": username, **tc,
+                "username": username, "entra_enabled": entra_on, **tc,
             })
 
         request.session["user_id"] = user["id"]
@@ -452,6 +463,144 @@ def create_app(session_secret: str) -> FastAPI:
         if lang:
             request.session["lang"] = lang
         return RedirectResponse("/login", status_code=302)
+
+    # ── Entra ID (Azure AD) SSO ────────────────────────────────────────────────
+
+    @app.get("/auth/entra/login")
+    async def entra_login(request: Request):
+        """Leitet den Benutzer zur Microsoft-Anmeldeseite weiter."""
+        try:
+            from entra import is_enabled, build_authorize_url, generate_state
+        except ImportError:
+            return RedirectResponse("/login", status_code=302)
+
+        if not is_enabled():
+            return RedirectResponse("/login", status_code=302)
+
+        state = generate_state()
+        request.session["entra_state"] = state
+        base = _get_base_url(request)
+        redirect_uri = f"{base}/auth/entra/callback"
+        url = build_authorize_url(redirect_uri, state)
+        return RedirectResponse(url, status_code=302)
+
+    @app.get("/auth/entra/callback")
+    async def entra_callback(request: Request):
+        """Callback von Microsoft nach erfolgreicher Anmeldung."""
+        tc = t_ctx(request)
+        _ = tc["_"]
+        _e = {"entra_enabled": True}  # Entra ist aktiv (wir sind im Callback)
+
+        code = request.query_params.get("code", "")
+        state = request.query_params.get("state", "")
+        error = request.query_params.get("error", "")
+        error_desc = request.query_params.get("error_description", "")
+
+        if error:
+            logger.warning("Entra callback error: %s — %s", error, error_desc)
+            return templates.TemplateResponse("login.html", {
+                "request": request,
+                "error": f"Microsoft-Anmeldung fehlgeschlagen: {error_desc or error}",
+                **_e, **tc,
+            })
+
+        # CSRF-State prüfen
+        expected_state = request.session.pop("entra_state", "")
+        if not state or state != expected_state:
+            return templates.TemplateResponse("login.html", {
+                "request": request,
+                "error": "Ungültiger State-Parameter — bitte erneut versuchen.",
+                **_e, **tc,
+            })
+
+        if not code:
+            return templates.TemplateResponse("login.html", {
+                "request": request,
+                "error": "Kein Authorization Code erhalten.",
+                **_e, **tc,
+            })
+
+        # Code gegen Token tauschen
+        try:
+            from entra import exchange_code_for_user
+        except ImportError:
+            return templates.TemplateResponse("login.html", {
+                "request": request, "error": "Entra-Modul nicht verfügbar.",
+                **_e, **tc,
+            })
+
+        base = _get_base_url(request)
+        redirect_uri = f"{base}/auth/entra/callback"
+        user_info = exchange_code_for_user(code, redirect_uri)
+
+        if not user_info or not user_info.get("oid"):
+            return templates.TemplateResponse("login.html", {
+                "request": request,
+                "error": "Microsoft-Anmeldung fehlgeschlagen — kein Benutzerprofil erhalten.",
+                **_e, **tc,
+            })
+
+        # User finden oder erstellen
+        try:
+            from db import get_or_create_entra_user, audit
+            user = get_or_create_entra_user(
+                entra_oid=user_info["oid"],
+                email=user_info.get("email", ""),
+                display_name=user_info.get("name", ""),
+            )
+        except Exception as e:
+            logger.error("Entra user lookup/create Fehler: %s", e)
+            return templates.TemplateResponse("login.html", {
+                "request": request,
+                "error": f"Datenbankfehler: {e}",
+                **_e, **tc,
+            })
+
+        if not user:
+            return templates.TemplateResponse("login.html", {
+                "request": request,
+                "error": "Benutzer konnte nicht angelegt werden.",
+                **_e, **tc,
+            })
+
+        # Status prüfen
+        status = user.get("status", "")
+        if status in ("disabled", "suspended"):
+            return templates.TemplateResponse("login.html", {
+                "request": request,
+                "error": _("login_suspended"),
+                **_e, **tc,
+            })
+
+        # Session setzen
+        request.session["user_id"] = user["id"]
+        try:
+            audit(user["id"], "login", f"Entra-Login ({user_info.get('email', '')})")
+        except Exception:
+            pass
+
+        if user.get("is_admin"):
+            return RedirectResponse("/admin", status_code=302)
+        if status == "pending":
+            return RedirectResponse("/pending", status_code=302)
+        return RedirectResponse("/dashboard", status_code=302)
+
+    def _get_base_url(request: Request) -> str:
+        """Ermittelt die Base-URL für Redirect URIs."""
+        try:
+            from db import get_setting
+            public_url = get_setting("public_url", "")
+            if public_url:
+                return public_url.rstrip("/")
+        except Exception:
+            pass
+        # Fallback: aus Request ableiten
+        scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get("x-forwarded-host", request.url.hostname)
+        port = request.url.port
+        if port and port not in (80, 443):
+            return f"{scheme}://{host}:{port}"
+        return f"{scheme}://{host}"
 
     # ── Warteseite ────────────────────────────────────────────────────────────
 
@@ -1003,50 +1152,83 @@ def create_app(session_secret: str) -> FastAPI:
             logger.error("feedback_update-Fehler: %s", e)
         return RedirectResponse(f"/feedback/{ticket_id}", status_code=302)
 
-    @app.get("/admin/settings", response_class=HTMLResponse)
-    async def admin_settings_get(request: Request):
-        user = get_session_user(request)
-        if not user or not user.get("is_admin"):
-            return RedirectResponse("/login", status_code=302)
+    def _admin_settings_ctx(request, user, saved=False, error=None):
+        """Baut den Template-Kontext für admin_settings.html."""
         try:
             from db import get_setting
             public_url = get_setting("public_url", "")
         except Exception:
             public_url = os.environ.get("MCP_PUBLIC_URL", "")
-        return templates.TemplateResponse("admin_settings.html", {
+        # Entra-Konfiguration
+        try:
+            from db import get_setting as gs
+            entra_cfg = {
+                "enabled":      gs("entra_enabled", "0") == "1",
+                "tenant_id":    gs("entra_tenant_id", ""),
+                "client_id":    gs("entra_client_id", ""),
+                "has_secret":   bool(gs("entra_client_secret", "")),
+                "auto_approve": gs("entra_auto_approve", "0") == "1",
+            }
+        except Exception:
+            entra_cfg = {"enabled": False, "tenant_id": "", "client_id": "",
+                         "has_secret": False, "auto_approve": False}
+        base = _get_base_url(request)
+        return {
             "request": request, "user": user,
             "public_url": public_url,
-            "saved": False, "error": None, **t_ctx(request),
-        })
+            "entra": entra_cfg,
+            "entra_redirect_uri": f"{base}/auth/entra/callback",
+            "saved": saved, "error": error,
+            **t_ctx(request),
+        }
+
+    @app.get("/admin/settings", response_class=HTMLResponse)
+    async def admin_settings_get(request: Request):
+        user = get_session_user(request)
+        if not user or not user.get("is_admin"):
+            return RedirectResponse("/login", status_code=302)
+        return templates.TemplateResponse("admin_settings.html",
+            _admin_settings_ctx(request, user))
 
     @app.post("/admin/settings", response_class=HTMLResponse)
     async def admin_settings_post(
-        request:    Request,
-        public_url: str = Form(default=""),
+        request:              Request,
+        public_url:           str = Form(default=""),
+        entra_enabled:        str = Form(default=""),
+        entra_tenant_id:      str = Form(default=""),
+        entra_client_id:      str = Form(default=""),
+        entra_client_secret:  str = Form(default=""),
+        entra_auto_approve:   str = Form(default=""),
     ):
         user = get_session_user(request)
         if not user or not user.get("is_admin"):
             return RedirectResponse("/login", status_code=302)
-        tc = t_ctx(request)
 
         url = public_url.strip().rstrip("/")
         try:
-            from db import set_setting, audit
+            from db import set_setting, _enc, audit
             set_setting("public_url", url)
-            audit(user["id"], "admin_settings", f"public_url gesetzt: {url}")
+
+            # Entra-Settings speichern
+            set_setting("entra_enabled", "1" if entra_enabled else "0")
+            set_setting("entra_tenant_id", entra_tenant_id.strip())
+            set_setting("entra_client_id", entra_client_id.strip())
+            set_setting("entra_auto_approve", "1" if entra_auto_approve else "0")
+            # Secret nur überschreiben wenn neuer Wert eingegeben wurde
+            if entra_client_secret.strip():
+                set_setting("entra_client_secret", _enc(entra_client_secret.strip()))
+
+            changes = [f"public_url={url}"]
+            if entra_enabled:
+                changes.append("entra=aktiviert")
+            audit(user["id"], "admin_settings", ", ".join(changes))
         except Exception as e:
             logger.error("Admin-Settings-Fehler: %s", e)
-            return templates.TemplateResponse("admin_settings.html", {
-                "request": request, "user": user,
-                "public_url": url,
-                "saved": False, "error": str(e), **tc,
-            })
+            return templates.TemplateResponse("admin_settings.html",
+                _admin_settings_ctx(request, user, error=str(e)))
 
-        return templates.TemplateResponse("admin_settings.html", {
-            "request": request, "user": user,
-            "public_url": url,
-            "saved": True, "error": None, **tc,
-        })
+        return templates.TemplateResponse("admin_settings.html",
+            _admin_settings_ctx(request, user, saved=True))
 
 
     # ─── Logs ────────────────────────────────────────────────────────────────────
