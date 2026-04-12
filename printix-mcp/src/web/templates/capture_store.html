@@ -182,7 +182,7 @@
 
         <!-- Webhook URL -->
         <div class="pc-info" style="margin-top: 8px; font-weight: 600;">{{ _('cap_webhook_url') }}:</div>
-        <div class="webhook-url" id="wh-{{ p.id[:8] }}">{{ request.url.scheme }}://{{ request.url.netloc }}/capture/webhook/{{ p.id }}<button class="copy-btn" onclick="copyWh('wh-{{ p.id[:8] }}', this)">Copy</button></div>
+        <div class="webhook-url" id="wh-{{ p.id[:8] }}">{{ webhook_base }}/capture/webhook/{{ p.id }}<button class="copy-btn" onclick="copyWh('wh-{{ p.id[:8] }}', this)">Copy</button></div>
 
         <div class="pc-info">{{ _('cap_created') }}: {{ p.created_at[:10] }}</div>
 

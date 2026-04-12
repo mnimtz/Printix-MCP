@@ -47,6 +47,20 @@ def register_capture_routes(
         from db import get_tenant_by_user_id
         return get_tenant_by_user_id(user["id"])
 
+    def _get_webhook_base(request: Request) -> str:
+        """Webhook Base-URL: public_url (HTTPS) > request URL."""
+        import os
+        wb = os.environ.get("MCP_PUBLIC_URL", "").rstrip("/")
+        if not wb:
+            try:
+                from db import get_setting
+                wb = get_setting("public_url", "").rstrip("/")
+            except Exception:
+                pass
+        if not wb:
+            wb = f"{request.url.scheme}://{request.url.netloc}"
+        return wb
+
     # ── GET /capture — Store Overview ───────────────────────────────────────
 
     @app.get("/capture", response_class=HTMLResponse)
@@ -90,6 +104,7 @@ def register_capture_routes(
             "plugins": plugin_info,
             "profiles_count": len(profiles),
             "active_count": sum(1 for p in profiles if p["is_active"]),
+            "webhook_base": _get_webhook_base(request),
         })
         return templates.TemplateResponse("capture_store.html", ctx)
 
@@ -126,6 +141,7 @@ def register_capture_routes(
             "config_fields": plugin_instance.config_schema(),
             "config_values": {},
             "error": "",
+            "webhook_base": _get_webhook_base(request),
         })
         return templates.TemplateResponse("capture_form.html", ctx)
 
@@ -172,6 +188,7 @@ def register_capture_routes(
                 "config_fields": plugin_instance.config_schema(),
                 "config_values": config,
                 "error": "Name is required",
+                "webhook_base": _get_webhook_base(request),
             })
             return templates.TemplateResponse("capture_form.html", ctx)
 
@@ -237,6 +254,7 @@ def register_capture_routes(
             "config_fields": plugin_instance.config_schema(),
             "config_values": config_values,
             "error": "",
+            "webhook_base": _get_webhook_base(request),
         })
         return templates.TemplateResponse("capture_form.html", ctx)
 

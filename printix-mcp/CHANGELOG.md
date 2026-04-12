@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.4.0 (2026-04-12) — Capture Store, Fleet/Dashboard API-First
+## 4.4.0 (2026-04-12) — Capture Store, Fleet/Dashboard API-First, Demo Local SQLite
 
 ### Feature — Capture Store (`/capture`)
 - **Neues Hauptregister** "Capture Store" in der Navigation (vor Hilfe)
@@ -12,6 +12,17 @@
 - **Webhook-Endpoint**: `/capture/webhook/{profileId}` — pro Profil individuelle URL
 - **Capture-Logs**: Alle Capture-Events in den Tenant-Logs unter Kategorie "CAPTURE"
 - **14 Sprachen**: Vollständige Übersetzung aller Capture Store Texte
+- **Webhook-URL nutzt public_url** (HTTPS) statt request scheme (HTTP)
+
+### Feature — Demo-Daten: Lokale SQLite statt Azure SQL
+- **Kein Azure SQL Schreibzugriff** mehr nötig für Demo-Daten!
+- Demo-Daten werden in `/data/demo_data.db` (SQLite) gespeichert
+- Azure SQL bleibt rein **lesend** (dbo.* Tabellen für echte Printix-Daten)
+- Reports mergen automatisch: Azure SQL (echte Daten) + SQLite (Demo-Daten)
+- Demo-Generator (`demo_generator.py`) schreibt direkt in lokale SQLite
+- Demo-Worker (`demo_worker.py`) braucht keine SQL-Credentials mehr
+- Web-UI Demo-Seite funktioniert ohne SQL-Konfiguration
+- Erlaubt Downgrade auf **kostenlose Printix Azure SQL** (rein lesend)
 
 ### Fix — Fleet Health: API-First
 - **Druckerdaten jetzt primär von Printix API** (nicht mehr SQL-abhängig)

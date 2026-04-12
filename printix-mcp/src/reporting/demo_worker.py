@@ -1,10 +1,14 @@
 """
-Demo Worker — Subprocess-Isolierung für pyodbc/FreeTDS Segfault-Schutz
-======================================================================
+Demo Worker — Subprocess-Isolierung (v4.4.0: lokale SQLite)
+===========================================================
 Wird von app.py via subprocess.Popen gestartet. Läuft im eigenen Prozess,
-damit ein pyodbc-Segfault (FreeTDS ARM64-Bug) den Web-Server nicht tötet.
+damit ein etwaiger Crash den Web-Server nicht tötet.
 
-Eingabe:  Umgebungsvariablen DEMO_TENANT_CONFIG (JSON) + DEMO_PARAMS (JSON)
+v4.4.0: Schreibt nur noch in die lokale SQLite-DB — kein Azure SQL
+Schreibzugriff mehr nötig. DEMO_TENANT_CONFIG wird weiterhin akzeptiert
+(für Kompatibilität), aber nicht mehr zum Schreiben verwendet.
+
+Eingabe:  Umgebungsvariablen DEMO_PARAMS (JSON)
           + DEMO_OUTPUT_FILE (Pfad zur Ergebnisdatei)
 Ausgabe:  JSON-Datei an DEMO_OUTPUT_FILE mit {"session_id": ..., "error": ...}
 """
@@ -18,9 +22,7 @@ import traceback
 # /app in den Suchpfad
 sys.path.insert(0, "/app")
 
-# Logging zentral konfigurieren BEVOR irgendein Modul Logger holt — sonst
-# verschwinden alle reporting.* / printix.* Logs des Subprozesses (kein
-# StreamHandler an stdout, _WebTenantDBHandler ist hier sowieso nicht aktiv).
+# Logging zentral konfigurieren BEVOR irgendein Modul Logger holt
 logging.basicConfig(
     level=os.environ.get("MCP_LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -32,17 +34,11 @@ logger = logging.getLogger("printix.demo_worker")
 
 def main():
     output_file = os.environ.get("DEMO_OUTPUT_FILE", "/tmp/demo_result.json")
-    logger.info("demo_worker gestartet (output=%s)", output_file)
+    logger.info("demo_worker gestartet (output=%s, lokal SQLite)", output_file)
 
     try:
-        # SQL-Config aus Umgebung lesen und setzen
-        tenant_config_str = os.environ.get("DEMO_TENANT_CONFIG", "")
-        if not tenant_config_str:
-            raise RuntimeError("DEMO_TENANT_CONFIG nicht gesetzt")
-        tenant_config = json.loads(tenant_config_str)
-
-        from reporting.sql_client import set_config_from_tenant
-        set_config_from_tenant(tenant_config)
+        # v4.4.0: Kein Azure SQL Config mehr nötig für Demo-Daten-Generierung.
+        # Die lokale SQLite-DB wird automatisch von local_demo_db.py initialisiert.
 
         # Generation-Parameter
         params_str = os.environ.get("DEMO_PARAMS", "{}")

@@ -21,11 +21,361 @@ Kostenformel (aus PowerBI DAX):
   total_cost   = sheet_cost + toner_color + toner_bw
 """
 
+import logging
 import math
-from datetime import date, datetime
+from collections import defaultdict
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from .sql_client import query_fetchall, get_tenant_id
+
+logger = logging.getLogger(__name__)
+
+
+# ─── Demo-Daten Merge-Layer (v4.4.0) ────────────────────────────────────────
+# Demo-Daten liegen lokal in SQLite, echte Daten in Azure SQL.
+# Dieser Merge-Layer kombiniert beide Quellen für Reports.
+
+def _has_active_demo() -> bool:
+    """Prüft ob aktive lokale Demo-Daten für den aktuellen Tenant existieren."""
+    try:
+        from .local_demo_db import has_active_demo
+        tid = get_tenant_id()
+        return has_active_demo(tid) if tid else False
+    except Exception:
+        return False
+
+
+def _get_demo_rows(start_date, end_date) -> list[dict]:
+    """Holt Demo-Tracking-Rohdaten aus lokaler SQLite für den Merge."""
+    try:
+        from .local_demo_db import query_demo_tracking_data
+        tid = get_tenant_id()
+        if not tid:
+            return []
+        s = str(_fmt_date(start_date))
+        e = str(_fmt_date(end_date))
+        return query_demo_tracking_data(tid, s, e)
+    except Exception as ex:
+        logger.debug("Demo-Daten Merge fehlgeschlagen: %s", ex)
+        return []
+
+
+def _parse_demo_date(val) -> date:
+    """Parst ein Datum aus SQLite-Ergebnis."""
+    if isinstance(val, date):
+        return val
+    s = str(val).strip()[:10]
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return date.today()
+
+
+def _demo_week_start(d: date) -> date:
+    """Montag der Woche."""
+    return d - timedelta(days=d.weekday())
+
+
+def _demo_month_start(d: date) -> date:
+    """Erster Tag des Monats."""
+    return d.replace(day=1)
+
+
+def _aggregate_demo_print_stats(demo_rows: list[dict], group_by: str,
+                                 site_id=None, user_email=None,
+                                 printer_id=None) -> list[dict]:
+    """
+    Aggregiert Demo-Tracking-Rohdaten wie query_print_stats.
+    Gibt list[dict] mit gleicher Struktur zurück.
+    """
+    # Filter anwenden
+    filtered = demo_rows
+    if site_id:
+        filtered = [r for r in filtered if r.get("network_id") == site_id]
+    if user_email:
+        filtered = [r for r in filtered if r.get("user_email") == user_email]
+    if printer_id:
+        filtered = [r for r in filtered if r.get("printer_id") == printer_id]
+
+    if not filtered:
+        return []
+
+    # Gruppierung
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for r in filtered:
+        pt = str(r.get("print_time", ""))
+        d = _parse_demo_date(pt)
+        if group_by == "day":
+            key = str(d)
+        elif group_by == "week":
+            key = str(_demo_week_start(d))
+        elif group_by == "month":
+            key = str(_demo_month_start(d))
+        elif group_by == "user":
+            key = r.get("user_name") or r.get("user_email", "Unknown")
+        elif group_by == "printer":
+            key = r.get("printer_name", "Unknown")
+        elif group_by == "site":
+            key = r.get("network_name", "Unknown")
+        else:
+            key = str(d)
+        groups[key].append(r)
+
+    # Aggregation
+    results = []
+    for period, rows in groups.items():
+        job_ids = set()
+        total_pages = 0
+        color_pages = 0
+        bw_pages = 0
+        duplex_pages = 0
+        saved_sheets = 0
+        for r in rows:
+            jid = r.get("job_id", "")
+            job_ids.add(jid)
+            pc = int(r.get("page_count") or 0)
+            is_color = bool(int(r.get("color") or 0))
+            is_duplex = bool(int(r.get("duplex") or 0))
+            total_pages += pc
+            if is_color:
+                color_pages += pc
+            else:
+                bw_pages += pc
+            if is_duplex:
+                duplex_pages += pc
+                saved_sheets += pc - math.ceil(pc / 2)
+
+        color_pct = round(color_pages * 100.0 / total_pages, 1) if total_pages else 0
+        duplex_pct = round(duplex_pages * 100.0 / total_pages, 1) if total_pages else 0
+
+        results.append({
+            "period": period,
+            "total_jobs": len(job_ids),
+            "total_pages": total_pages,
+            "color_pages": color_pages,
+            "bw_pages": bw_pages,
+            "duplex_pages": duplex_pages,
+            "color_pct": color_pct,
+            "duplex_pct": duplex_pct,
+            "saved_sheets_duplex": saved_sheets,
+        })
+
+    return results
+
+
+def _aggregate_demo_cost_report(demo_rows: list[dict], group_by: str,
+                                 cost_per_sheet: float, cost_per_mono: float,
+                                 cost_per_color: float,
+                                 site_id=None) -> list[dict]:
+    """Aggregiert Demo-Daten wie query_cost_report."""
+    filtered = demo_rows
+    if site_id:
+        filtered = [r for r in filtered if r.get("network_id") == site_id]
+    if not filtered:
+        return []
+
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for r in filtered:
+        d = _parse_demo_date(str(r.get("print_time", "")))
+        if group_by == "day":
+            key = str(d)
+        elif group_by == "week":
+            key = str(_demo_week_start(d))
+        elif group_by == "site":
+            key = r.get("network_name", "Unknown")
+        else:
+            key = str(_demo_month_start(d))
+        groups[key].append(r)
+
+    results = []
+    for period, rows in groups.items():
+        total_pages = color_pages = bw_pages = 0
+        total_sheets = 0.0
+        toner_color = toner_bw = sheet_cost = total_cost = 0.0
+        for r in rows:
+            pc = int(r.get("page_count") or 0)
+            is_color = bool(int(r.get("color") or 0))
+            is_duplex = bool(int(r.get("duplex") or 0))
+            total_pages += pc
+            sheets = math.ceil(pc / 2) if is_duplex else pc
+            total_sheets += sheets
+            if is_color:
+                color_pages += pc
+                tc = pc * cost_per_color
+                toner_color += tc
+            else:
+                bw_pages += pc
+                tc = pc * cost_per_mono
+                toner_bw += tc
+            sc = sheets * cost_per_sheet
+            sheet_cost += sc
+            total_cost += sc + tc
+
+        results.append({
+            "period": period,
+            "total_pages": total_pages,
+            "color_pages": color_pages,
+            "bw_pages": bw_pages,
+            "total_sheets": int(total_sheets),
+            "toner_cost_color": round(toner_color, 2),
+            "toner_cost_bw": round(toner_bw, 2),
+            "sheet_cost": round(sheet_cost, 2),
+            "total_cost": round(total_cost, 2),
+        })
+    return results
+
+
+def _aggregate_demo_top_users(demo_rows: list[dict], top_n: int,
+                               metric: str, cost_per_sheet: float,
+                               cost_per_mono: float, cost_per_color: float,
+                               site_id=None) -> list[dict]:
+    """Aggregiert Demo-Daten wie query_top_users."""
+    filtered = demo_rows
+    if site_id:
+        filtered = [r for r in filtered if r.get("network_id") == site_id]
+    if not filtered:
+        return []
+
+    users: dict[str, dict] = {}
+    for r in filtered:
+        email = r.get("user_email") or "unknown"
+        if email not in users:
+            users[email] = {
+                "email": email, "name": r.get("user_name", ""),
+                "department": r.get("department", ""),
+                "job_ids": set(), "total_pages": 0, "color_pages": 0,
+                "bw_pages": 0, "duplex_pages": 0, "total_cost": 0.0,
+            }
+        u = users[email]
+        u["job_ids"].add(r.get("job_id", ""))
+        pc = int(r.get("page_count") or 0)
+        is_color = bool(int(r.get("color") or 0))
+        is_duplex = bool(int(r.get("duplex") or 0))
+        u["total_pages"] += pc
+        if is_color:
+            u["color_pages"] += pc
+        else:
+            u["bw_pages"] += pc
+        if is_duplex:
+            u["duplex_pages"] += pc
+        sheets = math.ceil(pc / 2) if is_duplex else pc
+        cost = sheets * cost_per_sheet
+        cost += pc * (cost_per_color if is_color else cost_per_mono)
+        u["total_cost"] += cost
+
+    results = []
+    for u in users.values():
+        tp = u["total_pages"]
+        results.append({
+            "email": u["email"], "name": u["name"], "department": u["department"],
+            "total_jobs": len(u["job_ids"]),
+            "total_pages": tp,
+            "color_pages": u["color_pages"],
+            "bw_pages": u["bw_pages"],
+            "duplex_pages": u["duplex_pages"],
+            "color_pct": round(u["color_pages"] * 100.0 / tp, 1) if tp else 0,
+            "total_cost": round(u["total_cost"], 2),
+        })
+
+    sort_key = {"pages": "total_pages", "cost": "total_cost",
+                "jobs": "total_jobs", "color_pages": "color_pages"}.get(metric, "total_pages")
+    results.sort(key=lambda x: x.get(sort_key, 0), reverse=True)
+    return results[:top_n]
+
+
+def _aggregate_demo_top_printers(demo_rows: list[dict], top_n: int,
+                                  metric: str, cost_per_sheet: float,
+                                  cost_per_mono: float, cost_per_color: float,
+                                  site_id=None) -> list[dict]:
+    """Aggregiert Demo-Daten wie query_top_printers."""
+    filtered = demo_rows
+    if site_id:
+        filtered = [r for r in filtered if r.get("network_id") == site_id]
+    if not filtered:
+        return []
+
+    printers: dict[str, dict] = {}
+    for r in filtered:
+        pid = r.get("printer_id") or "unknown"
+        if pid not in printers:
+            printers[pid] = {
+                "printer_name": r.get("printer_name", "Unknown"),
+                "model_name": r.get("model_name", ""),
+                "vendor_name": r.get("vendor_name", ""),
+                "location": r.get("location", ""),
+                "site_name": r.get("network_name", ""),
+                "job_ids": set(), "total_pages": 0, "color_pages": 0,
+                "bw_pages": 0, "total_cost": 0.0,
+            }
+        p = printers[pid]
+        p["job_ids"].add(r.get("job_id", ""))
+        pc = int(r.get("page_count") or 0)
+        is_color = bool(int(r.get("color") or 0))
+        is_duplex = bool(int(r.get("duplex") or 0))
+        p["total_pages"] += pc
+        if is_color:
+            p["color_pages"] += pc
+        else:
+            p["bw_pages"] += pc
+        sheets = math.ceil(pc / 2) if is_duplex else pc
+        cost = sheets * cost_per_sheet + pc * (cost_per_color if is_color else cost_per_mono)
+        p["total_cost"] += cost
+
+    results = []
+    for p in printers.values():
+        tp = p["total_pages"]
+        results.append({
+            "printer_name": p["printer_name"], "model_name": p["model_name"],
+            "vendor_name": p["vendor_name"], "location": p["location"],
+            "site_name": p["site_name"],
+            "total_jobs": len(p["job_ids"]),
+            "total_pages": tp,
+            "color_pages": p["color_pages"],
+            "bw_pages": p["bw_pages"],
+            "color_pct": round(p["color_pages"] * 100.0 / tp, 1) if tp else 0,
+            "total_cost": round(p["total_cost"], 2),
+        })
+
+    sort_key = {"pages": "total_pages", "cost": "total_cost",
+                "jobs": "total_jobs", "color_pages": "color_pages"}.get(metric, "total_pages")
+    results.sort(key=lambda x: x.get(sort_key, 0), reverse=True)
+    return results[:top_n]
+
+
+def _merge_aggregated(sql_rows: list[dict], demo_rows: list[dict],
+                       key_field: str = "period") -> list[dict]:
+    """
+    Mergt SQL- und Demo-Ergebnisse. Bei gleichem Schlüssel (period/name)
+    werden numerische Felder addiert.
+    """
+    if not demo_rows:
+        return sql_rows
+
+    merged: dict[str, dict] = {}
+    for r in sql_rows:
+        k = str(r.get(key_field, ""))
+        merged[k] = dict(r)
+
+    for r in demo_rows:
+        k = str(r.get(key_field, ""))
+        if k in merged:
+            existing = merged[k]
+            for field, val in r.items():
+                if field == key_field:
+                    continue
+                if isinstance(val, (int, float)) and isinstance(existing.get(field), (int, float)):
+                    existing[field] = existing[field] + val
+            # Prozente neu berechnen
+            tp = existing.get("total_pages", 0)
+            if tp and "color_pct" in existing:
+                existing["color_pct"] = round(existing.get("color_pages", 0) * 100.0 / tp, 1)
+            if tp and "duplex_pct" in existing:
+                existing["duplex_pct"] = round(existing.get("duplex_pages", 0) * 100.0 / tp, 1)
+        else:
+            merged[k] = dict(r)
+
+    return list(merged.values())
 
 
 # ─── Reporting-View Fallback ──────────────────────────────────────────────────
@@ -200,7 +550,18 @@ def query_print_stats(
         ORDER BY {group_expr}
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    sql_results = query_fetchall(sql, params)
+
+    # v4.4.0: Demo-Daten aus lokaler SQLite mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            demo_agg = _aggregate_demo_print_stats(
+                demo_rows, group_by, site_id=site_id,
+                user_email=user_email, printer_id=printer_id)
+            sql_results = _merge_aggregated(sql_results, demo_agg, "period")
+
+    return sql_results
 
 
 # ─── 2. Kostenaufstellung ─────────────────────────────────────────────────────
@@ -272,7 +633,18 @@ def query_cost_report(
         ORDER BY {group_expr}
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    sql_results = query_fetchall(sql, params)
+
+    # v4.4.0: Demo-Daten aus lokaler SQLite mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            demo_agg = _aggregate_demo_cost_report(
+                demo_rows, group_by, cost_per_sheet, cost_per_mono,
+                cost_per_color, site_id=site_id)
+            sql_results = _merge_aggregated(sql_results, demo_agg, "period")
+
+    return sql_results
 
 
 # ─── 3. Top User ──────────────────────────────────────────────────────────────
@@ -335,7 +707,23 @@ def query_top_users(
         ORDER BY {order_col}
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    sql_results = query_fetchall(sql, params)
+
+    # v4.4.0: Demo-Daten aus lokaler SQLite mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            demo_agg = _aggregate_demo_top_users(
+                demo_rows, top_n, metric, cost_per_sheet,
+                cost_per_mono, cost_per_color, site_id=site_id)
+            # Für Top-User: Demo-User zur Liste hinzufügen, re-sortieren, top_n
+            combined = list(sql_results) + demo_agg
+            sort_key = {"pages": "total_pages", "cost": "total_cost",
+                        "jobs": "total_jobs", "color_pages": "color_pages"}.get(metric, "total_pages")
+            combined.sort(key=lambda x: x.get(sort_key, 0), reverse=True)
+            sql_results = combined[:top_n]
+
+    return sql_results
 
 
 # ─── 4. Top Drucker ───────────────────────────────────────────────────────────
@@ -398,7 +786,22 @@ def query_top_printers(
         ORDER BY {order_col}
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    sql_results = query_fetchall(sql, params)
+
+    # v4.4.0: Demo-Daten aus lokaler SQLite mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            demo_agg = _aggregate_demo_top_printers(
+                demo_rows, top_n, metric, cost_per_sheet,
+                cost_per_mono, cost_per_color, site_id=site_id)
+            combined = list(sql_results) + demo_agg
+            sort_key = {"pages": "total_pages", "cost": "total_cost",
+                        "jobs": "total_jobs", "color_pages": "color_pages"}.get(metric, "total_pages")
+            combined.sort(key=lambda x: x.get(sort_key, 0), reverse=True)
+            sql_results = combined[:top_n]
+
+    return sql_results
 
 
 # ─── 5. Anomalie-Erkennung ────────────────────────────────────────────────────
