@@ -36,6 +36,7 @@
   <!-- Server-Info -->
   <div class="card">
     <div class="section-title" style="margin-bottom:12px;">Server-Info</div>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
     <table>
       <tr>
         <th style="width:180px;">MCP (claude.ai)</th>
@@ -59,6 +60,7 @@
       <tr><th>OAuth Token</th><td><code>{{ base_url }}/oauth/token</code></td></tr>
       <tr><th>Health-Check</th><td><code>{{ base_url }}/health</code></td></tr>
     </table>
+    </div>
   </div>
 </div>
 {% endblock %}

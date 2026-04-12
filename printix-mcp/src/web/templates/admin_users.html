@@ -15,6 +15,7 @@
     </div>
 
     {% if users %}
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
     <table>
       <thead>
         <tr>
@@ -83,6 +84,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <div class="alert alert-info">Noch keine Benutzer registriert.</div>
     {% endif %}

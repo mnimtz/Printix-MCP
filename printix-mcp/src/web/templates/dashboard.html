@@ -7,8 +7,9 @@
     <div class="section-sub">{{ _('dash_connection') }}</div>
 
     {% if tenant %}
-    <table style="margin-bottom:24px;">
-      <tr><th style="width:200px;">Tenant</th><td>{{ tenant.name }}</td></tr>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:24px;">
+    <table>
+      <tr><th>Tenant</th><td>{{ tenant.name }}</td></tr>
       <tr>
         <th>Printix Tenant-ID</th>
         <td><code>{{ tenant.printix_tenant_id }}</code></td>
@@ -50,6 +51,7 @@
         </td>
       </tr>
     </table>
+    </div>
 
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
       <a href="/help" class="btn btn-primary">📖 {{ _('dash_connection') }}</a>

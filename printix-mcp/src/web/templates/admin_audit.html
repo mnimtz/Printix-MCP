@@ -12,6 +12,7 @@
     </div>
 
     {% if entries %}
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
     <table>
       <thead>
         <tr>
@@ -38,6 +39,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <div class="alert alert-info">Noch keine Einträge im Audit-Log.</div>
     {% endif %}

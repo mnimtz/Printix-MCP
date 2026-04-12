@@ -236,9 +236,47 @@
       .container { padding: 0 12px; margin: 16px auto; }
       .card      { padding: 20px 16px; border-radius: 10px; }
 
-      /* Horizontal-scroll tables */
+      /* All inline grid layouts → single column on mobile.
+         Targets every inline style="display:grid;grid-template-columns:..."
+         across settings, admin_dashboard, notifications, etc. */
+      [style*="grid-template-columns"] {
+        grid-template-columns: 1fr !important;
+      }
+
+      /* Tables: wrap in scrollable container, auto column widths */
+      .card > table,
+      .card > div > table {
+        display: block; overflow-x: auto; -webkit-overflow-scrolling: touch;
+      }
       table { min-width: 500px; font-size: .85em; }
       td, th { padding: 8px 10px; }
+      th[style*="width"] { width: auto !important; }
+
+      /* Tenant sub-tabs: horizontal scroll instead of wrap */
+      .tenant-tabs {
+        overflow-x: auto; -webkit-overflow-scrolling: touch;
+        flex-wrap: nowrap !important; gap: 0 !important;
+        scrollbar-width: none; /* Firefox */
+      }
+      .tenant-tabs::-webkit-scrollbar { display: none; }
+      .tenant-tab { flex-shrink: 0; padding: 8px 14px; font-size: .82em; }
+
+      /* Preset cards (demo page + report presets) — stack vertically */
+      .preset-cards {
+        flex-direction: column !important;
+      }
+      .preset-cards .preset-card { min-width: 0 !important; }
+      .preset-grid { grid-template-columns: 1fr !important; }
+
+      /* Code blocks — smaller font, break long URLs */
+      .code-block { font-size: .78em; padding: 10px 12px; word-break: break-all; }
+
+      /* Demo grid → single column (already has its own @media but enforce) */
+      .demo-grid { grid-template-columns: 1fr !important; }
+
+      /* Stat boxes — 2 per row on tablet */
+      .stats-summary { gap: 8px; }
+      .stat-box { min-width: 80px; padding: 6px 10px; }
 
       /* Prevent iOS font-size zoom on inputs */
       input[type=text], input[type=password], input[type=email],
@@ -248,6 +286,27 @@
 
       /* Step labels hidden on small screens */
       .step-label { display: none; }
+
+      /* Action buttons — full width on small screens */
+      td[style*="white-space:nowrap"] { white-space: normal !important; }
+
+      /* Search bars — stack vertically */
+      .search-bar { flex-wrap: wrap; }
+      .search-bar input { min-width: 0 !important; }
+
+      /* Reports form — class-based grids → single column */
+      .date-preset-row,
+      .custom-date-row,
+      .cost-grid,
+      .sched-grid {
+        grid-template-columns: 1fr !important;
+      }
+
+      /* Form actions — wrap on mobile */
+      .form-actions { flex-wrap: wrap; }
+
+      /* Help page — reduce list indent */
+      ol { padding-left: 16px !important; }
     }
 
     @media (max-width: 480px) {
@@ -256,6 +315,27 @@
       .card { padding: 14px 12px; }
       .container { margin: 10px auto; }
       .btn { padding: 9px 16px; font-size: .9em; }
+
+      /* Very small screens — tables can be narrower */
+      table { min-width: 400px; }
+
+      /* Single stat box per row */
+      .stats-summary { flex-direction: column; }
+
+      /* Buttons stack vertically in major flex containers */
+      [style*="display:flex"][style*="gap"] {
+        flex-direction: column !important;
+      }
+      /* But not nav-related or inline flex containers */
+      nav, .nav-right, .nav-links, .mobile-menu,
+      .mobile-lang-grid, .tenant-tabs, .search-bar,
+      .check-row, .slider-wrap, .lang-checkboxes,
+      .fmt-row, .color-row,
+      .preset-cards { flex-direction: row !important; }
+      .preset-cards { flex-direction: column !important; }
+
+      /* Full-width buttons — but not small action buttons in tables */
+      .btn:not(.btn-sm) { width: 100%; text-align: center; }
     }
   </style>
   {% block extra_head %}{% endblock %}

@@ -1,5 +1,24 @@
 # Changelog
 
+## 4.0.3 (2026-04-12) — „Mobile Responsive UI"
+
+### UI — Mobile & Smartphone Responsive
+- **base.html** — Umfassende `@media (max-width: 768px)` und `@media (max-width: 480px)` Breakpoints:
+  - Hamburger-Menü + Mobile-Drawer statt Desktop-Navigation
+  - Alle Inline-Grid-Layouts (`grid-template-columns`) automatisch auf 1 Spalte via CSS-Attribut-Selektor
+  - Reports-Formular-Grids (`.date-preset-row`, `.cost-grid`, `.sched-grid`) → 1 Spalte auf Mobile
+  - Tabellen horizontal scrollbar, iOS-Touch-Scrolling, auto-width auf fixe `th`-Breiten
+  - Preset-Cards + Demo-Grid vertikal gestapelt
+  - Buttons (außer `.btn-sm`) full-width auf sehr kleinen Screens
+  - iOS Font-Size-Zoom auf Inputs verhindert (`font-size: 16px`)
+  - Step-Labels ausgeblendet, Tenant-Tabs horizontal scrollbar
+- **dashboard.html** — Tabelle in Scroll-Wrapper, fixe `th`-Breite entfernt
+- **admin_dashboard.html** — Server-Info-Tabelle in Scroll-Wrapper
+- **admin_users.html** — Benutzer-Tabelle in Scroll-Wrapper
+- **admin_audit.html** — Audit-Log-Tabelle in Scroll-Wrapper
+- **reports_list.html** — Report-Tabelle in Scroll-Wrapper
+- **register_success.html** — URL-Tabelle in Scroll-Wrapper
+
 ## 4.0.0 (2026-04-12) — „Reports & Demo-Daten Bugfix-Release"
 
 > **Bugfix-Release.** Behebt mehrere kritische Fehler in der Demo-Daten-Verwaltung
