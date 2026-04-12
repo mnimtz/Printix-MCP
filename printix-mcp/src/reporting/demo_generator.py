@@ -518,24 +518,12 @@ SCHEMA_STATEMENTS: list[str] = [
         WHERE ds.tenant_id = demo.tracking_data.tenant_id AND ds.status = 'active'
     )
     """,
-    """
-    CREATE OR ALTER VIEW reporting.v_jobs AS
-    -- v3.8.0: dbo.jobs.name -> filename, demo.jobs.filename -> filename.
-    -- Wird für den Compliance-Report "Sensible Dokumente" (query_sensitive_documents)
-    -- benötigt, der per LIKE im Dateinamen nach Schlüsselwörtern sucht.
-    SELECT id, tenant_id, color, duplex, page_count, paper_size,
-           printer_id, submit_time, tenant_user_id,
-           CAST(name AS NVARCHAR(500)) AS filename
-    FROM dbo.jobs
-    UNION ALL
-    SELECT id, tenant_id, color, duplex, page_count, paper_size,
-           printer_id, submit_time, tenant_user_id, filename
-    FROM demo.jobs
-    WHERE EXISTS (
-        SELECT 1 FROM demo.demo_sessions ds
-        WHERE ds.tenant_id = demo.jobs.tenant_id AND ds.status = 'active'
-    )
-    """,
+    # v_jobs wird via dynamischem SQL erstellt — siehe _create_v_jobs_view() unten.
+    # Grund: dbo.jobs hat in manchen Printix-BI-Datenbanken KEINE `name`-Spalte.
+    # Ein statisches CREATE VIEW mit CAST(name ...) AS filename scheitert dann
+    # still, und der Compliance-Report „Sensible Dokumente" liefert 0 Treffer
+    # weil weder die View noch der Fallback Demo-Daten einschließt.
+    "-- v_jobs: see _create_v_jobs_view()",
     """
     CREATE OR ALTER VIEW reporting.v_users AS
     SELECT id, tenant_id, email, name, department
@@ -620,6 +608,53 @@ SCHEMA_STATEMENTS: list[str] = [
 
 # ── Schema Setup ──────────────────────────────────────────────────────────────
 
+def _create_v_jobs_view() -> None:
+    """
+    Erstellt reporting.v_jobs dynamisch — prüft ob dbo.jobs eine `name`-Spalte hat.
+
+    Das Printix-BI-Schema (v2025.4) hat in dbo.jobs KEIN `name`/`filename`-Feld.
+    Manche ältere oder erweiterte Installationen haben es aber. Die View muss in
+    beiden Fällen funktionieren, damit der Compliance-Report „Sensible Dokumente"
+    die Demo-Dateinamen findet.
+    """
+    from .sql_client import execute_script, query_fetchone
+
+    # Prüfe ob dbo.jobs.name existiert
+    try:
+        r = query_fetchone(
+            "SELECT COUNT(*) AS cnt FROM sys.columns "
+            "WHERE object_id = OBJECT_ID('dbo.jobs') AND name = 'name'"
+        )
+        has_name = bool((r or {}).get("cnt", 0) > 0)
+    except Exception:
+        has_name = False
+
+    if has_name:
+        filename_expr = "CAST(name AS NVARCHAR(500)) AS filename"
+    else:
+        filename_expr = "CAST(NULL AS NVARCHAR(500)) AS filename"
+
+    sql = f"""
+    CREATE OR ALTER VIEW reporting.v_jobs AS
+    -- v4.0.0: dbo.jobs-Spalte dynamisch ermittelt (name oder NULL-Fallback).
+    -- Wird für den Compliance-Report "Sensible Dokumente" (query_sensitive_documents)
+    -- benötigt, der per LIKE im Dateinamen nach Schlüsselwörtern sucht.
+    SELECT id, tenant_id, color, duplex, page_count, paper_size,
+           printer_id, submit_time, tenant_user_id,
+           {filename_expr}
+    FROM dbo.jobs
+    UNION ALL
+    SELECT id, tenant_id, color, duplex, page_count, paper_size,
+           printer_id, submit_time, tenant_user_id, filename
+    FROM demo.jobs
+    WHERE EXISTS (
+        SELECT 1 FROM demo.demo_sessions ds
+        WHERE ds.tenant_id = demo.jobs.tenant_id AND ds.status = 'active'
+    )
+    """
+    execute_script([sql])
+
+
 def setup_schema() -> dict:
     """
     Erstellt alle erforderlichen Tabellen und Indexes in der konfigurierten Azure SQL.
@@ -631,6 +666,14 @@ def setup_schema() -> dict:
     created = []
     for stmt in SCHEMA_STATEMENTS:
         label = stmt.strip().split("\n")[0].strip()[:80]
+        if label.startswith("-- v_jobs:"):
+            # Dynamische View-Erstellung statt statischem Statement
+            try:
+                _create_v_jobs_view()
+                created.append("CREATE OR ALTER VIEW reporting.v_jobs (dynamic)")
+            except Exception as e:
+                errors.append({"statement": "CREATE VIEW reporting.v_jobs", "error": str(e)})
+            continue
         try:
             execute_script([stmt])
             created.append(label)

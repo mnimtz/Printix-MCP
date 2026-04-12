@@ -1339,9 +1339,12 @@ def query_sensitive_documents(
         _print_src = _jobs_tbl
         _print_filename_expr = "j.filename"
     else:
-        # Stale view oder kein View → direkt auf dbo.jobs, Spalte heißt `name`
-        _print_src = "dbo.jobs"
-        _print_filename_expr = "j.name"
+        # View hat kein filename-Feld (stale oder dbo.jobs.name fehlt).
+        # Direkt auf demo.jobs zurückfallen — dort heißt die Spalte `filename`.
+        # dbo.jobs hat in den meisten Printix-BI-Datenbanken kein name/filename,
+        # daher würde ein Fallback auf dbo.jobs immer 0 Treffer liefern.
+        _print_src = "demo.jobs"
+        _print_filename_expr = "j.filename"
 
     # Entscheide Scan-Quelle (dbo.jobs_scan hat i.d.R. keinen filename — nur
     # die neue reporting.v_jobs_scan kennt ihn via demo-Migration).
@@ -1349,8 +1352,8 @@ def query_sensitive_documents(
         if _jobs_scan_tbl.startswith("reporting.") and _view_has_column(_jobs_scan_tbl, "filename"):
             _scan_src = _jobs_scan_tbl
         else:
-            include_scans = False
-            _scan_src = None
+            # Scan-View stale — direkt auf demo.jobs_scan mit filename
+            _scan_src = "demo.jobs_scan"
     else:
         _scan_src = None
 
