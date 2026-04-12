@@ -610,33 +610,39 @@ SCHEMA_STATEMENTS: list[str] = [
 
 def _create_v_jobs_view() -> None:
     """
-    Erstellt reporting.v_jobs dynamisch — prüft ob dbo.jobs eine `name`-Spalte hat.
+    Erstellt reporting.v_jobs dynamisch — prüft welche Dateinamen-Spalte
+    dbo.jobs hat und mappt sie auf den einheitlichen Alias `filename`.
 
-    Das Printix-BI-Schema (v2025.4) hat in dbo.jobs KEIN `name`/`filename`-Feld.
-    Manche ältere oder erweiterte Installationen haben es aber. Die View muss in
-    beiden Fällen funktionieren, damit der Compliance-Report „Sensible Dokumente"
-    die Demo-Dateinamen findet.
+    Printix speichert den Dokumentennamen je nach BI-Version unter
+    verschiedenen Spaltennamen (name, filename, document_name). Die View
+    muss unabhängig davon funktionieren, damit:
+      - echte Printix-Daten (dbo.jobs) ihre Dateinamen liefern
+      - Demo-Daten (demo.jobs.filename) immer eingeschlossen sind
+      - der Compliance-Report „Sensible Dokumente" beides findet
     """
     from .sql_client import execute_script, query_fetchone
 
-    # Prüfe ob dbo.jobs.name existiert
-    try:
-        r = query_fetchone(
-            "SELECT COUNT(*) AS cnt FROM sys.columns "
-            "WHERE object_id = OBJECT_ID('dbo.jobs') AND name = 'name'"
-        )
-        has_name = bool((r or {}).get("cnt", 0) > 0)
-    except Exception:
-        has_name = False
-
-    if has_name:
-        filename_expr = "CAST(name AS NVARCHAR(500)) AS filename"
+    # Suche nach der ersten passenden Dateinamen-Spalte in dbo.jobs
+    filename_expr = "CAST(NULL AS NVARCHAR(500)) AS filename"
+    for col_name in ("name", "filename", "document_name"):
+        try:
+            r = query_fetchone(
+                "SELECT COUNT(*) AS cnt FROM sys.columns "
+                "WHERE object_id = OBJECT_ID('dbo.jobs') AND name = ?",
+                (col_name,),
+            )
+            if (r or {}).get("cnt", 0) > 0:
+                filename_expr = f"CAST([{col_name}] AS NVARCHAR(500)) AS filename"
+                logger.info("v_jobs: dbo.jobs.%s gefunden → mapping auf filename", col_name)
+                break
+        except Exception:
+            continue
     else:
-        filename_expr = "CAST(NULL AS NVARCHAR(500)) AS filename"
+        logger.info("v_jobs: keine Dateinamen-Spalte in dbo.jobs gefunden → NULL-Fallback")
 
     sql = f"""
     CREATE OR ALTER VIEW reporting.v_jobs AS
-    -- v4.0.0: dbo.jobs-Spalte dynamisch ermittelt (name oder NULL-Fallback).
+    -- v4.0.0: dbo.jobs-Spalte dynamisch ermittelt ({filename_expr.split('AS')[0].strip()}).
     -- Wird für den Compliance-Report "Sensible Dokumente" (query_sensitive_documents)
     -- benötigt, der per LIKE im Dateinamen nach Schlüsselwörtern sucht.
     SELECT id, tenant_id, color, duplex, page_count, paper_size,

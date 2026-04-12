@@ -5,7 +5,7 @@ Alle Abfragen gegen dbo-Schema der printix_bi_data_2_1 Datenbank.
 
 Tabellenstruktur (aus PowerBI-Template extrahiert):
   dbo.tracking_data  — Druckaufträge (page_count, color, duplex, print_time, printer_id, job_id, tenant_id)
-  dbo.jobs           — Jobs (id, tenant_id, color, duplex, page_count, paper_size, printer_id, submit_time, tenant_user_id)
+  dbo.jobs           — Jobs (id, tenant_id, color, duplex, page_count, paper_size, printer_id, submit_time, tenant_user_id, name)
   dbo.users          — Benutzer (id, tenant_id, email, name, department)
   dbo.printers       — Drucker (id, tenant_id, name, model_name, vendor_name, network_id, location)
   dbo.networks       — Netzwerke/Standorte (id, tenant_id, name)
@@ -1339,12 +1339,13 @@ def query_sensitive_documents(
         _print_src = _jobs_tbl
         _print_filename_expr = "j.filename"
     else:
-        # View hat kein filename-Feld (stale oder dbo.jobs.name fehlt).
-        # Direkt auf demo.jobs zurückfallen — dort heißt die Spalte `filename`.
-        # dbo.jobs hat in den meisten Printix-BI-Datenbanken kein name/filename,
-        # daher würde ein Fallback auf dbo.jobs immer 0 Treffer liefern.
-        _print_src = "demo.jobs"
-        _print_filename_expr = "j.filename"
+        # View hat kein filename-Feld (stale View, Schema-Setup nicht gelaufen).
+        # Fallback auf dbo.jobs mit `name`-Spalte (Printix-Dokumentenname).
+        # Hinweis: Demo-Daten (demo.jobs) fehlen in diesem Pfad — Benutzer
+        # sollte "Schema einrichten" auf der Demo-Seite ausführen, damit die
+        # reporting.v_jobs-View erstellt wird und beide Quellen vereint.
+        _print_src = "dbo.jobs"
+        _print_filename_expr = "j.name"
 
     # Entscheide Scan-Quelle (dbo.jobs_scan hat i.d.R. keinen filename — nur
     # die neue reporting.v_jobs_scan kennt ihn via demo-Migration).
