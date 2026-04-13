@@ -30,6 +30,25 @@
 - **Logging**: Klare Unterscheidung zwischen Container-Port (intern, fest) und
   Host-Port (extern, HA-Netzwerk-Tab)
 
+### Fix — Printix-Signatur `x-printix-signature` wird nicht erkannt
+- **Symptom**: Echte Printix-Webhooks kommen mit `x-printix-signature`,
+  `x-printix-timestamp`, `x-printix-request-path` und `x-printix-request-id`.
+  Der Auth-Code suchte aber nur nach `x-printix-signature-256` und `-512`.
+  Ergebnis: `Auth: No signature header and require_signature=True` → 401.
+- **auth.py**: Neuer Auth-Modus `printix-native` — höchste Priorität.
+  Erkennt `x-printix-signature` Header und verifiziert gegen kanonische Formate:
+  1. `{timestamp}.{request_path}.{body}` (vollständig)
+  2. `{timestamp}.{body}` (ohne Pfad)
+  3. `{body}` (nur Body, Fallback)
+  Alle Formate werden mit HMAC-SHA256 gegen alle konfigurierten Secrets geprüft.
+- **auth.py**: Ausführliches Logging: erkannter Modus, Timestamp, Pfad, Request-ID,
+  welches kanonische Format gematcht hat, bei Mismatch Debug-Ausgabe der erwarteten
+  Werte pro Format
+- **webhook_handler.py**: Debug-Endpoint erkennt `x-printix-signature` und zeigt
+  Timestamp, Request-Path und Request-ID in der Debug-Ausgabe
+- Rückwärtskompatibel: `x-printix-signature-256`, `-512`, `x-hub-signature-256`,
+  Bearer Token und `x-connector-token` funktionieren weiterhin
+
 ### Migration
 Wer `capture_port: 8775` (oder einen anderen Wert > 0) hatte:
 → Ersetzen durch `capture_enabled: true`
