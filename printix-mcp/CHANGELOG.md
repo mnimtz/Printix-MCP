@@ -1,5 +1,76 @@
 # Changelog
 
+## 4.6.0 (2026-04-13) — Capture Architektur-Redesign
+
+### Breaking Change — `capture_port` durch `capture_enabled` ersetzt
+- **Alt**: `capture_port: 0` (int) — diente gleichzeitig als Ein/Aus-Schalter UND
+  als Port-Nummer. Das war ein Designfehler: der Wert suggerierte, dass er den
+  externen Port steuert, tatsächlich kontrolliert er nur den internen Listen-Port.
+  Das Docker-Portmapping (config.yaml `ports: 8775/tcp`) ist davon völlig unabhängig.
+- **Neu**: `capture_enabled: false` (bool) — reiner Ein/Aus-Schalter.
+  Der Container-Port ist **immer** 8775 (feste Konstante, nicht konfigurierbar).
+  Den Host-Port konfiguriert man in HA unter Add-on → Netzwerk.
+
+### Saubere Trennung der Verantwortlichkeiten
+- **config.yaml `ports: 8775/tcp`** — definiert das Docker-Portmapping (HA Supervisor)
+- **config.yaml `capture_enabled: bool`** — startet/stoppt den Capture-Server-Prozess
+- **HA Netzwerk-Tab** — aktiviert/deaktiviert den Host-Port (unabhängig vom Code)
+- Diese drei Ebenen sind jetzt klar getrennt statt vermischt
+
+### Änderungen im Detail
+- **config.yaml**: `capture_port: int` → `capture_enabled: bool` (Option + Schema)
+- **run.sh**: Liest `capture_enabled` (true/false) statt `capture_port` (int).
+  `CAPTURE_ENABLED` env var ist jetzt "true"/"false" statt einer Portnummer.
+  `CAPTURE_PORT` env var wird nur noch lokal gesetzt wenn der Server startet.
+  Container-Port ist die Konstante `CAPTURE_CONTAINER_PORT=8775`.
+- **server.py**: Middleware und Startup-Log prüfen `CAPTURE_ENABLED` env var
+  (true/false) statt `CAPTURE_PORT > 0`
+- **capture_routes.py**: `_is_capture_separate()` prüft `CAPTURE_ENABLED`
+- **capture_server.py**: Docstring aktualisiert — Port ist fest 8775
+- **Logging**: Klare Unterscheidung zwischen Container-Port (intern, fest) und
+  Host-Port (extern, HA-Netzwerk-Tab)
+
+### Migration
+Wer `capture_port: 8775` (oder einen anderen Wert > 0) hatte:
+→ Ersetzen durch `capture_enabled: true`
+
+Wer `capture_port: 0` hatte:
+→ Ersetzen durch `capture_enabled: false` (oder Option weglassen, Default ist false)
+
+---
+
+## 4.5.5 (2026-04-13) — Capture Webhook ohne separaten Port
+
+### Fix — Port 8775 wird von HA nicht nach außen gemappt
+- **Root Cause**: HA Supervisor mappt nachträglich hinzugefügte Ports (8775) nicht
+  automatisch nach außen. Im `docker ps` steht nur `8775/tcp` (intern), aber kein
+  `0.0.0.0:8775->8775/tcp`. Der User muss den Port unter Add-on → Netzwerk manuell
+  aktivieren — das ist HA-Standardverhalten, kein Code-Bug.
+- **Lösung**: Capture-Webhooks funktionieren **immer** über den MCP-Port (8765) und
+  den Web-Port (8080). Der separate Server auf 8775 ist rein optional.
+- **run.sh**: `CAPTURE_PORT` env var wird jetzt nur exportiert wenn der separate
+  Capture-Server tatsächlich aktiv ist (CAPTURE_ENABLED > 0). Vorher wurde immer
+  `CAPTURE_PORT=8775` exportiert — dadurch dachte der MCP-Server fälschlicherweise,
+  der separate Capture-Server laufe, und zeigte irreführende Log-Meldungen.
+- **run.sh**: Klare Log-Meldung wenn kein separater Port aktiv:
+  `"Capture-Webhooks laufen über MCP-Port (8765) — kein separater Port nötig"`
+- **run.sh**: Wenn separater Port aktiv, Hinweis mit Pfad:
+  `"Einstellungen > Add-ons > Printix MCP > Netzwerk > 8775"`
+- **server.py**: MCP-Server erkennt jetzt korrekt ob separate Capture läuft
+  (CAPTURE_PORT=0 wenn deaktiviert, statt fälschlicherweise 8775)
+
+### Hinweis für Benutzer
+Capture-Webhooks funktionieren über **drei** Endpunkte:
+- `http://<HA-IP>:8765/capture/webhook/<profile_id>` — MCP-Port (immer aktiv)
+- `http://<HA-IP>:8080/capture/webhook/<profile_id>` — Web-Port (immer aktiv)
+- `http://<HA-IP>:8775/capture/webhook/<profile_id>` — Separater Port (optional, capture_port > 0)
+
+Wenn Port 8775 nicht von außen erreichbar ist:
+1. Webhooks über Port 8765 (MCP) oder 8080 (Web) routen — kein Konfigurationsaufwand
+2. Oder: HA → Einstellungen → Add-ons → Printix MCP → Netzwerk → Port 8775 aktivieren
+
+---
+
 ## 4.5.4 (2026-04-13) — Capture Port Architecture Fix
 
 ### Fix — Capture-Port wird im Container nicht veröffentlicht

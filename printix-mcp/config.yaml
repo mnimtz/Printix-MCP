@@ -1,7 +1,7 @@
 # Home Assistant Add-on: Printix MCP Server
 # https://github.com/mnimtz/Printix-MCP
 name: Printix MCP Server
-version: "4.5.4"
+version: "4.6.0"
 slug: printix-mcp
 description: >-
   Multi-Tenant MCP Server für die Printix Cloud Print API.
@@ -42,10 +42,11 @@ options:
   # Wird in der Web-UI und im Log als Verbindungsinfo angezeigt
   public_url: ""
 
-  # Capture Webhook: Ein/Aus-Schalter (0 = deaktiviert, 1 = aktiviert auf Port 8775)
-  # Der Container bindet intern immer auf 8775. Den Host-Port konfiguriert man
-  # in HA unter Add-on > Netzwerk (Standard: 8775).
-  capture_port: 0
+  # Separater Capture-Server auf Port 8775 (true = aktiv, false = deaktiviert)
+  # Der Container-Port ist IMMER 8775 (fest in config.yaml/ports definiert).
+  # Den Host-Port konfiguriert man in HA unter Add-on > Netzwerk.
+  # Capture-Webhooks funktionieren auch ohne separaten Server ueber den MCP-Port (8765).
+  capture_enabled: false
 
   # Capture Webhook: optionale eigene öffentliche URL (z.B. https://capture.printix.cloud)
   # Wenn leer, wird die MCP public_url für Webhook-URLs verwendet
@@ -63,7 +64,7 @@ schema:
   mcp_port: int
   web_port: int
   public_url: "url?"
-  capture_port: int
+  capture_enabled: bool
   capture_public_url: "str?"
   log_level: "list(debug|info|warning|error|critical)"
 
