@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.6.13 (2026-04-13) — Workstation Online/Offline Toggle-Filter
+
+### Neu — Status-Filter für Workstations
+- Toggle-Buttons: **Alle** | **🟢 Online** | **🔴 Offline**
+- Serverseitiger Filter per `?status=online` / `?status=offline`
+- Zusammenfassung zeigt Gesamtzahl + gefilterte Anzahl
+- i18n in allen 14 Sprachen
+
 ## 4.6.12 (2026-04-13) — Workstation-Status Fix + User-Paginierung
 
 ### Fix — Workstation-Status korrekt anzeigen
