@@ -1,5 +1,86 @@
 # Changelog
 
+## 4.4.14 (2026-04-12) — Demo-Daten Merge fuer ALLE Reports
+
+### Feature — Demo-Merge-Layer auf alle Report-Typen erweitert
+- **Vorher**: Nur 4 von ~20 Reports nutzten Demo-Daten (print_stats, cost_report, top_users, top_printers)
+- **Nachher**: Alle relevanten Reports mergen jetzt Demo-Daten aus lokaler SQLite:
+  - `query_printer_history` — Drucker-Historie mit Demo-Druckern
+  - `query_device_readings` — Geraeteuebersicht mit Demo-Druckern
+  - `query_job_history` — Job-Verlauf inkl. Demo-Jobs (paginiert)
+  - `query_queue_stats` — Papierformat/Farb-Verteilung mit Demo-Daten
+  - `query_user_detail` — Benutzer-Drill-Down mit Demo-Usern
+  - `query_tree_meter` — Nachhaltigkeits-Kennzahlen mit Demo-Duplex-Daten
+  - `query_anomalies` — Anomalie-Erkennung mit Demo-Tageswerten (Z-Score in Python)
+  - `query_trend` — Perioden-Vergleich mit Demo-Daten in beiden Zeitraeumen
+  - `query_hour_dow_heatmap` — Nutzungs-Heatmap mit Demo-Zeitstempeln
+  - `query_user_scan_detail` — Scan-Reports mit Demo-Scan-Jobs
+  - `query_user_copy_detail` — Copy-Reports mit Demo-Copy-Jobs
+  - `query_service_desk` — Fehlgeschlagene Jobs mit Demo-Fehlerstatus
+  - `query_off_hours_print` — Off-Hours-Analyse mit Demo-Submit-Zeiten
+  - `query_sensitive_documents` — Keyword-Suche in Demo-Job-Filenames + Demo-Scans
+- Nicht geaendert: `query_workstation_*` (keine Demo-Daten), `query_audit_log` (Admin-DB),
+  `query_forecast` (nutzt bereits query_print_stats indirekt)
+
+### Feature — Neue Demo-Datenquellen in local_demo_db.py
+- `query_demo_scan_jobs()` — Demo-Scan-Jobs mit User/Printer/Network JOINs
+- `query_demo_copy_jobs()` — Demo-Copy-Jobs + Copy-Details mit JOINs
+- `query_demo_jobs()` — Demo-Jobs fuer Off-Hours/Sensitive-Docs/Queue-Stats
+- `query_demo_tracking_data()` liefert jetzt auch `paper_size` (fuer Queue-Stats)
+
+### Fix — Alle SQL-Queries in try/except gewrappt
+- Reports die bisher bei SQL-Fehlern mit 500 abstürzten, fallen jetzt auf Demo-Daten zurück
+- Betrifft: printer_history, device_readings, job_history, queue_stats, user_detail,
+  user_copy_detail, user_scan_detail, anomalies, trend, heatmap, service_desk, off_hours
+
+## 4.4.13 (2026-04-12) — Versionen, Log-Marker, Cleanup
+
+### Fix — Startup-Banner im MCP-Server zeigte v4.4.5 statt aktuelle Version
+- `server.py` Python-Startup-Banner (logger.info) war auf v4.4.5 stehen geblieben
+- Jetzt konsistent v4.4.13 in allen 4 Stellen (config.yaml, run.sh, server.py Kopf + Banner)
+
+### Fix — CAPTURE REQUEST Log-Marker fehlte im Web-Route-Handler (Port 8080)
+- Der `▶ CAPTURE REQUEST` Marker existierte nur im MCP-Router (Port 8765)
+- Wenn Webhooks über den Web-Port (8080/8010) eingingen, fehlte der Marker komplett
+- Fix: Marker in allen 3 Web-Route-Handlern (POST webhook, GET health, debug)
+
+### Fix — Dummy-Code in capture_routes.py entfernt
+- `await asyncio.to_thread(lambda: None) if False else await handle_webhook(...)`
+- War übriggebliebener Platzhalter-Code — jetzt direkt `await handle_webhook(...)`
+
+### Docs — Webhook-Response-Protokoll dokumentiert
+- HTTP-Status-Strategie im webhook_handler.py erklärt:
+  - HTTP 4xx/5xx nur bei Infrastruktur-Fehlern (Profil/HMAC/JSON)
+  - HTTP 200 + `errorMessage` für Plugin-Ergebnisse (Printix Capture Protokoll)
+
+### Docs — HMAC soft-verify Warnung verbessert
+- Explizitere Log-Meldung wenn Request ohne Signatur-Header durchgelassen wird
+- Hinweis auf zukünftiges `require_signature` Flag
+
+## 4.4.12 (2026-04-12) — Paperless Upload: Name→ID Auflösung
+
+### Fix — Tags, Correspondent, Document Type wurden als Namen statt IDs gesendet
+- Paperless-ngx API `/api/documents/post_document/` erwartet **IDs** (integers)
+- Plugin sendete bisher **Namen** (strings) → wurden silently ignoriert
+- Fix: Automatische Name→ID Auflösung via Paperless REST API
+  - Tags: `/api/tags/?name__iexact=...` — pro Tag einzeln aufgelöst
+  - Correspondent: `/api/correspondents/?name__iexact=...`
+  - Document Type: `/api/document_types/?name__iexact=...`
+- **Auto-Create**: Existiert ein Tag/Correspondent/DocType noch nicht, wird er automatisch angelegt
+- Upload-Log zeigt jetzt aufgelöste IDs: `tags=[1,3], corr=5, dtype=2`
+- `Accept: application/json` Header auch beim Upload-Request
+- Pattern aligned mit `mnimtz/Paperless-MCP` Client (`paperless_client.py`)
+
+## 4.4.11 (2026-04-12) — Paperless test_connection: HTTP 406 fix
+
+### Fix — Paperless test_connection HTTP 406
+- `/api/?format=json` root endpoint caused DRF to return 406 "Not Acceptable"
+- Fix: Use `/api/documents/?page_size=1` instead — lightweight, reliable, works behind reverse proxies
+- Also removed `?format=json` from `/api/ui_settings/` version check
+- `Accept: application/json` header is sufficient (no query param needed)
+- Bonus: Shows document count in success message ("Connection successful — 42 documents")
+- Pattern aligned with user's working Paperless-MCP client (`mnimtz/Paperless-MCP`)
+
 ## 4.4.10 (2026-04-12) — Paperless test_connection: Accept-Header
 
 ### Fix — Paperless test_connection gibt "HTML instead of JSON"

@@ -69,8 +69,13 @@ def verify_hmac(body_bytes: bytes, headers: dict, secret_key: str) -> bool:
                        sig_clean[:16], expected[:16])
         return False
 
-    # No signature header present but secret_key configured
-    logger.warning("No HMAC signature header found but secret_key is configured — allowing request")
-    # v4.4.1: Wenn Printix keine Signatur sendet, trotzdem durchlassen
-    # (Secret-Key-Prüfung war zu strikt wenn Printix den Header nicht sendet)
+    # No signature header present but secret_key configured.
+    # v4.4.1: Printix Capture Connector sendet nicht immer Signatur-Header.
+    # Deshalb: Request durchlassen, aber explizit warnen.
+    # Wenn alle Requests signiert sein SOLLEN, muss das im Capture-Profil
+    # über ein separates "require_signature" Flag erzwungen werden (TODO).
+    logger.warning(
+        "HMAC: secret_key is configured but request has NO signature header — "
+        "allowing request (Printix compatibility mode)"
+    )
     return True

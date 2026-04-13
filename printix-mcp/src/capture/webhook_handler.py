@@ -1,5 +1,5 @@
 """
-Capture Webhook Handler — Kanonische Verarbeitung (v4.4.9)
+Capture Webhook Handler — Kanonische Verarbeitung (v4.4.13)
 ==========================================================
 Einziger Ort für die Webhook-Logik. Wird aufgerufen von:
   - web/capture_routes.py (Web-UI Port 8080)
@@ -147,6 +147,10 @@ async def handle_webhook(
                     event_type, "ok" if ok else "error", msg or "")
 
     # ── 7. Printix-kompatible Antwort ────────────────────────────────────────
+    # Printix Capture Connector Protokoll:
+    #   HTTP 200 + errorMessage="" → Erfolg
+    #   HTTP 200 + errorMessage="..." → Plugin-Fehler (Printix zeigt Meldung)
+    # HTTP 4xx/5xx nur bei Infrastruktur-Fehlern (Profil/HMAC/JSON).
     if ok:
         return 200, {"errorMessage": ""}
     else:

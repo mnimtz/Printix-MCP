@@ -61,6 +61,47 @@ def _get_demo_rows(start_date, end_date) -> list[dict]:
         return []
 
 
+
+
+def _get_demo_scan_rows(start_date, end_date) -> list[dict]:
+    """Holt Demo-Scan-Jobs aus lokaler SQLite (v4.4.14)."""
+    try:
+        from .local_demo_db import query_demo_scan_jobs
+        tid = get_tenant_id()
+        if not tid:
+            return []
+        return query_demo_scan_jobs(tid, str(_fmt_date(start_date)), str(_fmt_date(end_date)))
+    except Exception as ex:
+        logger.debug("Demo scan merge fehlgeschlagen: %s", ex)
+        return []
+
+
+def _get_demo_copy_rows(start_date, end_date) -> list[dict]:
+    """Holt Demo-Copy-Jobs aus lokaler SQLite (v4.4.14)."""
+    try:
+        from .local_demo_db import query_demo_copy_jobs
+        tid = get_tenant_id()
+        if not tid:
+            return []
+        return query_demo_copy_jobs(tid, str(_fmt_date(start_date)), str(_fmt_date(end_date)))
+    except Exception as ex:
+        logger.debug("Demo copy merge fehlgeschlagen: %s", ex)
+        return []
+
+
+def _get_demo_job_rows(start_date, end_date) -> list[dict]:
+    """Holt Demo-Jobs aus lokaler SQLite (v4.4.14)."""
+    try:
+        from .local_demo_db import query_demo_jobs
+        tid = get_tenant_id()
+        if not tid:
+            return []
+        return query_demo_jobs(tid, str(_fmt_date(start_date)), str(_fmt_date(end_date)))
+    except Exception as ex:
+        logger.debug("Demo job merge fehlgeschlagen: %s", ex)
+        return []
+
+
 def _parse_demo_date(val) -> date:
     """Parst ein Datum aus SQLite-Ergebnis."""
     if isinstance(val, date):
@@ -859,7 +900,69 @@ def query_anomalies(
         ORDER BY ABS(d.daily_pages - s.avg_pages) DESC
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date))
-    return query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (anomalies), using demo-only: %s", e)
+        sql_results = []
+
+    # v4.4.14: Demo-Daten mergen — Anomalien muessen bei geaenderten Tageswerten
+    # komplett neu berechnet werden, daher recompute in Python
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            # Aggregate demo daily
+            daily_demo: dict[str, dict] = {}
+            for r in demo_rows:
+                d = str(_parse_demo_date(str(r.get("print_time", ""))))
+                if d not in daily_demo:
+                    daily_demo[d] = {"pages": 0, "job_ids": set()}
+                daily_demo[d]["pages"] += int(r.get("page_count") or 0)
+                daily_demo[d]["job_ids"].add(r.get("job_id", ""))
+
+            # Merge with SQL daily data (SQL results have anomaly-flagged rows only;
+            # we need ALL daily totals for proper stats, so rebuild from scratch)
+            # Since SQL only returns anomaly rows (not all days), we use demo-only
+            # approach if demo data exists: aggregate all days, compute z-scores
+            daily_all: dict[str, dict] = {}
+            # Sadly SQL anomalies CTE only returns anomaly rows. We need to re-aggregate
+            # from tracking_data. Use demo data directly for the full picture.
+            for d, v in daily_demo.items():
+                daily_all[d] = {"pages": v["pages"], "jobs": len(v["job_ids"])}
+
+            if daily_all:
+                pages_list = [v["pages"] for v in daily_all.values()]
+                n = len(pages_list)
+                if n > 1:
+                    avg_p = sum(pages_list) / n
+                    std_p = (sum((x - avg_p) ** 2 for x in pages_list) / (n - 1)) ** 0.5
+                    threshold = avg_p + threshold_multiplier * std_p
+                    low_threshold = max(0, avg_p - threshold_multiplier * std_p)
+
+                    demo_anomalies = []
+                    for day, v in sorted(daily_all.items()):
+                        z = round((v["pages"] - avg_p) / std_p, 2) if std_p else 0
+                        if v["pages"] > threshold:
+                            status = "ANOMALIE_HOCH"
+                        elif v["pages"] < low_threshold:
+                            status = "ANOMALIE_NIEDRIG"
+                        else:
+                            continue  # normal — skip
+                        demo_anomalies.append({
+                            "print_day": day, "daily_pages": v["pages"],
+                            "daily_jobs": v["jobs"],
+                            "avg_pages": round(avg_p), "std_pages": round(std_p),
+                            "threshold": round(threshold), "z_score": z,
+                            "status": status,
+                        })
+                    # Merge: add demo anomalies for days not already in SQL results
+                    existing_days = {str(r.get("print_day", ""))[:10] for r in sql_results}
+                    for da in demo_anomalies:
+                        if da["print_day"] not in existing_days:
+                            sql_results.append(da)
+                    sql_results.sort(key=lambda x: abs(x.get("daily_pages", 0) - x.get("avg_pages", 0)), reverse=True)
+
+    return sql_results
 
 
 # ─── 6. Trend-Vergleich ───────────────────────────────────────────────────────
@@ -906,8 +1009,55 @@ def query_trend(
     sql2, params2 = _period_sql(period2_start, period2_end)
 
     from .sql_client import query_fetchone
-    p1 = query_fetchone(sql1, params1) or {}
-    p2 = query_fetchone(sql2, params2) or {}
+    try:
+        p1 = query_fetchone(sql1, params1) or {}
+    except Exception as e:
+        logger.warning("SQL query failed (trend p1): %s", e)
+        p1 = {}
+    try:
+        p2 = query_fetchone(sql2, params2) or {}
+    except Exception as e:
+        logger.warning("SQL query failed (trend p2): %s", e)
+        p2 = {}
+
+    # v4.4.14: Demo-Daten mergen
+    def _merge_trend_period(sql_row, start, end):
+        if not _has_active_demo():
+            return sql_row
+        demo_rows = _get_demo_rows(start, end)
+        if not demo_rows:
+            return sql_row
+        job_ids = set()
+        user_ids = set()
+        printer_ids = set()
+        tp = cp = bp = dp = 0
+        tc = 0.0
+        for r in demo_rows:
+            job_ids.add(r.get("job_id", ""))
+            user_ids.add(r.get("user_email", ""))
+            printer_ids.add(r.get("printer_id", ""))
+            pc = int(r.get("page_count") or 0)
+            is_color = bool(int(r.get("color") or 0))
+            is_duplex = bool(int(r.get("duplex") or 0))
+            tp += pc
+            if is_color: cp += pc
+            else: bp += pc
+            if is_duplex: dp += pc
+            sheets = math.ceil(pc / 2) if is_duplex else pc
+            tc += sheets * cost_per_sheet + pc * (cost_per_color if is_color else cost_per_mono)
+        merged = dict(sql_row)
+        merged["total_jobs"] = (merged.get("total_jobs") or 0) + len(job_ids)
+        merged["total_pages"] = (merged.get("total_pages") or 0) + tp
+        merged["color_pages"] = (merged.get("color_pages") or 0) + cp
+        merged["bw_pages"] = (merged.get("bw_pages") or 0) + bp
+        merged["duplex_pages"] = (merged.get("duplex_pages") or 0) + dp
+        merged["active_users"] = (merged.get("active_users") or 0) + len(user_ids)
+        merged["active_printers"] = (merged.get("active_printers") or 0) + len(printer_ids)
+        merged["total_cost"] = round((merged.get("total_cost") or 0) + tc, 2)
+        return merged
+
+    p1 = _merge_trend_period(p1, period1_start, period1_end)
+    p2 = _merge_trend_period(p2, period2_start, period2_end)
 
     def _delta_pct(new_val, old_val):
         if not old_val:
@@ -989,7 +1139,50 @@ def query_printer_history(
         ORDER BY {group_expr}, total_pages DESC
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (printer_history), using demo-only: %s", e)
+        sql_results = []
+
+    # v4.4.14: Demo-Daten mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            filtered = demo_rows
+            if printer_id:
+                filtered = [r for r in filtered if r.get("printer_id") == printer_id]
+            if site_id:
+                filtered = [r for r in filtered if r.get("network_id") == site_id]
+            if filtered:
+                groups = defaultdict(list)
+                for r in filtered:
+                    d = _parse_demo_date(str(r.get("print_time", "")))
+                    pk = str(d) if group_by == "day" else str(_demo_week_start(d)) if group_by == "week" else str(_demo_month_start(d))
+                    pn = r.get("printer_name", "Unknown")
+                    groups[(pk, pn)].append(r)
+                for (period, pn), rows in groups.items():
+                    job_ids = set()
+                    tp = cp = bp = dp = 0
+                    model = site = ""
+                    for r in rows:
+                        job_ids.add(r.get("job_id", ""))
+                        pc = int(r.get("page_count") or 0)
+                        tp += pc
+                        if bool(int(r.get("color") or 0)): cp += pc
+                        else: bp += pc
+                        if bool(int(r.get("duplex") or 0)): dp += pc
+                        model = model or r.get("model_name", "")
+                        site = site or r.get("network_name", "")
+                    sql_results.append({
+                        "period": period, "printer_name": pn,
+                        "model_name": model, "site_name": site,
+                        "total_jobs": len(job_ids), "total_pages": tp,
+                        "color_pages": cp, "bw_pages": bp, "duplex_pages": dp,
+                        "duplex_pct": round(dp * 100.0 / tp, 1) if tp else 0,
+                    })
+
+    return sql_results
 
 
 # ─── 8. Gerätewerte / Device Overview ────────────────────────────────────────
@@ -1041,7 +1234,62 @@ def query_device_readings(
         ORDER BY ISNULL(SUM(td.page_count), 0) DESC
     """
     params = (_fmt_date(start_date), _fmt_date(end_date), tenant_id) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (device_readings), using demo-only: %s", e)
+        sql_results = []
+
+    # v4.4.14: Demo-Daten mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            filtered = demo_rows
+            if site_id:
+                filtered = [r for r in filtered if r.get("network_id") == site_id]
+            if filtered:
+                printers: dict[str, dict] = {}
+                for r in filtered:
+                    pid = r.get("printer_id") or "unknown"
+                    if pid not in printers:
+                        printers[pid] = {
+                            "printer_id": pid, "printer_name": r.get("printer_name", "Unknown"),
+                            "model_name": r.get("model_name", ""), "vendor_name": r.get("vendor_name", ""),
+                            "location": r.get("location", ""), "site_name": r.get("network_name", ""),
+                            "job_ids": set(), "total_pages": 0, "color_pages": 0, "bw_pages": 0,
+                            "last_activity": "", "active_days": set(),
+                        }
+                    p = printers[pid]
+                    p["job_ids"].add(r.get("job_id", ""))
+                    pc = int(r.get("page_count") or 0)
+                    p["total_pages"] += pc
+                    if bool(int(r.get("color") or 0)): p["color_pages"] += pc
+                    else: p["bw_pages"] += pc
+                    pt = str(r.get("print_time", ""))
+                    if pt > p["last_activity"]: p["last_activity"] = pt
+                    p["active_days"].add(pt[:10])
+
+                # Merge: add demo printers or augment existing
+                existing = {str(r.get("printer_id", "")): r for r in sql_results}
+                for pid, p in printers.items():
+                    if pid in existing:
+                        e = existing[pid]
+                        e["total_jobs"] = (e.get("total_jobs") or 0) + len(p["job_ids"])
+                        e["total_pages"] = (e.get("total_pages") or 0) + p["total_pages"]
+                        e["color_pages"] = (e.get("color_pages") or 0) + p["color_pages"]
+                        e["bw_pages"] = (e.get("bw_pages") or 0) + p["bw_pages"]
+                        e["active_days"] = (e.get("active_days") or 0) + len(p["active_days"])
+                    else:
+                        sql_results.append({
+                            "printer_id": pid, "printer_name": p["printer_name"],
+                            "model_name": p["model_name"], "vendor_name": p["vendor_name"],
+                            "location": p["location"], "site_name": p["site_name"],
+                            "total_jobs": len(p["job_ids"]), "total_pages": p["total_pages"],
+                            "color_pages": p["color_pages"], "bw_pages": p["bw_pages"],
+                            "last_activity": p["last_activity"], "active_days": len(p["active_days"]),
+                        })
+
+    return sql_results
 
 
 # ─── 9. Job-Verlauf (paginiert) ───────────────────────────────────────────────
@@ -1110,7 +1358,46 @@ def query_job_history(
         OFFSET {offset} ROWS FETCH NEXT {fetch} ROWS ONLY
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (job_history), using demo-only: %s", e)
+        sql_results = []
+
+    # v4.4.14: Demo-Daten mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            filtered = demo_rows
+            if site_id:
+                filtered = [r for r in filtered if r.get("network_id") == site_id]
+            if user_email:
+                filtered = [r for r in filtered if r.get("user_email") == user_email]
+            if printer_id:
+                filtered = [r for r in filtered if r.get("printer_id") == printer_id]
+            if status_filter == "ok":
+                filtered = [r for r in filtered if r.get("print_job_status") == "PRINT_OK"]
+            elif status_filter == "failed":
+                filtered = [r for r in filtered if r.get("print_job_status") != "PRINT_OK"]
+            for r in filtered:
+                sql_results.append({
+                    "job_id": r.get("job_id", ""),
+                    "print_time": r.get("print_time", ""),
+                    "status": r.get("print_job_status", "PRINT_OK"),
+                    "user_email": r.get("user_email", ""),
+                    "user_name": r.get("user_name", ""),
+                    "printer_name": r.get("printer_name", ""),
+                    "site_name": r.get("network_name", ""),
+                    "page_count": int(r.get("page_count") or 0),
+                    "color": int(r.get("color") or 0),
+                    "duplex": int(r.get("duplex") or 0),
+                    "paper_size": r.get("paper_size", "A4"),
+                })
+            # Re-sort and paginate
+            sql_results.sort(key=lambda x: x.get("print_time", ""), reverse=True)
+            sql_results = sql_results[offset:offset + fetch]
+
+    return sql_results
 
 
 # ─── 10. Queue-Statistik ──────────────────────────────────────────────────────
@@ -1153,7 +1440,44 @@ def query_queue_stats(
         ORDER BY total_pages DESC
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (queue_stats), using demo-only: %s", e)
+        sql_results = []
+
+    # v4.4.14: Demo-Daten mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            filtered = demo_rows
+            if site_id:
+                filtered = [r for r in filtered if r.get("network_id") == site_id]
+            if filtered:
+                combos: dict[tuple, dict] = {}
+                for r in filtered:
+                    ps = r.get("paper_size", "A4") or "UNKNOWN"
+                    c = int(r.get("color") or 0)
+                    d = int(r.get("duplex") or 0)
+                    key = (ps, c, d)
+                    if key not in combos:
+                        combos[key] = {"paper_size": ps, "color": c, "duplex": d,
+                                       "job_ids": set(), "total_pages": 0}
+                    combos[key]["job_ids"].add(r.get("job_id", ""))
+                    combos[key]["total_pages"] += int(r.get("page_count") or 0)
+                for combo in combos.values():
+                    sql_results.append({
+                        "paper_size": combo["paper_size"], "color": combo["color"],
+                        "duplex": combo["duplex"], "total_jobs": len(combo["job_ids"]),
+                        "total_pages": combo["total_pages"], "pct_of_total": 0,
+                    })
+                # Recalculate pct_of_total
+                grand = sum(r.get("total_pages", 0) for r in sql_results)
+                if grand:
+                    for r in sql_results:
+                        r["pct_of_total"] = round(r.get("total_pages", 0) * 100.0 / grand, 1)
+
+    return sql_results
 
 
 # ─── 11. User-Detail ──────────────────────────────────────────────────────────
@@ -1207,7 +1531,47 @@ def query_user_detail(
         ORDER BY {group_expr}
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date), user_email)
-    return query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (user_detail), using demo-only: %s", e)
+        sql_results = []
+
+    # v4.4.14: Demo-Daten mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            filtered = [r for r in demo_rows if r.get("user_email") == user_email]
+            if filtered:
+                groups: dict[str, list[dict]] = defaultdict(list)
+                for r in filtered:
+                    d = _parse_demo_date(str(r.get("print_time", "")))
+                    pk = str(d) if group_by == "day" else str(_demo_week_start(d)) if group_by == "week" else str(_demo_month_start(d))
+                    groups[pk].append(r)
+                demo_agg = []
+                for period, rows in groups.items():
+                    job_ids = set()
+                    tp = cp = bp = dp = 0
+                    name = dept = ""
+                    for r in rows:
+                        job_ids.add(r.get("job_id", ""))
+                        pc = int(r.get("page_count") or 0)
+                        tp += pc
+                        if bool(int(r.get("color") or 0)): cp += pc
+                        else: bp += pc
+                        if bool(int(r.get("duplex") or 0)): dp += pc
+                        name = name or r.get("user_name", "")
+                        dept = dept or r.get("department", "")
+                    demo_agg.append({
+                        "period": period, "email": user_email, "name": name,
+                        "department": dept, "print_jobs": len(job_ids),
+                        "print_pages": tp, "color_pages": cp, "bw_pages": bp,
+                        "duplex_pages": dp,
+                        "color_pct": round(cp * 100.0 / tp, 1) if tp else 0,
+                    })
+                sql_results = _merge_aggregated(sql_results, demo_agg, "period")
+
+    return sql_results
 
 
 # ─── 12. Kopier-Jobs pro User ─────────────────────────────────────────────────
@@ -1270,7 +1634,51 @@ def query_user_copy_detail(
         ORDER BY {group_expr}, total_pages DESC
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (user_copy_detail), using demo-only: %s", e)
+        sql_results = []
+
+    # v4.4.14: Demo-Copy-Daten mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_copy_rows(start_date, end_date)
+        if demo_rows:
+            filtered = demo_rows
+            if user_email:
+                filtered = [r for r in filtered if r.get("user_email") == user_email]
+            if site_id:
+                filtered = [r for r in filtered if r.get("network_id") == site_id]
+            if filtered:
+                groups: dict[tuple, list[dict]] = defaultdict(list)
+                for r in filtered:
+                    ct = str(r.get("copy_time", ""))
+                    d = _parse_demo_date(ct)
+                    pk = str(d) if group_by == "day" else str(_demo_week_start(d)) if group_by == "week" else str(_demo_month_start(d))
+                    ue = r.get("user_email", "")
+                    pn = r.get("printer_name", "")
+                    groups[(pk, ue, pn)].append(r)
+                for (period, ue, pn), rows in groups.items():
+                    job_ids = set()
+                    tp = cp = bp = dp = 0
+                    name = site = ""
+                    for r in rows:
+                        job_ids.add(r.get("id", ""))
+                        pc = int(r.get("page_count") or 0)
+                        tp += pc
+                        if bool(int(r.get("color") or 0)): cp += pc
+                        else: bp += pc
+                        if bool(int(r.get("duplex") or 0)): dp += pc
+                        name = name or r.get("user_name", "")
+                        site = site or r.get("network_name", "")
+                    sql_results.append({
+                        "period": period, "email": ue, "name": name,
+                        "printer_name": pn, "site_name": site,
+                        "total_copy_jobs": len(job_ids), "total_pages": tp,
+                        "color_pages": cp, "bw_pages": bp, "duplex_pages": dp,
+                    })
+
+    return sql_results
 
 
 # ─── 13. Scan-Jobs pro User ───────────────────────────────────────────────────
@@ -1331,7 +1739,50 @@ def query_user_scan_detail(
         ORDER BY {group_expr}, total_pages DESC
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (user_scan_detail), using demo-only: %s", e)
+        sql_results = []
+
+    # v4.4.14: Demo-Scan-Daten mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_scan_rows(start_date, end_date)
+        if demo_rows:
+            filtered = demo_rows
+            if user_email:
+                filtered = [r for r in filtered if r.get("user_email") == user_email]
+            if site_id:
+                filtered = [r for r in filtered if r.get("network_id") == site_id]
+            if filtered:
+                groups: dict[tuple, list[dict]] = defaultdict(list)
+                for r in filtered:
+                    st = str(r.get("scan_time", ""))
+                    d = _parse_demo_date(st)
+                    pk = str(d) if group_by == "day" else str(_demo_week_start(d)) if group_by == "week" else str(_demo_month_start(d))
+                    ue = r.get("user_email", "")
+                    pn = r.get("printer_name", "")
+                    groups[(pk, ue, pn)].append(r)
+                for (period, ue, pn), rows in groups.items():
+                    job_ids = set()
+                    tp = cp = bp = 0
+                    name = site = ""
+                    for r in rows:
+                        job_ids.add(r.get("id", ""))
+                        pc = int(r.get("page_count") or 0)
+                        tp += pc
+                        if bool(int(r.get("color") or 0)): cp += pc
+                        else: bp += pc
+                        name = name or r.get("user_name", "")
+                        site = site or r.get("network_name", "")
+                    sql_results.append({
+                        "period": period, "email": ue, "name": name,
+                        "printer_name": pn, "site_name": site,
+                        "total_scan_jobs": len(job_ids), "total_pages": tp,
+                        "color_pages": cp, "bw_pages": bp,
+                    })
+
+    return sql_results
 
 
 # ─── 14. Workstation-Übersicht ────────────────────────────────────────────────
@@ -1497,22 +1948,51 @@ def query_tree_meter(
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
 
     from .sql_client import query_fetchone
-    row = query_fetchone(sql, params) or {}
+    try:
+        row = query_fetchone(sql, params) or {}
+    except Exception as e:
+        logger.warning("SQL query failed (tree_meter), using demo-only: %s", e)
+        row = {}
 
-    saved = int(row.get("saved_sheets_duplex") or 0)
+    total_pages = int(row.get("total_pages") or 0)
     total_sheets = int(row.get("total_sheets_used") or 0)
+    saved = int(row.get("saved_sheets_duplex") or 0)
+    duplex_pages = int(row.get("duplex_pages") or 0)
+    simplex_pages = int(row.get("simplex_pages") or 0)
+
+    # v4.4.14: Demo-Daten mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            filtered = demo_rows
+            if site_id:
+                filtered = [r for r in filtered if r.get("network_id") == site_id]
+            for r in filtered:
+                pc = int(r.get("page_count") or 0)
+                is_duplex = bool(int(r.get("duplex") or 0))
+                total_pages += pc
+                if is_duplex:
+                    sheets = math.ceil(pc / 2)
+                    total_sheets += sheets
+                    saved += pc - sheets
+                    duplex_pages += pc
+                else:
+                    total_sheets += pc
+                    simplex_pages += pc
+
     trees = round(saved / sheets_per_tree, 4) if sheets_per_tree else 0
+    duplex_pct = round(duplex_pages * 100.0 / total_pages, 1) if total_pages else 0
 
     return {
         "start_date":           start_date,
         "end_date":             end_date,
-        "total_pages":          int(row.get("total_pages") or 0),
+        "total_pages":          total_pages,
         "total_sheets_used":    total_sheets,
         "saved_sheets_duplex":  saved,
         "trees_saved":          trees,
-        "duplex_pages":         int(row.get("duplex_pages") or 0),
-        "simplex_pages":        int(row.get("simplex_pages") or 0),
-        "duplex_pct":           float(row.get("duplex_pct") or 0),
+        "duplex_pages":         duplex_pages,
+        "simplex_pages":        simplex_pages,
+        "duplex_pct":           duplex_pct,
         "sheets_per_tree":      sheets_per_tree,
     }
 
@@ -1578,7 +2058,52 @@ def query_service_desk(
         ORDER BY total_jobs DESC
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (service_desk), using demo-only: %s", e)
+        sql_results = []
+
+    # v4.4.14: Demo-Daten mergen (nur Jobs mit Status != PRINT_OK)
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            failed = [r for r in demo_rows if r.get("print_job_status") != "PRINT_OK"]
+            if site_id:
+                failed = [r for r in failed if r.get("network_id") == site_id]
+            if user_email:
+                failed = [r for r in failed if r.get("user_email") == user_email]
+            if failed:
+                groups: dict[tuple, list[dict]] = defaultdict(list)
+                for r in failed:
+                    status = r.get("print_job_status", "UNKNOWN")
+                    if group_by == "status":
+                        gk = status
+                    elif group_by == "day":
+                        gk = str(_parse_demo_date(str(r.get("print_time", ""))))
+                    elif group_by == "printer":
+                        gk = r.get("printer_name", "Unknown")
+                    elif group_by == "user":
+                        gk = r.get("user_email", "Unknown")
+                    else:
+                        gk = status
+                    groups[(gk, status)].append(r)
+                for (gk, status), rows in groups.items():
+                    job_ids = set()
+                    tp = 0
+                    last = ""
+                    for r in rows:
+                        job_ids.add(r.get("job_id", ""))
+                        tp += int(r.get("page_count") or 0)
+                        pt = str(r.get("print_time", ""))
+                        if pt > last: last = pt
+                    sql_results.append({
+                        "group_key": gk, "print_job_status": status,
+                        "total_jobs": len(job_ids), "total_pages": tp,
+                        "last_occurrence": last,
+                    })
+
+    return sql_results
 
 
 # ─── Universeller Dispatcher (v3.7.0) ────────────────────────────────────────
@@ -1878,7 +2403,77 @@ def query_sensitive_documents(
     # wir liefern die letzten `fetch` ab offset).
     if offset > 0:
         rows = rows[offset:]
-    return rows[:fetch]
+    sql_results = rows[:fetch]
+
+    # v4.4.14: Demo-Daten mergen (Print + Scan Jobs mit filename-Keyword-Match)
+    if _has_active_demo():
+        lowered = [(t.lower(), t) for t in terms]
+        # Demo print jobs
+        demo_jobs = _get_demo_job_rows(start_date, end_date)
+        for r in demo_jobs:
+            fn = r.get("filename", "") or ""
+            if not fn:
+                continue
+            fn_lower = fn.lower()
+            matched = ""
+            for low, orig in lowered:
+                if low in fn_lower:
+                    matched = orig
+                    break
+            if not matched:
+                continue
+            if site_id and r.get("network_id") != site_id:
+                continue
+            if user_email and r.get("user_email") != user_email:
+                continue
+            sql_results.append({
+                "document_type": "print",
+                "event_time": r.get("submit_time", ""),
+                "user_email": r.get("user_email", ""),
+                "user_name": r.get("user_name", ""),
+                "printer_name": r.get("printer_name", ""),
+                "site_name": r.get("network_name", ""),
+                "filename": fn,
+                "page_count": int(r.get("page_count") or 0),
+                "color": int(r.get("color") or 0),
+                "matched_keyword": matched,
+            })
+        # Demo scan jobs
+        if include_scans:
+            demo_scans = _get_demo_scan_rows(start_date, end_date)
+            for r in demo_scans:
+                fn = r.get("filename", "") or ""
+                if not fn:
+                    continue
+                fn_lower = fn.lower()
+                matched = ""
+                for low, orig in lowered:
+                    if low in fn_lower:
+                        matched = orig
+                        break
+                if not matched:
+                    continue
+                if site_id and r.get("network_id") != site_id:
+                    continue
+                if user_email and r.get("user_email") != user_email:
+                    continue
+                sql_results.append({
+                    "document_type": "scan",
+                    "event_time": r.get("scan_time", ""),
+                    "user_email": r.get("user_email", ""),
+                    "user_name": r.get("user_name", ""),
+                    "printer_name": r.get("printer_name", ""),
+                    "site_name": r.get("network_name", ""),
+                    "filename": fn,
+                    "page_count": int(r.get("page_count") or 0),
+                    "color": int(r.get("color") or 0),
+                    "matched_keyword": matched,
+                })
+        # Re-sort and re-paginate
+        sql_results.sort(key=lambda x: x.get("event_time", ""), reverse=True)
+        sql_results = sql_results[:fetch]
+
+    return sql_results
 
 
 # ─── 19. Stunde × Wochentag Heatmap (v3.8.1) ──────────────────────────────────
@@ -1937,7 +2532,57 @@ def query_hour_dow_heatmap(
         ORDER BY dow, hour
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
-    return query_fetchall(sql, params)
+    try:
+        sql_results = query_fetchall(sql, params)
+    except Exception as e:
+        logger.warning("SQL query failed (hour_dow_heatmap), using demo-only: %s", e)
+        sql_results = []
+
+    # v4.4.14: Demo-Daten mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_rows(start_date, end_date)
+        if demo_rows:
+            filtered = demo_rows
+            if site_id:
+                filtered = [r for r in filtered if r.get("network_id") == site_id]
+            if user_email:
+                filtered = [r for r in filtered if r.get("user_email") == user_email]
+            if printer_id:
+                filtered = [r for r in filtered if r.get("printer_id") == printer_id]
+            if filtered:
+                heatmap: dict[tuple, dict] = {}
+                for r in filtered:
+                    pt = str(r.get("print_time", ""))
+                    try:
+                        dt = datetime.strptime(pt[:19], "%Y-%m-%d %H:%M:%S") if len(pt) >= 19 else datetime.strptime(pt[:10], "%Y-%m-%d")
+                    except ValueError:
+                        continue
+                    hour = dt.hour
+                    # SQL Server DATEFIRST 7: 1=Sun..7=Sat; Python weekday(): 0=Mon..6=Sun
+                    dow = (dt.weekday() + 2) % 7  # Convert: Mon=2,Tue=3,...,Sat=7,Sun=1
+                    if dow == 0:
+                        dow = 7
+                    key = (hour, dow)
+                    if key not in heatmap:
+                        heatmap[key] = {"hour": hour, "dow": dow, "job_ids": set(), "total_pages": 0}
+                    heatmap[key]["job_ids"].add(r.get("job_id", ""))
+                    heatmap[key]["total_pages"] += int(r.get("page_count") or 0)
+
+                # Merge with SQL
+                existing = {(r.get("hour"), r.get("dow")): r for r in sql_results}
+                for key, v in heatmap.items():
+                    if key in existing:
+                        e = existing[key]
+                        e["total_jobs"] = (e.get("total_jobs") or 0) + len(v["job_ids"])
+                        e["total_pages"] = (e.get("total_pages") or 0) + v["total_pages"]
+                    else:
+                        sql_results.append({
+                            "hour": key[0], "dow": key[1],
+                            "total_jobs": len(v["job_ids"]),
+                            "total_pages": v["total_pages"],
+                        })
+
+    return sql_results
 
 
 # ─── v3.9.0: Admin-Audit-Trail (SQLite, kein MSSQL) ──────────────────────────
@@ -2045,9 +2690,62 @@ def query_off_hours_print(
     """
     params = (tenant_id, _fmt_date(start_date), _fmt_date(end_date)) + tuple(params_extra)
     try:
-        return query_fetchall(sql, params)
+        sql_results = query_fetchall(sql, params)
     except Exception as exc:
-        return [{"error": str(exc)[:200]}]
+        logger.warning("SQL query failed (off_hours_print): %s", exc)
+        sql_results = []
+
+    # v4.4.14: Demo-Daten mergen
+    if _has_active_demo():
+        demo_rows = _get_demo_job_rows(start_date, end_date)
+        if demo_rows:
+            filtered = demo_rows
+            if site_id:
+                filtered = [r for r in filtered if r.get("network_id") == site_id]
+            if user_email:
+                filtered = [r for r in filtered if r.get("user_email") == user_email]
+            if filtered:
+                daily: dict[str, dict] = {}
+                for r in filtered:
+                    st = str(r.get("submit_time", ""))
+                    d = str(_parse_demo_date(st))
+                    try:
+                        dt = datetime.strptime(st[:19], "%Y-%m-%d %H:%M:%S") if len(st) >= 19 else datetime.strptime(st[:10], "%Y-%m-%d")
+                    except ValueError:
+                        continue
+                    hour = dt.hour
+                    wd = dt.weekday()  # 0=Mon..6=Sun
+                    is_weekend = wd >= 5  # Sat/Sun
+                    is_off = hour < business_start_hour or hour >= business_end_hour
+                    if include_weekends_as_off_hours and is_weekend:
+                        is_off = True
+
+                    if d not in daily:
+                        daily[d] = {"off": 0, "in": 0, "total": 0}
+                    daily[d]["total"] += 1
+                    if is_off:
+                        daily[d]["off"] += 1
+                    else:
+                        daily[d]["in"] += 1
+
+                # Merge with SQL results
+                existing = {str(r.get("day", ""))[:10]: r for r in sql_results}
+                for d, v in daily.items():
+                    if d in existing:
+                        e = existing[d]
+                        e["off_hours_jobs"] = (e.get("off_hours_jobs") or 0) + v["off"]
+                        e["in_hours_jobs"] = (e.get("in_hours_jobs") or 0) + v["in"]
+                        e["total_jobs"] = (e.get("total_jobs") or 0) + v["total"]
+                    else:
+                        sql_results.append({
+                            "day": d,
+                            "off_hours_jobs": v["off"],
+                            "in_hours_jobs": v["in"],
+                            "total_jobs": v["total"],
+                        })
+                sql_results.sort(key=lambda x: str(x.get("day", "")))
+
+    return sql_results
 
 
 def _filter_kwargs_to_sig(fn, kwargs: dict) -> dict:
