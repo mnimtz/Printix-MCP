@@ -24,13 +24,10 @@
                value="{{ tenant.printix_tenant_id if tenant else '' }}" required>
       </div>
       <div class="form-group">
-        <label>Tenant URL <span style="color:#ef4444;">*</span></label>
+        <label>Tenant URL</label>
         <input type="url" name="tenant_url"
                value="{{ tenant.tenant_url if tenant else '' }}" required
                placeholder="https://firmenname.printix.net">
-        <div style="font-size:.76em;color:#9ca3af;margin-top:3px;">
-          Ihre Printix-Portal-URL, z.B. https://&lt;name&gt;.printix.net
-        </div>
       </div>
 
       <div class="divider"></div>
