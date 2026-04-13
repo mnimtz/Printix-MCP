@@ -1,0 +1,378 @@
+{% extends "base.html" %}
+{% block title %}{{ _('tenant_tab_users') }} — Printix MCP{% endblock %}
+{% block extra_head %}
+<style>
+  .tenant-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid #e5e7eb; padding-bottom:0; }
+  .tenant-tab {
+    padding:8px 18px; font-size:.9em; font-weight:600; text-decoration:none;
+    color:#6b7280; border-radius:6px 6px 0 0; border:1px solid transparent;
+    border-bottom:none; margin-bottom:-2px;
+  }
+  .tenant-tab.active { background:#fff; border-color:#e5e7eb; border-bottom-color:#fff; color:#1e3a5f; }
+  .tenant-tab:hover:not(.active) { color:#374151; background:#f8fafc; }
+  .info-grid { display:grid; grid-template-columns:160px 1fr; gap:6px 16px; font-size:.9em; margin-bottom:20px; }
+  .info-label { color:#6b7280; font-weight:600; }
+  .role-badge {
+    display:inline-block; font-size:.78em; padding:2px 10px; border-radius:10px;
+    background:#fef3c7; color:#92400e; font-weight:700;
+  }
+  .role-badge.guest { background:#ede9fe; color:#5b21b6; }
+  .card-row { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; background:#f8fafc; margin-bottom:6px; }
+  .card-id { font-family:monospace; font-size:.85em; color:#374151; flex:1; word-break:break-all; }
+  .btn-danger-sm { background:#ef4444; color:#fff; border:none; border-radius:6px; padding:4px 12px; font-size:.8em; cursor:pointer; }
+  .btn-danger-sm:hover { background:#dc2626; }
+  .flash-ok  { background:#d1fae5; color:#065f46; border:1px solid #6ee7b7; padding:10px 16px; border-radius:8px; margin-bottom:16px; }
+  .flash-err { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; padding:10px 16px; border-radius:8px; margin-bottom:16px; }
+  .divider { border:none; border-top:1px solid #e5e7eb; margin:20px 0; }
+  .action-box { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:12px; }
+  .action-box h4 { margin:0 0 10px; font-size:.9em; color:#374151; }
+  .avatar-lg {
+    width:56px; height:56px; border-radius:50%; background:#dbeafe; color:#1d4ed8;
+    font-weight:700; font-size:1.4em; display:inline-flex; align-items:center;
+    justify-content:center; text-transform:uppercase; flex-shrink:0;
+  }
+  .transform-grid {
+    display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-top:12px;
+  }
+  .transform-field label { display:block; font-size:.8em; font-weight:700; color:#4b5563; margin-bottom:6px; }
+  .transform-field input, .transform-field select, .transform-field textarea {
+    width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:.9em; background:#fff;
+  }
+  .transform-field textarea { min-height:88px; resize:vertical; }
+  .preview-table { width:100%; border-collapse:collapse; margin-top:14px; font-size:.88em; }
+  .preview-table th, .preview-table td { border-top:1px solid #e5e7eb; padding:8px 10px; vertical-align:top; }
+  .preview-table th { text-align:left; color:#6b7280; width:200px; }
+  .preview-value { font-family:monospace; word-break:break-all; color:#111827; }
+  .hint-box { background:#eff6ff; color:#1e3a8a; border:1px solid #bfdbfe; border-radius:8px; padding:10px 12px; font-size:.84em; margin-top:10px; }
+  .checkbox-row { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:.88em; color:#374151; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container" style="max-width:900px;">
+  <div class="card">
+    <h2 class="section-title" style="margin-bottom:16px;">🖨️ {{ _('nav_tenant') }}</h2>
+
+    <div class="tenant-tabs">
+      <a href="/tenant/printers" class="tenant-tab">🖨️ {{ _('tenant_tab_printers') }}</a>
+      <a href="/tenant/queues"   class="tenant-tab">📋 {{ _('tenant_tab_queues') }}</a>
+      <a href="/tenant/users"    class="tenant-tab active">👤 {{ _('tenant_tab_users') }}</a>
+    </div>
+
+    {% if flash == "card_added" %}
+    <div class="flash-ok">✅ {{ _('user_card_added_ok') }}</div>
+    {% elif flash == "card_deleted" %}
+    <div class="flash-ok">✅ {{ _('user_card_deleted_ok') }}</div>
+    {% elif flash == "code_generated" %}
+    <div class="flash-ok">🔑 {{ _('user_code_generated') }}: <strong>{{ request.query_params.get('idcode', '?') }}</strong></div>
+    {% elif flash == "created" %}
+    <div class="flash-ok">✅ {{ _('user_card_added_ok') }}</div>
+    {% elif flash == "error" %}
+    <div class="flash-err">❌ {{ request.query_params.get('errmsg', 'Error') }}</div>
+    {% endif %}
+
+    {% if error == "no_card_creds" %}
+    <div class="alert alert-warning">⚠️ {{ _('tenant_no_card_creds') }}</div>
+    {% elif error %}
+    <div class="alert alert-error">❌ {{ error }}</div>
+    {% elif px_user %}
+
+    {% set display = px_user.get('name') or px_user.get('displayName') or px_user.get('fullName') or '?' %}
+    {% set roles_list = px_user.get('roles') or [] %}
+    {% set role = roles_list[0] if roles_list else px_user.get('role', 'USER') %}
+    {% set is_guest = role == 'GUEST_USER' %}
+
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+      <div class="avatar-lg">{{ display[:1] }}</div>
+      <div>
+        <div style="font-size:1.15em;font-weight:700;color:#1e3a5f;">{{ display }}</div>
+        <div style="color:#6b7280;font-size:.88em;">{{ px_user.get('email', '–') }}</div>
+        <span class="role-badge {% if is_guest %}guest{% endif %}">
+          {{ role | replace('_', ' ') }}
+        </span>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <span class="info-label">ID:</span>
+      <span style="font-family:monospace;font-size:.82em;color:#6b7280;">{{ printix_user_id }}</span>
+      {% if px_user.get('idCode') %}
+      <span class="info-label">ID-Code:</span>
+      <span style="font-family:monospace;">{{ px_user.get('idCode') }}</span>
+      {% endif %}
+      {% if px_user.get('expirationTimestamp') %}
+      <span class="info-label">Expires:</span>
+      <span>{{ px_user.get('expirationTimestamp') }}</span>
+      {% endif %}
+    </div>
+
+    <hr class="divider">
+
+    <h3 style="font-size:1em;font-weight:700;margin-bottom:12px;">🃏 {{ _('user_detail_cards') }} ({{ cards|length }})</h3>
+
+    {% for c in cards %}
+    {% set cid = c.get('card_id') or c.get('id', '') %}
+    <div class="card-row">
+      <span style="font-size:1.2em;">🃏</span>
+      <span class="card-id">{{ cid }}</span>
+      <form method="post" action="/tenant/users/{{ printix_user_id }}/delete-card"
+            onsubmit="return confirm('{{ _('user_confirm_del_card') }}')">
+        <input type="hidden" name="card_id" value="{{ cid }}">
+        <button type="submit" class="btn-danger-sm">🗑</button>
+      </form>
+    </div>
+    {% else %}
+    <p style="color:#9ca3af;font-size:.88em;font-style:italic;">No cards registered.</p>
+    {% endfor %}
+
+    <div class="action-box" style="margin-top:14px;">
+      <h4>➕ {{ _('user_detail_add_card') }}</h4>
+      <form id="card-transform-form" method="post" action="/tenant/users/{{ printix_user_id }}/add-card">
+        <input type="hidden" name="card_number" id="card_number_submit" value="">
+
+        <div class="transform-grid">
+          <div class="transform-field" style="grid-column:1 / -1;">
+            <label for="card_raw_input">Raw card value</label>
+            <textarea id="card_raw_input" placeholder="Paste the value exactly as it comes from the card reader."></textarea>
+            <div class="checkbox-row">
+              <input type="checkbox" id="strip_separators" checked>
+              <label for="strip_separators" style="margin:0; font-weight:400;">Remove spaces, colons and dashes for HEX-style input</label>
+            </div>
+          </div>
+
+          <div class="transform-field">
+            <label for="card_input_mode">Input interpretation</label>
+            <select id="card_input_mode">
+              <option value="auto">Auto detect</option>
+              <option value="text">Plain text</option>
+              <option value="hex">Hex bytes</option>
+              <option value="decimal">Decimal number</option>
+            </select>
+          </div>
+
+          <div class="transform-field">
+            <label for="card_submit_mode">Value sent to Printix</label>
+            <select id="card_submit_mode">
+              <option value="raw">Raw input</option>
+              <option value="normalized">Normalized input</option>
+              <option value="hex">HEX</option>
+              <option value="hex_reversed">HEX reversed bytes</option>
+              <option value="decimal">Decimal</option>
+              <option value="decimal_reversed">Decimal reversed bytes</option>
+              <option value="base64_text">Base64 of text</option>
+            </select>
+          </div>
+
+          <div class="transform-field">
+            <label for="card_byte_order">Byte order preview</label>
+            <select id="card_byte_order">
+              <option value="keep">Keep byte order</option>
+              <option value="reverse">Reverse byte order</option>
+            </select>
+          </div>
+        </div>
+
+        <table class="preview-table">
+          <tbody>
+            <tr><th>Normalized</th><td class="preview-value" id="preview_normalized">—</td></tr>
+            <tr><th>HEX bytes</th><td class="preview-value" id="preview_hex">—</td></tr>
+            <tr><th>HEX reversed bytes</th><td class="preview-value" id="preview_hex_reversed">—</td></tr>
+            <tr><th>Decimal</th><td class="preview-value" id="preview_decimal">—</td></tr>
+            <tr><th>Decimal reversed bytes</th><td class="preview-value" id="preview_decimal_reversed">—</td></tr>
+            <tr><th>Base64(text)</th><td class="preview-value" id="preview_b64">—</td></tr>
+            <tr><th>Final submit value</th><td class="preview-value" id="preview_submit">—</td></tr>
+          </tbody>
+        </table>
+
+        <div class="hint-box">
+          This is a first-step transformer for reader values. It helps compare raw text, HEX, reversed-byte HEX, decimal and text-base64 before saving. The selected final value is still sent through the existing backend workflow.
+        </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+          <button type="button" class="btn btn-secondary" id="card_use_preview_btn">Use final preview</button>
+          <button type="submit" class="btn btn-primary">➕ {{ _('user_detail_add_card') }}</button>
+        </div>
+      </form>
+    </div>
+
+    <hr class="divider">
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      {% if is_guest %}
+      <form method="post" action="/tenant/users/{{ printix_user_id }}/generate-id-code">
+        <button type="submit" class="btn btn-secondary">🔑 {{ _('user_detail_gen_code') }}</button>
+      </form>
+
+      <form method="post" action="/tenant/users/{{ printix_user_id }}/delete"
+            onsubmit="return confirm('{{ _('user_confirm_del_user') }}')">
+        <button type="submit" class="btn" style="background:#ef4444;color:#fff;border:none;">
+          🗑 {{ _('user_detail_delete_user') }}
+        </button>
+      </form>
+      {% else %}
+      <span style="font-size:.82em;color:#9ca3af;">
+        ℹ️ Regular users (USER) are managed via directory services and cannot be deleted here.
+      </span>
+      {% endif %}
+    </div>
+
+    {% else %}
+    <div class="alert alert-info">User not found.</div>
+    {% endif %}
+
+    <div style="margin-top:24px;">
+      <a href="/tenant/users" class="btn btn-secondary">← {{ _('user_detail_back') }}</a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const rawEl = document.getElementById('card_raw_input');
+  if (!rawEl) return;
+
+  const inputModeEl = document.getElementById('card_input_mode');
+  const submitModeEl = document.getElementById('card_submit_mode');
+  const byteOrderEl = document.getElementById('card_byte_order');
+  const stripEl = document.getElementById('strip_separators');
+  const submitHiddenEl = document.getElementById('card_number_submit');
+
+  const out = {
+    normalized: document.getElementById('preview_normalized'),
+    hex: document.getElementById('preview_hex'),
+    hexRev: document.getElementById('preview_hex_reversed'),
+    dec: document.getElementById('preview_decimal'),
+    decRev: document.getElementById('preview_decimal_reversed'),
+    b64: document.getElementById('preview_b64'),
+    submit: document.getElementById('preview_submit')
+  };
+
+  function encBase64(str) {
+    try {
+      return btoa(unescape(encodeURIComponent(str)));
+    } catch (e) {
+      return '—';
+    }
+  }
+
+  function isHexString(value) {
+    return !!value && /^[0-9a-fA-F]+$/.test(value) && value.length % 2 === 0;
+  }
+
+  function reverseHexBytes(hex) {
+    if (!isHexString(hex)) return '';
+    return (hex.match(/../g) || []).reverse().join('');
+  }
+
+  function hexToDecimalString(hex) {
+    if (!isHexString(hex)) return '';
+    try {
+      return BigInt('0x' + hex).toString(10);
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function decimalToHexString(dec) {
+    if (!/^\d+$/.test(dec || '')) return '';
+    try {
+      let hex = BigInt(dec).toString(16);
+      if (hex.length % 2 !== 0) hex = '0' + hex;
+      return hex.toUpperCase();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function normalizeRaw(raw) {
+    let value = (raw || '').trim();
+    if (!value) return '';
+    if (stripEl.checked) value = value.replace(/[\s:\-]/g, '');
+    return value;
+  }
+
+  function detectMode(normalized, rawMode) {
+    if (rawMode !== 'auto') return rawMode;
+    if (/^\d+$/.test(normalized)) return 'decimal';
+    if (isHexString(normalized)) return 'hex';
+    return 'text';
+  }
+
+  function compute() {
+    const raw = rawEl.value || '';
+    const normalized = normalizeRaw(raw);
+    const mode = detectMode(normalized, inputModeEl.value);
+
+    let hex = '';
+    let dec = '';
+    let b64 = '';
+
+    if (mode === 'hex') {
+      hex = normalized.toUpperCase();
+      dec = hexToDecimalString(hex);
+      b64 = encBase64(raw.trim());
+    } else if (mode === 'decimal') {
+      dec = normalized;
+      hex = decimalToHexString(dec);
+      b64 = encBase64(raw.trim());
+    } else {
+      b64 = encBase64(raw.trim());
+      const maybeHex = normalizeRaw(raw);
+      if (isHexString(maybeHex)) {
+        hex = maybeHex.toUpperCase();
+        dec = hexToDecimalString(hex);
+      }
+    }
+
+    const hexReversed = reverseHexBytes(hex);
+    const decReversed = hexToDecimalString(hexReversed);
+
+    out.normalized.textContent = normalized || '—';
+    out.hex.textContent = hex || '—';
+    out.hexRev.textContent = hexReversed || '—';
+    out.dec.textContent = dec || '—';
+    out.decRev.textContent = decReversed || '—';
+    out.b64.textContent = b64 || '—';
+
+    const submitMode = submitModeEl.value;
+    let finalValue = raw.trim();
+    if (submitMode === 'normalized') finalValue = normalized;
+    if (submitMode === 'hex') finalValue = hex;
+    if (submitMode === 'hex_reversed') finalValue = hexReversed;
+    if (submitMode === 'decimal') finalValue = dec;
+    if (submitMode === 'decimal_reversed') finalValue = decReversed;
+    if (submitMode === 'base64_text') finalValue = b64;
+
+    if (byteOrderEl.value === 'reverse' && submitMode === 'hex' && hexReversed) {
+      finalValue = hexReversed;
+    }
+    if (byteOrderEl.value === 'reverse' && submitMode === 'decimal' && decReversed) {
+      finalValue = decReversed;
+    }
+
+    submitHiddenEl.value = finalValue || '';
+    out.submit.textContent = finalValue || '—';
+  }
+
+  rawEl.addEventListener('input', compute);
+  inputModeEl.addEventListener('change', compute);
+  submitModeEl.addEventListener('change', compute);
+  byteOrderEl.addEventListener('change', compute);
+  stripEl.addEventListener('change', compute);
+
+  document.getElementById('card_use_preview_btn').addEventListener('click', function () {
+    rawEl.value = submitHiddenEl.value || rawEl.value;
+    compute();
+  });
+
+  document.getElementById('card-transform-form').addEventListener('submit', function (ev) {
+    compute();
+    if (!submitHiddenEl.value) {
+      ev.preventDefault();
+      alert('Please enter a card value first.');
+    }
+  });
+
+  compute();
+})();
+</script>
+{% endblock %}
