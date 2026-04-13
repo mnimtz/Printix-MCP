@@ -255,16 +255,16 @@
         <div class="fleet-card-stats">
           <div class="fleet-card-stat">
             <span class="fleet-card-stat-label">{{ _('fleet_jobs') }}:</span>
-            <span class="fleet-card-stat-value">{{ printer.total_jobs }}</span>
+            <span class="fleet-card-stat-value">{{ printer.total_jobs | default(0) }}</span>
           </div>
           <div class="fleet-card-stat">
             <span class="fleet-card-stat-label">{{ _('fleet_pages') }}:</span>
-            <span class="fleet-card-stat-value">{{ printer.total_pages }}</span>
+            <span class="fleet-card-stat-value">{{ printer.total_pages | default(0) }}</span>
           </div>
-          {% if printer.error_rate > 0 %}
+          {% if (printer.error_rate | default(0)) > 0 %}
           <div class="fleet-card-stat">
             <span class="fleet-card-stat-label">{{ _('fleet_error_rate') }}:</span>
-            <span class="fleet-card-stat-value fleet-error-rate">{{ "%.1f" | format(printer.error_rate) }}%</span>
+            <span class="fleet-card-stat-value fleet-error-rate">{{ "%.1f" | format(printer.error_rate | default(0)) }}%</span>
           </div>
           {% endif %}
         </div>

@@ -941,6 +941,232 @@ def create_app(session_secret: str) -> FastAPI:
 
     # ── Fleet Health Monitor (v4.3.3) ─────────────────────────────────────────
 
+    # ── Fleet-Daten laden (shared zwischen /fleet und /fleet/data) ──────
+
+    async def _load_fleet_data(user: dict) -> dict:
+        """
+        Laedt Fleet-Daten (v4.5.1): Printix API + SQL Enrichment + Error Rate.
+        Returns dict mit fleet_kpis, printers, alerts, has_printers, has_sql.
+        """
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+        except Exception as e:
+            logger.warning("Fleet: Tenant-Lookup fehlgeschlagen: %s", e)
+            tenant = None
+
+        has_api = bool(tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")))
+        has_sql = bool(tenant and tenant.get("sql_server"))
+        printers_list: list[dict] = []
+        fleet_kpis = {"total": 0, "active_today": 0, "inactive_7d": 0, "avg_utilization": 0}
+        alerts: list[dict] = []
+
+        if not (has_api and tenant):
+            return {"fleet_kpis": fleet_kpis, "printers": printers_list,
+                    "alerts": alerts, "has_printers": has_api, "has_sql": has_sql}
+
+        # 1. Drucker von Printix API laden (primaere Datenquelle)
+        api_printers: list[dict] = []
+        try:
+            import asyncio as _aio
+            import re as _re
+            client = _make_printix_client(tenant)
+            raw_data = await _aio.to_thread(lambda: client.list_printers(size=200))
+            if isinstance(raw_data, dict):
+                raw_list = raw_data.get("printers", raw_data.get("content", []))
+            elif isinstance(raw_data, list):
+                raw_list = raw_data
+            else:
+                raw_list = []
+
+            # Deduplizieren nach printer_id
+            printer_map: dict[str, dict] = {}
+            for p in raw_list:
+                href = (p.get("_links") or {}).get("self", {}).get("href", "")
+                m = _re.search(r"/printers/([^/]+)/queues/([^/?]+)", href)
+                pid = m.group(1) if m else p.get("id", str(id(p)))
+                if pid not in printer_map:
+                    vendor = p.get("vendor", "")
+                    model = p.get("model", "")
+                    api_status = (p.get("connectionStatus") or "").lower()
+                    printer_map[pid] = {
+                        "printer_id": pid,
+                        "name": f"{vendor} {model}".strip() if (vendor or model) else p.get("name", "Unknown"),
+                        "model": model,
+                        "vendor": vendor,
+                        "location": p.get("location", ""),
+                        "api_status": api_status,
+                        "printerSignId": p.get("printerSignId", ""),
+                    }
+            api_printers = list(printer_map.values())
+        except Exception as e:
+            logger.warning("Fleet: Printix API Fehler: %s", e)
+
+        # 2. SQL-Daten laden (optional — Enrichment + Error Rate)
+        sql_by_id: dict[str, dict] = {}
+        sql_by_name: dict[str, dict] = {}
+        error_counts: dict[str, dict] = {}  # printer_id -> {failed, total_all}
+
+        if has_sql:
+            try:
+                import asyncio as _aio
+                from reporting.sql_client import set_config_from_tenant, query_fetchall
+                set_config_from_tenant(tenant)
+
+                from datetime import date as _date, timedelta as _td
+                today = _date.today()
+                start_90d = today - _td(days=90)
+
+                def _load_fleet_sql():
+                    from reporting.query_tools import query_device_readings, _V, _fmt_date
+                    readings = query_device_readings(str(start_90d), str(today))
+                    # Index by printer_id and printer_name for flexible matching
+                    by_id = {}
+                    by_name = {}
+                    for r in readings:
+                        pid = str(r.get("printer_id", ""))
+                        pname = r.get("printer_name", "")
+                        if pid:
+                            by_id[pid] = r
+                        if pname:
+                            by_name[pname] = r
+
+                    # v4.5.1: Error Rate — zaehle failed Jobs pro Drucker
+                    errors = {}
+                    try:
+                        from reporting.sql_client import get_tenant_id
+                        tid = get_tenant_id()
+                        error_sql = f"""
+                            SELECT
+                                td.printer_id,
+                                COUNT(DISTINCT CASE WHEN td.print_job_status <> 'PRINT_OK'
+                                      THEN td.job_id END) AS failed_jobs,
+                                COUNT(DISTINCT td.job_id) AS total_jobs_all
+                            FROM {_V('tracking_data')} td
+                            WHERE td.tenant_id = ?
+                              AND td.print_time >= ?
+                              AND td.print_time < DATEADD(day, 1, CAST(? AS DATE))
+                            GROUP BY td.printer_id
+                        """
+                        err_rows = query_fetchall(error_sql,
+                                                  (tid, _fmt_date(start_90d), _fmt_date(today)))
+                        for r in err_rows:
+                            pid = str(r.get("printer_id", ""))
+                            if pid:
+                                errors[pid] = {
+                                    "failed": int(r.get("failed_jobs") or 0),
+                                    "total_all": int(r.get("total_jobs_all") or 0),
+                                }
+                    except Exception as e:
+                        logger.debug("Fleet: Error-Rate SQL fehlgeschlagen: %s", e)
+
+                    return by_id, by_name, errors
+
+                sql_by_id, sql_by_name, error_counts = await _aio.to_thread(_load_fleet_sql)
+            except Exception as e:
+                logger.warning("Fleet: SQL-Daten Fehler: %s", e)
+
+        # 3. API + SQL mergen — primaer ueber printer_id, Fallback ueber name
+        from datetime import date as _date, timedelta as _td, datetime as _dt
+        today = _date.today()
+        total_util = 0.0
+        util_count = 0
+
+        for p in api_printers:
+            pid = p.get("printer_id", "")
+            name = p["name"]
+
+            # v4.5.1: Merge primaer ueber printer_id, Fallback ueber name
+            sql_data = sql_by_id.get(pid) or sql_by_name.get(name) or {}
+
+            # API connectionStatus -> primaerer Status
+            api_status = p.get("api_status", "")
+            if api_status in ("connected", "online"):
+                status = "active"
+            elif api_status in ("disconnected", "offline"):
+                status = "critical"
+            else:
+                status = "unknown"
+
+            # SQL-Daten als Enrichment (optional)
+            last_act = sql_data.get("last_activity")
+            total_jobs = int(sql_data.get("total_jobs") or 0)
+            total_pages = int(sql_data.get("total_pages") or 0)
+            active_days = int(sql_data.get("active_days") or 0)
+            days_ago = None
+
+            if last_act:
+                try:
+                    last_date = _dt.fromisoformat(str(last_act)).date() if not isinstance(last_act, _date) else last_act
+                    days_ago = (today - last_date).days
+                    # Verfeinere Status mit SQL-Aktivitaetsdaten
+                    if status == "unknown":
+                        if days_ago == 0:
+                            status = "active"
+                        elif days_ago <= 7:
+                            status = "warning"
+                        else:
+                            status = "critical"
+                except Exception:
+                    pass
+
+            utilization = round(active_days / 90 * 100, 1) if active_days else 0.0
+            total_util += utilization
+            util_count += 1
+
+            # v4.5.1: Error Rate berechnen
+            # Verwende SQL printer_id aus sql_data fuer den Error-Lookup
+            sql_pid = str(sql_data.get("printer_id", "")) or pid
+            err_info = error_counts.get(sql_pid, {})
+            failed_jobs = err_info.get("failed", 0)
+            total_all = err_info.get("total_all", 0)
+            error_rate = round(failed_jobs * 100.0 / total_all, 1) if total_all > 0 else 0.0
+
+            printers_list.append({
+                "name": name,
+                "model": sql_data.get("model_name") or p.get("model", ""),
+                "location": sql_data.get("location") or p.get("location", ""),
+                "site": sql_data.get("site_name", ""),
+                "status": status,
+                "api_status": api_status,
+                "last_activity": str(last_act) if last_act else None,
+                "days_ago": days_ago,
+                "total_jobs": total_jobs,
+                "total_pages": total_pages,
+                "utilization": utilization,
+                "error_rate": error_rate,
+            })
+
+        # Sortieren: Critical zuerst, dann Warning, dann Active
+        status_order = {"critical": 0, "warning": 1, "unknown": 2, "active": 3}
+        printers_list.sort(key=lambda x: status_order.get(x["status"], 9))
+
+        # KPIs
+        fleet_kpis = {
+            "total": len(printers_list),
+            "active_today": sum(1 for x in printers_list if x["status"] == "active"),
+            "inactive_7d": sum(1 for x in printers_list if x["status"] == "critical"),
+            "avg_utilization": round(total_util / util_count, 1) if util_count else 0,
+        }
+
+        # Alerts — inactive + high error rate
+        for p in printers_list:
+            if p["status"] == "critical":
+                alerts.append({
+                    "type": "inactive",
+                    "printer_name": p["name"],
+                    "detail": p.get("api_status") or (f"{p['days_ago']}d" if p.get("days_ago") else "?"),
+                })
+            elif p.get("error_rate", 0) > 10:
+                alerts.append({
+                    "type": "high_errors",
+                    "printer_name": p["name"],
+                    "detail": f"Error Rate: {p['error_rate']}%",
+                })
+
+        return {"fleet_kpis": fleet_kpis, "printers": printers_list,
+                "alerts": alerts, "has_printers": has_api, "has_sql": has_sql}
+
     @app.get("/fleet", response_class=HTMLResponse)
     async def fleet_health(request: Request):
         user = get_session_user(request)
@@ -951,174 +1177,37 @@ def create_app(session_secret: str) -> FastAPI:
 
         tc = t_ctx(request)
         try:
-            from db import get_tenant_full_by_user_id
-            tenant = get_tenant_full_by_user_id(user["id"])
-        except Exception:
-            tenant = None
-
-        # Printix API ist primäre Datenquelle — SQL nur supplemental
-        has_api = bool(tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")))
-        has_sql = bool(tenant and tenant.get("sql_server"))
-        printers_list = []
-        fleet_kpis = {"total": 0, "active_today": 0, "inactive_7d": 0, "avg_utilization": 0}
-        alerts = []
-
-        if has_api and tenant:
-            # 1. Drucker von Printix API laden (primäre Datenquelle)
-            try:
-                import asyncio as _aio
-                import re as _re
-                client = _make_printix_client(tenant)
-                raw_data = await _aio.to_thread(lambda: client.list_printers(size=200))
-                if isinstance(raw_data, dict):
-                    raw_list = raw_data.get("printers", raw_data.get("content", []))
-                elif isinstance(raw_data, list):
-                    raw_list = raw_data
-                else:
-                    raw_list = []
-
-                # Deduplizieren nach printer_id (wie tenant_printers)
-                printer_map = {}
-                for p in raw_list:
-                    href = (p.get("_links") or {}).get("self", {}).get("href", "")
-                    m = _re.search(r"/printers/([^/]+)/queues/([^/?]+)", href)
-                    pid = m.group(1) if m else p.get("id", str(id(p)))
-                    if pid not in printer_map:
-                        vendor = p.get("vendor", "")
-                        model = p.get("model", "")
-                        api_status = (p.get("connectionStatus") or "").lower()
-                        printer_map[pid] = {
-                            "name": f"{vendor} {model}".strip() if (vendor or model) else p.get("name", "Unknown"),
-                            "model": model,
-                            "vendor": vendor,
-                            "location": p.get("location", ""),
-                            "api_status": api_status,
-                            "printerSignId": p.get("printerSignId", ""),
-                        }
-                api_printers = list(printer_map.values())
-            except Exception as e:
-                logger.warning("Fleet: Printix API Fehler: %s", e)
-                api_printers = []
-
-            # 2. SQL-Daten laden (optional, nur Enrichment)
-            sql_readings = {}
-            if has_sql:
-                try:
-                    import asyncio as _aio
-                    from reporting.sql_client import set_config_from_tenant
-                    set_config_from_tenant(tenant)
-
-                    from datetime import date as _date, timedelta as _td
-                    today = _date.today()
-                    start_90d = today - _td(days=90)
-
-                    def _load_fleet_sql():
-                        from reporting.query_tools import query_device_readings
-                        readings = query_device_readings(str(start_90d), str(today))
-                        return {r.get("printer_name", ""): r for r in readings}
-
-                    sql_readings = await _aio.to_thread(_load_fleet_sql)
-                except Exception as e:
-                    logger.warning("Fleet: SQL-Daten Fehler: %s", e)
-
-            # 3. API + SQL mergen — API ist Basis, SQL ergänzt
-            from datetime import date as _date, timedelta as _td, datetime as _dt
-            today = _date.today()
-            total_util = 0
-            util_count = 0
-
-            for p in api_printers:
-                name = p["name"]
-                sql_data = sql_readings.get(name, {})
-
-                # API connectionStatus → primärer Status
-                api_status = p.get("api_status", "")
-                if api_status in ("connected", "online"):
-                    status = "active"
-                elif api_status in ("disconnected", "offline"):
-                    status = "critical"
-                else:
-                    status = "unknown"
-
-                # SQL-Daten als Enrichment (optional)
-                last_act = sql_data.get("last_activity")
-                total_jobs = int(sql_data.get("total_jobs") or 0)
-                total_pages = int(sql_data.get("total_pages") or 0)
-                active_days = int(sql_data.get("active_days") or 0)
-                days_ago = None
-
-                if last_act:
-                    try:
-                        last_date = _dt.fromisoformat(str(last_act)).date() if not isinstance(last_act, _date) else last_act
-                        days_ago = (today - last_date).days
-                        # Verfeinere Status mit SQL-Aktivitätsdaten
-                        if status == "unknown":
-                            if days_ago == 0:
-                                status = "active"
-                            elif days_ago <= 7:
-                                status = "warning"
-                            else:
-                                status = "critical"
-                    except Exception:
-                        pass
-
-                utilization = round(active_days / 90 * 100, 1) if active_days else 0
-                total_util += utilization
-                util_count += 1
-
-                printers_list.append({
-                    "name": name,
-                    "model": sql_data.get("model_name") or p.get("model", ""),
-                    "location": sql_data.get("location") or p.get("location", ""),
-                    "site": sql_data.get("site_name", ""),
-                    "status": status,
-                    "api_status": api_status,
-                    "last_activity": str(last_act) if last_act else None,
-                    "days_ago": days_ago,
-                    "total_jobs": total_jobs,
-                    "total_pages": total_pages,
-                    "utilization": utilization,
-                })
-
-            # Sortieren: Critical zuerst, dann Warning, dann Active
-            status_order = {"critical": 0, "warning": 1, "unknown": 2, "active": 3}
-            printers_list.sort(key=lambda p: status_order.get(p["status"], 9))
-
-            # KPIs
-            fleet_kpis = {
-                "total": len(printers_list),
-                "active_today": sum(1 for p in printers_list if p["status"] == "active"),
-                "inactive_7d": sum(1 for p in printers_list if p["status"] == "critical"),
-                "avg_utilization": round(total_util / util_count, 1) if util_count else 0,
-            }
-
-            # Alerts
-            for p in printers_list:
-                if p["status"] == "critical":
-                    alerts.append({
-                        "type": "inactive",
-                        "printer_name": p["name"],
-                        "detail": p.get("api_status") or (f"{p['days_ago']}d" if p.get("days_ago") else "?"),
-                    })
+            fleet = await _load_fleet_data(user)
+        except Exception as e:
+            logger.error("Fleet: Render fehlgeschlagen: %s", e, exc_info=True)
+            fleet = {"fleet_kpis": {"total": 0, "active_today": 0, "inactive_7d": 0, "avg_utilization": 0},
+                     "printers": [], "alerts": [], "has_printers": False, "has_sql": False}
 
         return templates.TemplateResponse("fleet.html", {
             "request": request, "user": user,
-            "has_printers": has_api, "has_sql": has_sql,
-            "fleet_kpis": fleet_kpis,
-            "printers": printers_list,
-            "alerts": alerts,
+            "has_printers": fleet["has_printers"], "has_sql": fleet["has_sql"],
+            "fleet_kpis": fleet["fleet_kpis"],
+            "printers": fleet["printers"],
+            "alerts": fleet["alerts"],
             **tc,
         })
 
     @app.get("/fleet/data")
     async def fleet_data(request: Request):
-        """JSON-Endpunkt für Fleet Auto-Refresh."""
+        """v4.5.1: JSON-Endpunkt fuer Fleet Auto-Refresh mit echten Daten."""
         user = get_session_user(request)
         if not user:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        # Für Auto-Refresh: Fleet-Daten als JSON
-        # (vereinfachte Version — vollständiger Reload)
-        return JSONResponse({"reload": True})
+        try:
+            fleet = await _load_fleet_data(user)
+            return JSONResponse({
+                "fleet_kpis": fleet["fleet_kpis"],
+                "printers": fleet["printers"],
+                "alerts": fleet["alerts"],
+            })
+        except Exception as e:
+            logger.error("Fleet /fleet/data Fehler: %s", e, exc_info=True)
+            return JSONResponse({"error": str(e)[:200]}, status_code=500)
 
     # ── Sustainability Report (v4.3.3) ────────────────────────────────────────
 
