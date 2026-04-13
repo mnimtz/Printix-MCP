@@ -1,5 +1,41 @@
 # Changelog
 
+## 4.6.7 (2026-04-13) — Fix: Printix Capture Signaturverifikation
+
+### Fix — Korrekte Printix Capture Connector Signaturformel implementiert
+- **Ursache**: Die exakte Signaturformel war unbekannt. Die offizielle Tungsten-Doku
+  beschreibt nur vage "some details of the HTTP request", ohne die genaue Formel
+  zu dokumentieren. Alle bisherigen ~84 Kombinationen (body-only, ts.path.body,
+  POST.ts.path.body, etc.) scheiterten.
+- **Lösung**: Die korrekte Formel wurde im Tungsten Sample Connector (Python)
+  gefunden — ein 5-Komponenten dot-separierter StringToSign:
+  ```
+  StringToSign = "{RequestId}.{Timestamp}.{method}.{RequestPath}.{Body}"
+  ```
+  - **RequestId** — aus `X-Printix-Request-Id` Header (UUID)
+  - **Timestamp** — aus `X-Printix-Timestamp` Header (Unix Epoch Sekunden)
+  - **method** — HTTP-Methode in **Kleinbuchstaben** (z.B. `post`)
+  - **RequestPath** — aus `X-Printix-Request-Path` Header (URL-Pfad)
+  - **Body** — Raw Request Body als UTF-8 String
+- **HMAC-Berechnung**:
+  - Key = Base64-dekodiert (32 Bytes für SHA-256, 64 Bytes für SHA-512)
+  - Gesamter StringToSign als UTF-8 kodiert → HMAC
+  - Ergebnis = Base64-kodiert (44 Zeichen für SHA-256)
+- **Zwei verschiedene Printix-APIs, zwei verschiedene Formate**:
+  - Cloud Print API Webhooks: `"{timestamp}.{body}"` + HMAC-SHA-512 + Hex
+  - Capture Connector API: `"{rid}.{ts}.{method}.{path}.{body}"` + HMAC-SHA-256 + Base64
+
+### Verbesserung — HTTP-Methode durchgereicht
+- `verify_capture_auth()` akzeptiert jetzt den `method`-Parameter
+- `webhook_handler.py` übergibt die HTTP-Methode aus dem Request
+
+### Verbesserung — Diagnose bei fehlenden Headers
+- Wenn `X-Printix-Timestamp`, `X-Printix-Request-Path` oder `X-Printix-Request-Id`
+  fehlen, warnt das Diagnose-Log explizit und empfiehlt Proxy-Konfiguration zu prüfen
+- Vollständiger Header-Dump (alle Headers, nicht nur x-printix-*)
+
+---
+
 ## 4.6.6 (2026-04-13) — Fix: Plugin-Registry im Capture-Server
 
 ### Fix — Plugin 'paperless_ngx' nicht gefunden im Standalone-Capture-Server

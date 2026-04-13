@@ -1,12 +1,12 @@
 """
-Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.6)
+Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.7)
 ===================================================================
 Kanonischer Handler fuer Printix Capture Webhooks. Wird aufgerufen von:
   - capture_server.py  (Capture Port, source="capture")
   - server.py          (MCP Port,     source="mcp")
   - capture_routes.py  (Web-UI Port,  source="web")
 
-Connector-Modell (v4.6.6):
+Connector-Modell (v4.6.7):
   - Profil-Identifikation ueber URL: /capture/webhook/{profile_id}
   - Auth: HMAC-SHA256/512 (multi-secret) + Connector Token (multi-token)
   - Event-Typen: FileDeliveryJobReady, DocumentCaptured, ScanComplete, etc.
@@ -28,7 +28,7 @@ DEBUG_PROFILE_ID = "00000000-0000-0000-0000-000000000000"
 
 def _log_raw_request_for_sig_debug(source: str, headers: dict, body_bytes: bytes):
     """
-    v4.6.6: Log complete raw request details for signature reverse-engineering.
+    v4.6.7: Log complete raw request details for signature reverse-engineering.
     Called when signature verification fails but require_signature=False.
     """
     import hashlib as _hl
@@ -261,7 +261,7 @@ async def handle_webhook(
     source: str = "unknown",
 ) -> tuple[int, dict[str, Any]]:
     """
-    Kanonischer Capture-Webhook-Handler (v4.6.6).
+    Kanonischer Capture-Webhook-Handler (v4.6.7).
 
     Processing steps:
       1. Profile lookup
@@ -293,7 +293,7 @@ async def handle_webhook(
             "status": "ok",
             "profile_id": profile_id,
             "endpoint": f"/capture/webhook/{profile_id}",
-            "version": "4.6.6",
+            "version": "4.6.7",
         }
 
     # ── Nur POST akzeptieren ────────────────────────────────────────────────
@@ -321,7 +321,7 @@ async def handle_webhook(
     from capture.auth import verify_capture_auth
 
     require_sig = bool(profile.get("require_signature", False))
-    auth_result = verify_capture_auth(body_bytes, headers, profile)
+    auth_result = verify_capture_auth(body_bytes, headers, profile, method)
     logger.info("[%s] [step:auth] method=%s success=%s detail=%s",
                 source, auth_result.method, auth_result.success, auth_result.detail)
 
@@ -332,7 +332,7 @@ async def handle_webhook(
                             f"Auth failed: {auth_result.detail} (method={auth_result.method})")
             return 401, {"errorMessage": "Authentication failed"}
         else:
-            # v4.6.6: Signature mismatch but require_signature=False → continue processing
+            # v4.6.7: Signature mismatch but require_signature=False → continue processing
             # Log full request details to help reverse-engineer the signature format
             logger.warning("[%s] [step:auth] SIGNATURE MISMATCH — require_signature=False, "
                            "continuing anyway (debug mode)", source)
@@ -449,7 +449,7 @@ def _handle_debug(
     source: str,
 ) -> tuple[int, dict[str, Any]]:
     """
-    Enhanced Debug-Endpoint (v4.6.6):
+    Enhanced Debug-Endpoint (v4.6.7):
     - Shows detected auth method
     - Shows parsed event type and fields
     - Shows which required fields are present/missing
@@ -533,7 +533,7 @@ def _handle_debug(
         "timestamp": datetime.now().isoformat(),
         "method": method,
         "source": source,
-        "version": "4.6.6",
+        "version": "4.6.7",
         "auth": auth_info,
         "payload": field_analysis,
         "headers": headers,

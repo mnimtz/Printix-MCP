@@ -1,14 +1,19 @@
 """
-Capture Authentication — Multi-Method Verification (v4.6.6)
+Capture Authentication — Multi-Method Verification (v4.6.7)
 ===========================================================
 Supports the Printix/Tungsten Capture Connector authentication model:
 
-1. Printix Native Signature (x-printix-signature)
-   — Signature length determines algorithm:
-     44 chars Base64 = SHA-256 (32 bytes), 88 chars = SHA-512 (64 bytes)
-   — Tries body-only FIRST, then canonical strings with timestamp/path
+1. Printix Capture Signature (x-printix-signature) — v4.6.7 FIXED
+   — Exact Printix Capture Connector formula:
+     StringToSign = "{RequestId}.{Timestamp}.{method}.{RequestPath}.{Body}"
+     HMAC-SHA-256 with Base64-decoded key, result Base64-encoded
+   — RequestId from x-printix-request-id header
+   — Timestamp from x-printix-timestamp header (Unix epoch seconds)
+   — method = HTTP verb in LOWERCASE (e.g. "post")
+   — RequestPath from x-printix-request-path header (URL path)
+   — Body = raw request body as UTF-8 string
    — Supports comma-separated multi-signatures (key rotation)
-   — Secret may be raw UTF-8 or Base64-encoded key material
+   — Fallback: body-only and legacy canonical formats
 2. HMAC Signature (x-printix-signature-256 / x-printix-signature-512)
    — Body-only HMAC, multiple secrets for key rotation
 3. Hub Signature (x-hub-signature-256)
@@ -18,7 +23,7 @@ Supports the Printix/Tungsten Capture Connector authentication model:
 5. require_signature flag per profile
    — Enforces that at least one auth method must succeed
 
-Diagnostic logging (v4.6.5):
+Diagnostic logging (v4.6.5+):
   — Full received signature logged (not truncated)
   — Every candidate (key × format) logged with full expected Base64
   — Key material described (utf8/b64dec, length, preview)
@@ -166,18 +171,61 @@ def _build_canonical_payloads(
     request_path: str,
     request_id: str,
     headers: dict[str, str] | None = None,
+    method: str = "POST",
 ) -> list[tuple[bytes, str]]:
     """
-    Build all canonical payload variants for HMAC computation (v4.6.5).
-    Order: body-only first, body variants, then canonical strings.
+    Build all canonical payload variants for HMAC computation (v4.6.7).
+
+    Priority order:
+      1. Printix Capture Connector format (v4.6.7 — exact documented format)
+      2. Body-only (Printix Cloud Print API format)
+      3. Legacy canonical strings (fallback)
     """
     payloads: list[tuple[bytes, str]] = []
     ts = timestamp
     path = request_path
     rid = request_id
+    body_text = body_bytes.decode("utf-8", errors="replace")
 
-    # ── 1. Body variants (most likely per Printix Cloud API docs) ──────────
+    # ── 0. PRINTIX CAPTURE FORMAT (v4.6.7) — HIGHEST PRIORITY ─────────────
+    # Exact formula: "{RequestId}.{Timestamp}.{method}.{RequestPath}.{Body}"
+    # - method is LOWERCASE
+    # - entire StringToSign is UTF-8 encoded
+    # - key is Base64-decoded
+    # - output is Base64-encoded
+    # Source: Tungsten Capture Connector API documentation
+    if rid and ts and path:
+        method_lower = method.lower()
+        sts = f"{rid}.{ts}.{method_lower}.{path}.{body_text}"
+        payloads.append((sts.encode("utf-8"), "printix-capture(rid.ts.method.path.body)"))
+
+        # Variation: uppercase method (paranoia fallback)
+        sts_upper = f"{rid}.{ts}.{method.upper()}.{path}.{body_text}"
+        payloads.append((sts_upper.encode("utf-8"), "printix-capture(rid.ts.METHOD.path.body)"))
+
+        # Variation: swapped rid/ts order
+        sts_swap = f"{ts}.{rid}.{method_lower}.{path}.{body_text}"
+        payloads.append((sts_swap.encode("utf-8"), "printix-capture(ts.rid.method.path.body)"))
+
+    # Partial: if only ts+path (no rid), try 4-component format
+    if ts and path and not rid:
+        method_lower = method.lower()
+        sts4 = f"{ts}.{method_lower}.{path}.{body_text}"
+        payloads.append((sts4.encode("utf-8"), "printix-capture-4(ts.method.path.body)"))
+
+    # Partial: if only rid+ts (no path), try without path
+    if rid and ts and not path:
+        method_lower = method.lower()
+        sts_nopath = f"{rid}.{ts}.{method_lower}.{body_text}"
+        payloads.append((sts_nopath.encode("utf-8"), "printix-capture-nopath(rid.ts.method.body)"))
+
+    # ── 1. Body variants (Printix Cloud Print API / simple HMAC) ──────────
     payloads.append((body_bytes, "body-only"))
+
+    # Cloud Print API format: timestamp.body (SHA-512, hex — different API)
+    if ts:
+        payloads.append((f"{ts}.{body_text}".encode("utf-8"), "ts.body(str)"))
+        payloads.append((f"{ts}.".encode() + body_bytes, "ts.body(bytes)"))
 
     # Body with \r\n → \n normalization (proxy may alter line endings)
     body_lf = body_bytes.replace(b"\r\n", b"\n")
@@ -189,60 +237,16 @@ def _build_canonical_payloads(
     if body_stripped != body_bytes:
         payloads.append((body_stripped, "body(rstrip)"))
 
-    # Double-hash: HMAC over SHA256-hex of body (some APIs do this)
-    body_sha256_hex = hashlib.sha256(body_bytes).hexdigest().encode("ascii")
-    payloads.append((body_sha256_hex, "sha256hex(body)"))
-
-    # Double-hash: HMAC over SHA256-raw of body
-    body_sha256_raw = hashlib.sha256(body_bytes).digest()
-    payloads.append((body_sha256_raw, "sha256raw(body)"))
-
-    # ── 2. Timestamp + body ────────────────────────────────────────────────
-    if ts:
-        payloads.append((f"{ts}.".encode() + body_bytes, "ts.body"))
-        payloads.append((f"{ts}".encode() + body_bytes, "ts+body(nosep)"))
-        payloads.append((f"{ts}\n".encode() + body_bytes, "ts\\nbody"))
-
-    # ── 3. Timestamp + path + body ─────────────────────────────────────────
+    # ── 2. Timestamp + path + body (legacy fallbacks) ──────────────────────
     if ts and path:
         payloads.append((f"{ts}.{path}.".encode() + body_bytes, "ts.path.body"))
-        payloads.append((f"{ts}.{path}".encode() + body_bytes, "ts.path+body(no-dot)"))
         payloads.append((f"{path}.{ts}.".encode() + body_bytes, "path.ts.body"))
-        payloads.append((f"{ts}{path}".encode() + body_bytes, "ts+path+body(nosep)"))
-        payloads.append((f"{ts}\n{path}\n".encode() + body_bytes, "ts\\npath\\nbody"))
 
-    # ── 4. With HTTP method ────────────────────────────────────────────────
-    if ts and path:
-        payloads.append((f"POST.{path}.{ts}.".encode() + body_bytes, "POST.path.ts.body"))
-        payloads.append((f"POST.{ts}.{path}.".encode() + body_bytes, "POST.ts.path.body"))
-
-    # ── 5. With request ID ─────────────────────────────────────────────────
+    # ── 3. With request ID (legacy order variants) ─────────────────────────
     if ts and path and rid:
         payloads.append((f"{ts}.{path}.{rid}.".encode() + body_bytes, "ts.path.rid.body"))
         payloads.append((f"{ts}.{rid}.{path}.".encode() + body_bytes, "ts.rid.path.body"))
-
-    # ── 6. Path without leading slash ──────────────────────────────────────
-    if ts and path and path.startswith("/"):
-        path_clean = path.lstrip("/")
-        payloads.append((f"{ts}.{path_clean}.".encode() + body_bytes, "ts.path(noslash).body"))
-
-    # ── 7. URL-based formats (using host from request headers) ─────────────
-    if headers:
-        host = headers.get("host", "")
-        content_type = headers.get("content-type", "")
-
-        if host and path:
-            full_url_https = f"https://{host}{path}"
-            full_url_http = f"http://{host}{path}"
-            payloads.append((full_url_https.encode() + body_bytes, "https-url+body"))
-            payloads.append((full_url_http.encode() + body_bytes, "http-url+body"))
-            if ts:
-                payloads.append((f"{ts}.{full_url_https}.".encode() + body_bytes, "ts.https-url.body"))
-                payloads.append((f"{ts}.{full_url_http}.".encode() + body_bytes, "ts.http-url.body"))
-
-        # Content-Type as part of canonical string
-        if content_type and ts and path:
-            payloads.append((f"{ts}.{content_type}.{path}.".encode() + body_bytes, "ts.ct.path.body"))
+        payloads.append((f"{rid}.{ts}.{path}.".encode() + body_bytes, "rid.ts.path.body"))
 
     return payloads
 
@@ -255,17 +259,21 @@ def _try_printix_native(
     request_path: str,
     request_id: str,
     headers: dict[str, str] | None = None,
+    method: str = "POST",
 ) -> tuple[bool, int, str]:
     """
-    Focused Printix native signature verification (v4.6.5).
+    Printix Capture Connector signature verification (v4.6.7).
 
-    Detects algorithm from signature length (44 chars = SHA-256),
-    then tries all key variants × canonical formats × encodings.
+    Tries the exact Printix Capture format FIRST:
+      StringToSign = "{RequestId}.{Timestamp}.{method}.{RequestPath}.{Body}"
+    Then falls back to body-only and legacy canonical formats.
 
     Returns (matched, secret_index, description_of_match).
     """
     sig_candidates = _parse_comma_sigs(sig_value)
-    payloads = _build_canonical_payloads(body_bytes, timestamp, request_path, request_id, headers)
+    payloads = _build_canonical_payloads(
+        body_bytes, timestamp, request_path, request_id, headers, method,
+    )
 
     # Detect expected algo from signature length
     detected_algo = _detect_algo_from_sig(sig_candidates[0])
@@ -308,22 +316,47 @@ def _diagnostic_log(
     request_path: str,
     request_id: str,
     headers: dict[str, str] | None = None,
+    method: str = "POST",
 ):
     """
-    v4.6.5: Detailed diagnostic log for signature mismatch.
+    v4.6.7: Detailed diagnostic log for signature mismatch.
     Logs at INFO level — shows full values, raw body analysis,
     and every candidate with full expected Base64.
+    Now includes the correct Printix Capture format as first candidate.
     """
     sig_clean = _strip_prefix(sig_value)
     detected_algo = _detect_algo_from_sig(sig_value)
     body_hash = hashlib.sha256(body_bytes).hexdigest()
 
-    logger.info("┏━━━ SIGNATURE DIAGNOSTIC (v4.6.6) ━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logger.info("┏━━━ SIGNATURE DIAGNOSTIC (v4.6.7) ━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info("┃ received_sig  = %s", sig_clean)
     logger.info("┃ sig_len       = %d chars → detected algo: %s", len(sig_clean), detected_algo)
+    logger.info("┃ method        = %s", method)
     logger.info("┃ timestamp     = %s", timestamp or "(none)")
     logger.info("┃ request_path  = %s", request_path or "(none)")
     logger.info("┃ request_id    = %s", request_id or "(none)")
+
+    # ── Expected Printix Capture format ────────────────────────────────────
+    if timestamp and request_path and request_id:
+        body_text = body_bytes.decode("utf-8", errors="replace")
+        sts = f"{request_id}.{timestamp}.{method.lower()}.{request_path}.{body_text}"
+        logger.info("┃")
+        logger.info("┃ ── PRINTIX CAPTURE StringToSign ──")
+        logger.info("┃ format        = {rid}.{ts}.{method}.{path}.{body}")
+        logger.info("┃ StringToSign  = %s...%s (len=%d)",
+                     sts[:80], sts[-40:] if len(sts) > 120 else "", len(sts))
+    else:
+        missing = []
+        if not timestamp:
+            missing.append("x-printix-timestamp")
+        if not request_path:
+            missing.append("x-printix-request-path")
+        if not request_id:
+            missing.append("x-printix-request-id")
+        logger.info("┃")
+        logger.info("┃ ⚠ MISSING HEADERS for Printix Capture format: %s", ", ".join(missing))
+        logger.info("┃   Without these headers, signature verification cannot work!")
+        logger.info("┃   Check if a reverse proxy (HA Ingress, nginx) strips custom headers.")
 
     # ── Raw body analysis ──────────────────────────────────────────────────
     logger.info("┃")
@@ -338,13 +371,12 @@ def _diagnostic_log(
                 body_bytes[-1:].hex() if body_bytes else "??")
     logger.info("┃ body_has_bom  = %s", body_bytes[:3] == b"\xef\xbb\xbf")
 
-    # ── Request headers ────────────────────────────────────────────────────
+    # ── ALL request headers (v4.6.7 — full dump for debugging) ─────────────
     if headers:
         logger.info("┃")
-        logger.info("┃ ── REQUEST HEADERS ──")
-        logger.info("┃ content-type  = %s", headers.get("content-type", "(missing)"))
-        logger.info("┃ content-length= %s", headers.get("content-length", "(missing)"))
-        logger.info("┃ host          = %s", headers.get("host", "(missing)"))
+        logger.info("┃ ── ALL REQUEST HEADERS ──")
+        for k, v in sorted(headers.items()):
+            logger.info("┃   %s = %s", k, v[:120] if len(v) > 120 else v)
 
     # ── Secret analysis ────────────────────────────────────────────────────
     logger.info("┃")
@@ -364,7 +396,7 @@ def _diagnostic_log(
         focus_algos = [("sha256", hashlib.sha256), ("sha512", hashlib.sha512)]
 
     payloads = _build_canonical_payloads(
-        body_bytes, timestamp, request_path, request_id, headers
+        body_bytes, timestamp, request_path, request_id, headers, method,
     )
 
     for s_idx, secret in enumerate(secrets):
@@ -390,12 +422,14 @@ def verify_capture_auth(
     body_bytes: bytes,
     headers: dict[str, str],
     profile: dict,
+    method: str = "POST",
 ) -> AuthResult:
     """
     Verify incoming Capture webhook request against profile auth settings.
 
     Supports (in priority order):
-      1. x-printix-signature (Printix native — exhaustive format discovery)
+      1. x-printix-signature — Printix Capture format (v4.6.7):
+         StringToSign = "{RequestId}.{Timestamp}.{method}.{RequestPath}.{Body}"
       2. x-printix-signature-256 / x-hub-signature-256 (HMAC-SHA256, body only)
       3. x-printix-signature-512 (HMAC-SHA512, body only)
       4. Connector tokens via Authorization: Bearer / x-connector-token header
@@ -439,7 +473,7 @@ def verify_capture_auth(
 
             matched, idx, desc = _try_printix_native(
                 body_bytes, sig_native, secrets, timestamp, request_path, request_id,
-                headers,
+                headers, method,
             )
             if matched:
                 detail = (f"Printix signature verified "
@@ -450,7 +484,7 @@ def verify_capture_auth(
             # Mismatch — full diagnostic dump at INFO level
             logger.warning("Auth: Printix signature mismatch — running full diagnostic")
             _diagnostic_log(body_bytes, sig_native, secrets,
-                            timestamp, request_path, request_id, headers)
+                            timestamp, request_path, request_id, headers, method)
 
             return AuthResult(False, "printix-native",
                               f"Signature mismatch (sig_len={sig_len}, "
