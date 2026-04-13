@@ -31,6 +31,7 @@
   tr.clickable { cursor:pointer; }
   tr.clickable:hover td { background:#f0f7ff; }
   .flash-ok  { background:#d1fae5; color:#065f46; border:1px solid #6ee7b7; padding:10px 16px; border-radius:8px; margin-bottom:16px; }
+  .hint-box { background:#eff6ff; color:#1e3a8a; border:1px solid #bfdbfe; border-radius:8px; padding:10px 12px; font-size:.84em; margin-bottom:16px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -38,45 +39,31 @@
   <div class="card">
     <h2 class="section-title" style="margin-bottom:16px;">🖨️ {{ _('nav_tenant') }}</h2>
 
-    <!-- Sub-Tabs -->
     <div class="tenant-tabs">
-      <a href="/tenant/printers" class="tenant-tab {% if active_tab == 'printers' %}active{% endif %}">
-        🖨️ {{ _('tenant_tab_printers') }}
-      </a>
-      <a href="/tenant/queues" class="tenant-tab {% if active_tab == 'queues' %}active{% endif %}">
-        📋 {{ _('tenant_tab_queues') }}
-      </a>
-      <a href="/tenant/users" class="tenant-tab {% if active_tab == 'users' %}active{% endif %}">
-        👤 {{ _('tenant_tab_users') }}
-      </a>
-      <a href="/tenant/workstations" class="tenant-tab {% if active_tab == 'workstations' %}active{% endif %}">
-        💻 {{ _('tenant_tab_workstations') }}
-      </a>
-      <a href="/tenant/demo" class="tenant-tab {% if active_tab == 'demo' %}active{% endif %}">
-        🗄️ {{ _('tenant_tab_demo') }}
-      </a>
+      <a href="/tenant/printers" class="tenant-tab {% if active_tab == 'printers' %}active{% endif %}">🖨️ {{ _('tenant_tab_printers') }}</a>
+      <a href="/tenant/queues" class="tenant-tab {% if active_tab == 'queues' %}active{% endif %}">📋 {{ _('tenant_tab_queues') }}</a>
+      <a href="/tenant/users" class="tenant-tab {% if active_tab == 'users' %}active{% endif %}">👤 {{ _('tenant_tab_users') }}</a>
+      <a href="/tenant/workstations" class="tenant-tab {% if active_tab == 'workstations' %}active{% endif %}">💻 {{ _('tenant_tab_workstations') }}</a>
+      <a href="/tenant/demo" class="tenant-tab {% if active_tab == 'demo' %}active{% endif %}">🗄️ {{ _('tenant_tab_demo') }}</a>
     </div>
 
-    <!-- Flash messages -->
     {% if request.query_params.get('flash') == 'deleted' %}
     <div class="flash-ok">✅ {{ _('user_deleted_ok') }}</div>
     {% elif request.query_params.get('flash') == 'created' %}
     <div class="flash-ok">✅ {{ _('user_card_added_ok') }}</div>
     {% endif %}
 
-    <!-- Toolbar: Search + Refresh + New User -->
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
       <form class="search-bar" method="get" action="/tenant/users" style="flex:1;min-width:200px;margin:0;">
         <input type="text" name="search" value="{{ search }}" placeholder="Search name / email…">
         <button type="submit">🔍</button>
       </form>
-      <a href="/tenant/users{% if search %}?search={{ search }}{% endif %}"
-         class="btn btn-secondary" title="Reload from Printix API">
-        🔄 Aktualisieren
-      </a>
-      <a href="/tenant/users/create" class="btn btn-primary">
-        ➕ {{ _('user_new_btn') }}
-      </a>
+      <a href="/tenant/users{% if search %}?search={{ search }}{% endif %}" class="btn btn-secondary" title="Reload from Printix API">🔄 Aktualisieren</a>
+      <a href="/tenant/users/create" class="btn btn-primary">➕ {{ _('user_new_btn') }}</a>
+    </div>
+
+    <div class="hint-box">
+      Open a user to access the advanced <strong>Benutzer &amp; Karten</strong> card tools. There you can preview and transform reader values before saving, including HEX/decimal conversion, reversed byte order, prefix/suffix trimming and leading-zero rules.
     </div>
 
     {% if error == "no_card_creds" %}
@@ -115,15 +102,11 @@
             </td>
             <td style="color:#6b7280;font-size:.88em;">{{ email }}</td>
             <td>
-              <span class="card-count {% if card_count == 0 %}zero{% endif %}">
-                🃏 {{ card_count }}
-              </span>
+              <span class="card-count {% if card_count == 0 %}zero{% endif %}">🃏 {{ card_count }}</span>
             </td>
             <td>
               {% if role %}
-                <span class="role-badge {% if role == 'GUEST_USER' %}guest{% endif %}">
-                  {{ role | replace('_', ' ') }}
-                </span>
+                <span class="role-badge {% if role == 'GUEST_USER' %}guest{% endif %}">{{ role | replace('_', ' ') }}</span>
               {% else %}–{% endif %}
             </td>
           </tr>
@@ -135,22 +118,19 @@
     {% if total_pages > 1 %}
     <div style="display:flex;justify-content:center;gap:6px;margin-top:16px;align-items:center;">
       {% if page > 0 %}
-        <a href="/tenant/users?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}"
-           class="btn btn-secondary" style="padding:6px 14px;font-size:.85em;">← Zurück</a>
+        <a href="/tenant/users?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}" class="btn btn-secondary" style="padding:6px 14px;font-size:.85em;">← Zurück</a>
       {% endif %}
       {% for p in range(total_pages) %}
         {% if p == page %}
           <span style="display:inline-block;padding:6px 12px;font-size:.85em;font-weight:700;background:#2563eb;color:#fff;border-radius:6px;">{{ p + 1 }}</span>
         {% elif (p - page)|abs <= 2 or p == 0 or p == total_pages - 1 %}
-          <a href="/tenant/users?page={{ p }}{% if search %}&search={{ search }}{% endif %}"
-             style="display:inline-block;padding:6px 12px;font-size:.85em;color:#2563eb;text-decoration:none;border:1px solid #d1d5db;border-radius:6px;">{{ p + 1 }}</a>
+          <a href="/tenant/users?page={{ p }}{% if search %}&search={{ search }}{% endif %}" style="display:inline-block;padding:6px 12px;font-size:.85em;color:#2563eb;text-decoration:none;border:1px solid #d1d5db;border-radius:6px;">{{ p + 1 }}</a>
         {% elif (p - page)|abs == 3 %}
           <span style="color:#9ca3af;font-size:.85em;">…</span>
         {% endif %}
       {% endfor %}
       {% if page < total_pages - 1 %}
-        <a href="/tenant/users?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}"
-           class="btn btn-secondary" style="padding:6px 14px;font-size:.85em;">Weiter →</a>
+        <a href="/tenant/users?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}" class="btn btn-secondary" style="padding:6px 14px;font-size:.85em;">Weiter →</a>
       {% endif %}
     </div>
     {% endif %}

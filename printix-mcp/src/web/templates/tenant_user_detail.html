@@ -17,8 +17,10 @@
     background:#fef3c7; color:#92400e; font-weight:700;
   }
   .role-badge.guest { background:#ede9fe; color:#5b21b6; }
-  .card-row { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; background:#f8fafc; margin-bottom:6px; }
-  .card-id { font-family:monospace; font-size:.85em; color:#374151; flex:1; word-break:break-all; }
+  .card-row { display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border-radius:8px; background:#f8fafc; margin-bottom:6px; }
+  .card-stack { flex:1; min-width:0; }
+  .card-id { font-family:monospace; font-size:.9em; color:#111827; word-break:break-all; }
+  .card-meta { font-size:.78em; color:#6b7280; margin-top:3px; word-break:break-all; }
   .btn-danger-sm { background:#ef4444; color:#fff; border:none; border-radius:6px; padding:4px 12px; font-size:.8em; cursor:pointer; }
   .btn-danger-sm:hover { background:#dc2626; }
   .flash-ok  { background:#d1fae5; color:#065f46; border:1px solid #6ee7b7; padding:10px 16px; border-radius:8px; margin-bottom:16px; }
@@ -31,21 +33,33 @@
     font-weight:700; font-size:1.4em; display:inline-flex; align-items:center;
     justify-content:center; text-transform:uppercase; flex-shrink:0;
   }
+  .transform-grid {
+    display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-top:12px;
+  }
+  .transform-field label { display:block; font-size:.8em; font-weight:700; color:#4b5563; margin-bottom:6px; }
+  .transform-field input, .transform-field select, .transform-field textarea {
+    width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:.9em; background:#fff;
+  }
+  .transform-field textarea { min-height:88px; resize:vertical; }
+  .preview-table { width:100%; border-collapse:collapse; margin-top:14px; font-size:.88em; }
+  .preview-table th, .preview-table td { border-top:1px solid #e5e7eb; padding:8px 10px; vertical-align:top; }
+  .preview-table th { text-align:left; color:#6b7280; width:220px; }
+  .preview-value { font-family:monospace; word-break:break-all; color:#111827; }
+  .hint-box { background:#eff6ff; color:#1e3a8a; border:1px solid #bfdbfe; border-radius:8px; padding:10px 12px; font-size:.84em; margin-top:10px; }
+  .checkbox-row { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:.88em; color:#374151; }
 </style>
 {% endblock %}
 {% block content %}
-<div class="container" style="max-width:900px;">
+<div class="container" style="max-width:980px;">
   <div class="card">
     <h2 class="section-title" style="margin-bottom:16px;">🖨️ {{ _('nav_tenant') }}</h2>
 
-    <!-- Sub-Tabs -->
     <div class="tenant-tabs">
       <a href="/tenant/printers" class="tenant-tab">🖨️ {{ _('tenant_tab_printers') }}</a>
       <a href="/tenant/queues"   class="tenant-tab">📋 {{ _('tenant_tab_queues') }}</a>
       <a href="/tenant/users"    class="tenant-tab active">👤 {{ _('tenant_tab_users') }}</a>
     </div>
 
-    <!-- Flash messages -->
     {% if flash == "card_added" %}
     <div class="flash-ok">✅ {{ _('user_card_added_ok') }}</div>
     {% elif flash == "card_deleted" %}
@@ -69,7 +83,6 @@
     {% set role = roles_list[0] if roles_list else px_user.get('role', 'USER') %}
     {% set is_guest = role == 'GUEST_USER' %}
 
-    <!-- User Header -->
     <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
       <div class="avatar-lg">{{ display[:1] }}</div>
       <div>
@@ -81,7 +94,6 @@
       </div>
     </div>
 
-    <!-- Info Grid -->
     <div class="info-grid">
       <span class="info-label">ID:</span>
       <span style="font-family:monospace;font-size:.82em;color:#6b7280;">{{ printix_user_id }}</span>
@@ -97,14 +109,17 @@
 
     <hr class="divider">
 
-    <!-- Cards Section -->
     <h3 style="font-size:1em;font-weight:700;margin-bottom:12px;">🃏 {{ _('user_detail_cards') }} ({{ cards|length }})</h3>
 
     {% for c in cards %}
     {% set cid = c.get('card_id') or c.get('id', '') %}
+    {% set raw_secret = c.get('secret') or c.get('cardNumber') or c.get('number') or '' %}
     <div class="card-row">
       <span style="font-size:1.2em;">🃏</span>
-      <span class="card-id">{{ cid }}</span>
+      <div class="card-stack">
+        <div class="card-id js-card-display" data-card-id="{{ cid }}" data-card-secret="{{ raw_secret }}">{{ cid }}</div>
+        <div class="card-meta js-card-meta">Stored card id: {{ cid }}</div>
+      </div>
       <form method="post" action="/tenant/users/{{ printix_user_id }}/delete-card"
             onsubmit="return confirm('{{ _('user_confirm_del_card') }}')">
         <input type="hidden" name="card_id" value="{{ cid }}">
@@ -115,31 +130,103 @@
     <p style="color:#9ca3af;font-size:.88em;font-style:italic;">No cards registered.</p>
     {% endfor %}
 
-    <!-- Add Card -->
     <div class="action-box" style="margin-top:14px;">
       <h4>➕ {{ _('user_detail_add_card') }}</h4>
-      <form method="post" action="/tenant/users/{{ printix_user_id }}/add-card"
-            style="display:flex;gap:8px;flex-wrap:wrap;">
-        <input type="text" name="card_number" placeholder="{{ _('user_detail_card_number') }}"
-               required style="flex:1;min-width:180px;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:.9em;">
-        <button type="submit" class="btn btn-primary" style="white-space:nowrap;">
-          ➕ {{ _('user_detail_add_card') }}
-        </button>
+      <form id="card-transform-form" method="post" action="/tenant/users/{{ printix_user_id }}/add-card">
+        <input type="hidden" name="card_number" id="card_number_submit" value="">
+
+        <div class="transform-grid">
+          <div class="transform-field" style="grid-column:1 / -1;">
+            <label for="card_raw_input">Raw card value</label>
+            <textarea id="card_raw_input" placeholder="Paste the value exactly as it comes from the card reader."></textarea>
+            <div class="checkbox-row">
+              <input type="checkbox" id="strip_separators" checked>
+              <label for="strip_separators" style="margin:0; font-weight:400;">Remove spaces, colons and dashes for HEX-style input</label>
+            </div>
+          </div>
+
+          <div class="transform-field">
+            <label for="card_input_mode">Input interpretation</label>
+            <select id="card_input_mode">
+              <option value="auto">Auto detect</option>
+              <option value="text">Plain text</option>
+              <option value="hex">Hex bytes</option>
+              <option value="decimal">Decimal number</option>
+            </select>
+          </div>
+
+          <div class="transform-field">
+            <label for="card_submit_mode">Value sent to Printix</label>
+            <select id="card_submit_mode">
+              <option value="raw">Raw input</option>
+              <option value="normalized">Normalized input</option>
+              <option value="hex">HEX</option>
+              <option value="hex_reversed">HEX reversed bytes</option>
+              <option value="decimal">Decimal</option>
+              <option value="decimal_reversed">Decimal reversed bytes</option>
+              <option value="base64_text">Base64 of text</option>
+            </select>
+          </div>
+
+          <div class="transform-field">
+            <label for="trim_prefix">Remove prefix</label>
+            <input id="trim_prefix" type="text" placeholder="e.g. 0x or CARD-">
+          </div>
+
+          <div class="transform-field">
+            <label for="trim_suffix">Remove suffix</label>
+            <input id="trim_suffix" type="text" placeholder="e.g. x or ;">
+          </div>
+
+          <div class="transform-field">
+            <label for="leading_zero_mode">Leading zeros</label>
+            <select id="leading_zero_mode">
+              <option value="keep">Keep</option>
+              <option value="strip">Remove all leading 0</option>
+              <option value="force_one">Force one leading 0</option>
+            </select>
+          </div>
+
+          <div class="transform-field">
+            <label for="pad_even_hex">HEX normalization</label>
+            <select id="pad_even_hex">
+              <option value="yes">Pad to even HEX length</option>
+              <option value="no">Do not pad</option>
+            </select>
+          </div>
+        </div>
+
+        <table class="preview-table">
+          <tbody>
+            <tr><th>Normalized</th><td class="preview-value" id="preview_normalized">—</td></tr>
+            <tr><th>HEX bytes</th><td class="preview-value" id="preview_hex">—</td></tr>
+            <tr><th>HEX reversed bytes</th><td class="preview-value" id="preview_hex_reversed">—</td></tr>
+            <tr><th>Decimal</th><td class="preview-value" id="preview_decimal">—</td></tr>
+            <tr><th>Decimal reversed bytes</th><td class="preview-value" id="preview_decimal_reversed">—</td></tr>
+            <tr><th>Base64(text)</th><td class="preview-value" id="preview_b64">—</td></tr>
+            <tr><th>Final submit value</th><td class="preview-value" id="preview_submit">—</td></tr>
+          </tbody>
+        </table>
+
+        <div class="hint-box">
+          Use this tool to normalize, strip, pad and transform card-reader output before saving. It is intentionally flexible for real-world reader quirks like leading zeros, suffix markers and byte-order differences.
+        </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+          <button type="button" class="btn btn-secondary" id="card_use_preview_btn">Use final preview</button>
+          <button type="submit" class="btn btn-primary">➕ {{ _('user_detail_add_card') }}</button>
+        </div>
       </form>
     </div>
 
     <hr class="divider">
 
-    <!-- Actions -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-
       {% if is_guest %}
-      <!-- Generate ID Code -->
       <form method="post" action="/tenant/users/{{ printix_user_id }}/generate-id-code">
         <button type="submit" class="btn btn-secondary">🔑 {{ _('user_detail_gen_code') }}</button>
       </form>
 
-      <!-- Delete User -->
       <form method="post" action="/tenant/users/{{ printix_user_id }}/delete"
             onsubmit="return confirm('{{ _('user_confirm_del_user') }}')">
         <button type="submit" class="btn" style="background:#ef4444;color:#fff;border:none;">
@@ -151,7 +238,6 @@
         ℹ️ Regular users (USER) are managed via directory services and cannot be deleted here.
       </span>
       {% endif %}
-
     </div>
 
     {% else %}
@@ -163,4 +249,195 @@
     </div>
   </div>
 </div>
+
+<script>
+(function () {
+  const rawEl = document.getElementById('card_raw_input');
+  if (!rawEl) return;
+
+  const inputModeEl = document.getElementById('card_input_mode');
+  const submitModeEl = document.getElementById('card_submit_mode');
+  const stripEl = document.getElementById('strip_separators');
+  const submitHiddenEl = document.getElementById('card_number_submit');
+  const trimPrefixEl = document.getElementById('trim_prefix');
+  const trimSuffixEl = document.getElementById('trim_suffix');
+  const leadingZeroModeEl = document.getElementById('leading_zero_mode');
+  const padEvenHexEl = document.getElementById('pad_even_hex');
+
+  const out = {
+    normalized: document.getElementById('preview_normalized'),
+    hex: document.getElementById('preview_hex'),
+    hexRev: document.getElementById('preview_hex_reversed'),
+    dec: document.getElementById('preview_decimal'),
+    decRev: document.getElementById('preview_decimal_reversed'),
+    b64: document.getElementById('preview_b64'),
+    submit: document.getElementById('preview_submit')
+  };
+
+  function encBase64(str) {
+    try { return btoa(unescape(encodeURIComponent(str))); } catch (e) { return '—'; }
+  }
+
+  function decBase64(str) {
+    try { return decodeURIComponent(escape(atob(str))); } catch (e) { return ''; }
+  }
+
+  function isHexString(value) {
+    return !!value && /^[0-9a-fA-F]+$/.test(value) && value.length % 2 === 0;
+  }
+
+  function reverseHexBytes(hex) {
+    if (!isHexString(hex)) return '';
+    return (hex.match(/../g) || []).reverse().join('');
+  }
+
+  function hexToDecimalString(hex) {
+    if (!isHexString(hex)) return '';
+    try { return BigInt('0x' + hex).toString(10); } catch (e) { return ''; }
+  }
+
+  function decimalToHexString(dec) {
+    if (!/^\d+$/.test(dec || '')) return '';
+    try {
+      let hex = BigInt(dec).toString(16);
+      if (padEvenHexEl.value === 'yes' && hex.length % 2 !== 0) hex = '0' + hex;
+      return hex.toUpperCase();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function applyPrefixSuffixRules(value) {
+    let v = (value || '').trim();
+    const prefix = trimPrefixEl.value || '';
+    const suffix = trimSuffixEl.value || '';
+    if (prefix && v.startsWith(prefix)) v = v.slice(prefix.length);
+    if (suffix && v.endsWith(suffix)) v = v.slice(0, -suffix.length);
+    return v;
+  }
+
+  function applyLeadingZeroRule(value) {
+    let v = value || '';
+    if (!v) return v;
+    if (leadingZeroModeEl.value === 'strip') {
+      v = v.replace(/^0+/, '');
+      return v || '0';
+    }
+    if (leadingZeroModeEl.value === 'force_one') {
+      v = v.replace(/^0+/, '');
+      return '0' + (v || '0');
+    }
+    return v;
+  }
+
+  function normalizeRaw(raw) {
+    let value = applyPrefixSuffixRules(raw || '');
+    value = value.trim();
+    if (!value) return '';
+    if (stripEl.checked) value = value.replace(/[\s:\-]/g, '');
+    value = applyLeadingZeroRule(value);
+    return value;
+  }
+
+  function detectMode(normalized, rawMode) {
+    if (rawMode !== 'auto') return rawMode;
+    if (/^\d+$/.test(normalized)) return 'decimal';
+    if (isHexString(normalized)) return 'hex';
+    return 'text';
+  }
+
+  function compute() {
+    const raw = rawEl.value || '';
+    const normalized = normalizeRaw(raw);
+    const mode = detectMode(normalized, inputModeEl.value);
+
+    let hex = '';
+    let dec = '';
+    let b64 = '';
+
+    if (mode === 'hex') {
+      hex = normalized.toUpperCase();
+      if (padEvenHexEl.value === 'yes' && hex.length % 2 !== 0) hex = '0' + hex;
+      dec = hexToDecimalString(hex);
+      b64 = encBase64(raw.trim());
+    } else if (mode === 'decimal') {
+      dec = normalized;
+      hex = decimalToHexString(dec);
+      b64 = encBase64(raw.trim());
+    } else {
+      b64 = encBase64(raw.trim());
+      const maybeHex = normalized;
+      if (isHexString(maybeHex)) {
+        hex = maybeHex.toUpperCase();
+        dec = hexToDecimalString(hex);
+      }
+    }
+
+    const hexReversed = reverseHexBytes(hex);
+    const decReversed = hexToDecimalString(hexReversed);
+
+    out.normalized.textContent = normalized || '—';
+    out.hex.textContent = hex || '—';
+    out.hexRev.textContent = hexReversed || '—';
+    out.dec.textContent = dec || '—';
+    out.decRev.textContent = decReversed || '—';
+    out.b64.textContent = b64 || '—';
+
+    const submitMode = submitModeEl.value;
+    let finalValue = raw.trim();
+    if (submitMode === 'normalized') finalValue = normalized;
+    if (submitMode === 'hex') finalValue = hex;
+    if (submitMode === 'hex_reversed') finalValue = hexReversed;
+    if (submitMode === 'decimal') finalValue = dec;
+    if (submitMode === 'decimal_reversed') finalValue = decReversed;
+    if (submitMode === 'base64_text') finalValue = b64;
+
+    submitHiddenEl.value = finalValue || '';
+    out.submit.textContent = finalValue || '—';
+  }
+
+  rawEl.addEventListener('input', compute);
+  inputModeEl.addEventListener('change', compute);
+  submitModeEl.addEventListener('change', compute);
+  stripEl.addEventListener('change', compute);
+  trimPrefixEl.addEventListener('input', compute);
+  trimSuffixEl.addEventListener('input', compute);
+  leadingZeroModeEl.addEventListener('change', compute);
+  padEvenHexEl.addEventListener('change', compute);
+
+  document.getElementById('card_use_preview_btn').addEventListener('click', function () {
+    rawEl.value = submitHiddenEl.value || rawEl.value;
+    compute();
+  });
+
+  document.getElementById('card-transform-form').addEventListener('submit', function (ev) {
+    compute();
+    if (!submitHiddenEl.value) {
+      ev.preventDefault();
+      alert('Please enter a card value first.');
+    }
+  });
+
+  document.querySelectorAll('.js-card-display').forEach(function (el) {
+    const secret = el.dataset.cardSecret || '';
+    const cid = el.dataset.cardId || '';
+    const meta = el.parentElement.querySelector('.js-card-meta');
+    if (secret) {
+      const decoded = decBase64(secret);
+      if (decoded) {
+        el.textContent = decoded;
+        if (meta) meta.textContent = 'Decoded from stored Base64 secret · Card ID: ' + cid;
+        return;
+      }
+      el.textContent = secret;
+      if (meta) meta.textContent = 'Stored card value (raw) · Card ID: ' + cid;
+      return;
+    }
+    el.textContent = cid;
+    if (meta) meta.textContent = 'Stored card id: ' + cid;
+  });
+
+  compute();
+})();
+</script>
 {% endblock %}
