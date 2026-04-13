@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.6.1 (2026-04-13) — Printix Signatur Base64 Fix
+
+### Fix — Printix-Signatur Base64 statt Hex
+- Printix sendet `x-printix-signature` als **Base64** (z.B. `YmTIM5AjLATJA97t...`)
+- Der Code verglich nur gegen `hexdigest().lower()` — Base64 ist case-sensitive,
+  `.lower()` zerstört den Wert → Mismatch bei jedem Request
+- `_try_printix_native()` vergleicht jetzt gegen drei Encodings pro Format:
+  1. Base64 standard (case-sensitive) — Printix Default
+  2. Base64 URL-safe (case-sensitive) — Fallback
+  3. Hex (case-insensitive) — Rückwärtskompatibilität
+- Debug-Log zeigt `expected_b64` und `expected_hex` nebeneinander
+
+---
+
 ## 4.6.0 (2026-04-13) — Capture Architektur-Redesign
 
 ### Breaking Change — `capture_port` durch `capture_enabled` ersetzt
