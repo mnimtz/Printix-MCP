@@ -158,10 +158,8 @@ class RicohVendor(VendorBase):
         tid = tenant.get("tenant_id") or tenant.get("printix_tenant_id") or ""
         if tid:
             prefill["tenant_id"] = str(tid)
-        # Tenant URL
+        # Tenant URL: direkt aus den Portal-Einstellungen (Pflichtfeld)
         tenant_url = tenant.get("tenant_url") or ""
-        if not tenant_url and tid:
-            tenant_url = f"https://{tid}.printix.net"
         if tenant_url:
             prefill["tenant_url"] = tenant_url
         # Go Client ID / Secret: NICHT aus Print-API-Credentials vorbelegen,

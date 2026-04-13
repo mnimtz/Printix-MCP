@@ -1421,7 +1421,7 @@ def create_app(session_secret: str) -> FastAPI:
     async def settings_post(
         request: Request,
         printix_tenant_id:    str = Form(default=""),
-        tenant_name:          str = Form(default=""),
+        tenant_url:           str = Form(default=""),
         print_client_id:      str = Form(default=""),
         print_client_secret:  str = Form(default=""),
         card_client_id:       str = Form(default=""),
@@ -1447,7 +1447,7 @@ def create_app(session_secret: str) -> FastAPI:
             update_tenant_credentials(
                 user_id=user["id"],
                 printix_tenant_id=printix_tenant_id.strip() or None,
-                name=tenant_name.strip() or None,
+                tenant_url=tenant_url.strip().rstrip("/") or None,
                 print_client_id=print_client_id.strip() or None,
                 print_client_secret=print_client_secret.strip() or None,
                 card_client_id=card_client_id.strip() or None,
