@@ -1,12 +1,12 @@
 """
-Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.0)
+Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.1)
 ===================================================================
 Kanonischer Handler fuer Printix Capture Webhooks. Wird aufgerufen von:
   - capture_server.py  (Capture Port, source="capture")
   - server.py          (MCP Port,     source="mcp")
   - capture_routes.py  (Web-UI Port,  source="web")
 
-Connector-Modell (v4.6.0):
+Connector-Modell (v4.6.1):
   - Profil-Identifikation ueber URL: /capture/webhook/{profile_id}
   - Auth: HMAC-SHA256/512 (multi-secret) + Connector Token (multi-token)
   - Event-Typen: FileDeliveryJobReady, DocumentCaptured, ScanComplete, etc.
@@ -226,7 +226,7 @@ async def handle_webhook(
     source: str = "unknown",
 ) -> tuple[int, dict[str, Any]]:
     """
-    Kanonischer Capture-Webhook-Handler (v4.6.0).
+    Kanonischer Capture-Webhook-Handler (v4.6.1).
 
     Processing steps:
       1. Profile lookup
@@ -258,7 +258,7 @@ async def handle_webhook(
             "status": "ok",
             "profile_id": profile_id,
             "endpoint": f"/capture/webhook/{profile_id}",
-            "version": "4.6.0",
+            "version": "4.6.1",
         }
 
     # ── Nur POST akzeptieren ────────────────────────────────────────────────
@@ -405,7 +405,7 @@ def _handle_debug(
     source: str,
 ) -> tuple[int, dict[str, Any]]:
     """
-    Enhanced Debug-Endpoint (v4.6.0):
+    Enhanced Debug-Endpoint (v4.6.1):
     - Shows detected auth method
     - Shows parsed event type and fields
     - Shows which required fields are present/missing
@@ -489,7 +489,7 @@ def _handle_debug(
         "timestamp": datetime.now().isoformat(),
         "method": method,
         "source": source,
-        "version": "4.6.0",
+        "version": "4.6.1",
         "auth": auth_info,
         "payload": field_analysis,
         "headers": headers,
