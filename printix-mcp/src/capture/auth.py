@@ -1,14 +1,14 @@
 """
-Capture Authentication — Multi-Method Verification (v4.6.3)
+Capture Authentication — Multi-Method Verification (v4.6.4)
 ===========================================================
 Supports the Printix/Tungsten Capture Connector authentication model:
 
 1. Printix Native Signature (x-printix-signature)
-   — Official Printix docs (printix.github.io): HMAC-SHA512 over raw body.
-   — Tried FIRST: body-only + SHA512 (documented format).
-   — Then fallback: body-only + SHA256, then exhaustive canonical strings.
-   — Supports comma-separated multi-signatures (key rotation).
-   — Secret may be raw UTF-8 or Base64-encoded.
+   — Signature length determines algorithm:
+     44 chars Base64 = SHA-256 (32 bytes), 88 chars = SHA-512 (64 bytes)
+   — Tries body-only FIRST, then canonical strings with timestamp/path
+   — Supports comma-separated multi-signatures (key rotation)
+   — Secret may be raw UTF-8 or Base64-encoded key material
 2. HMAC Signature (x-printix-signature-256 / x-printix-signature-512)
    — Body-only HMAC, multiple secrets for key rotation
 3. Hub Signature (x-hub-signature-256)
@@ -18,18 +18,11 @@ Supports the Printix/Tungsten Capture Connector authentication model:
 5. require_signature flag per profile
    — Enforces that at least one auth method must succeed
 
-Headers checked (in priority order):
-  x-printix-signature          — Printix native (HMAC-SHA512 body-only per docs)
-  x-printix-signature-256      — HMAC-SHA256 (body only)
-  x-printix-signature-512      — HMAC-SHA512 (body only)
-  x-hub-signature-256          — Generic webhook signature (GitHub-style)
-  authorization                — Bearer token
-  x-connector-token            — Alternative connector token header
-
-Companion headers (informational, NOT part of signature base per docs):
-  x-printix-timestamp          — Unix timestamp
-  x-printix-request-path       — Original request path
-  x-printix-request-id         — Request correlation ID
+Diagnostic logging (v4.6.4):
+  — Full received signature logged (not truncated)
+  — Every candidate (key × format) logged with full expected Base64
+  — Key material described (utf8/b64dec, length, preview)
+  — Body SHA-256 hash logged for independent verification
 """
 
 import base64
@@ -79,34 +72,28 @@ def _get_key_variants(secret: str) -> list[tuple[bytes, str]]:
     """
     Get all plausible key byte representations for a secret string.
     Returns list of (key_bytes, description).
-
-    Many webhook APIs store the shared secret as Base64. The raw bytes
-    obtained by decoding are then used as HMAC key. We try both:
-      1. Raw UTF-8 bytes of the secret string
-      2. Base64-decoded bytes (if valid Base64)
     """
     variants: list[tuple[bytes, str]] = []
 
     # 1. Raw UTF-8 (most common for simple secrets)
-    variants.append((secret.encode("utf-8"), "utf8"))
+    raw = secret.encode("utf-8")
+    variants.append((raw, f"utf8({len(raw)}B)"))
 
     # 2. Base64-decoded (common for Azure/Tungsten APIs)
     try:
         decoded = base64.b64decode(secret)
-        # Only use if it actually decoded to something different
-        if decoded != secret.encode("utf-8"):
-            variants.append((decoded, "b64dec"))
+        if decoded != raw:
+            variants.append((decoded, f"b64dec({len(decoded)}B)"))
     except Exception:
         pass
 
     # 3. Base64 URL-safe decoded
     try:
         decoded = base64.urlsafe_b64decode(secret)
-        if decoded != secret.encode("utf-8"):
-            # Avoid duplicate if same as standard b64
+        if decoded != raw:
             existing = [v[0] for v in variants]
             if decoded not in existing:
-                variants.append((decoded, "b64url_dec"))
+                variants.append((decoded, f"b64url({len(decoded)}B)"))
     except Exception:
         pass
 
@@ -148,12 +135,90 @@ def _compare_sig(expected_bytes: bytes, received_str: str) -> tuple[bool, str]:
 def _parse_comma_sigs(sig_value: str) -> list[str]:
     """
     Parse potentially comma-separated signatures (key rotation).
-    Printix may send multiple signatures for seamless key rotation:
-      x-printix-signature: sig1,sig2
     Returns list of individual signature strings.
     """
     parts = [s.strip() for s in sig_value.split(",") if s.strip()]
     return parts if parts else [sig_value]
+
+
+def _detect_algo_from_sig(sig_value: str) -> str:
+    """
+    Detect likely HMAC algorithm from Base64 signature length.
+      44 chars (32 bytes) → SHA-256
+      28 chars (20 bytes) → SHA-1
+      88 chars (64 bytes) → SHA-512
+    """
+    sig = _strip_prefix(sig_value).rstrip("=")
+    # Estimate raw byte length from Base64
+    raw_len = len(sig) * 3 // 4
+    if raw_len == 32:
+        return "sha256"
+    if raw_len == 64:
+        return "sha512"
+    if raw_len == 20:
+        return "sha1"
+    return "unknown"
+
+
+def _build_canonical_payloads(
+    body_bytes: bytes,
+    timestamp: str,
+    request_path: str,
+    request_id: str,
+) -> list[tuple[bytes, str]]:
+    """
+    Build all canonical payload variants for HMAC computation.
+    Order: body-only first, then increasingly complex formats.
+    """
+    payloads: list[tuple[bytes, str]] = []
+    ts = timestamp
+    path = request_path
+    rid = request_id
+
+    # 1. Body only (most likely per Printix Cloud API docs)
+    payloads.append((body_bytes, "body-only"))
+
+    # 2. Dot-separated with timestamp
+    if ts:
+        payloads.append((f"{ts}.".encode() + body_bytes, "ts.body"))
+
+    # 3. Dot-separated with timestamp + path
+    if ts and path:
+        payloads.append((f"{ts}.{path}.".encode() + body_bytes, "ts.path.body"))
+        payloads.append((f"{ts}.{path}".encode() + body_bytes, "ts.path+body(no-trail-dot)"))
+
+    # 4. Reversed: path.timestamp.body
+    if ts and path:
+        payloads.append((f"{path}.{ts}.".encode() + body_bytes, "path.ts.body"))
+
+    # 5. With HTTP method
+    if ts and path:
+        payloads.append((f"POST.{path}.{ts}.".encode() + body_bytes, "POST.path.ts.body"))
+        payloads.append((f"POST.{ts}.{path}.".encode() + body_bytes, "POST.ts.path.body"))
+
+    # 6. No separator
+    if ts and path:
+        payloads.append((f"{ts}{path}".encode() + body_bytes, "ts+path+body(nosep)"))
+    if ts:
+        payloads.append((f"{ts}".encode() + body_bytes, "ts+body(nosep)"))
+
+    # 7. Newline-separated
+    if ts and path:
+        payloads.append((f"{ts}\n{path}\n".encode() + body_bytes, "ts\\npath\\nbody"))
+    if ts:
+        payloads.append((f"{ts}\n".encode() + body_bytes, "ts\\nbody"))
+
+    # 8. With request ID
+    if ts and path and rid:
+        payloads.append((f"{ts}.{path}.{rid}.".encode() + body_bytes, "ts.path.rid.body"))
+        payloads.append((f"{ts}.{rid}.{path}.".encode() + body_bytes, "ts.rid.path.body"))
+
+    # 9. Path without leading slash
+    if ts and path and path.startswith("/"):
+        path_clean = path.lstrip("/")
+        payloads.append((f"{ts}.{path_clean}.".encode() + body_bytes, "ts.path(noslash).body"))
+
+    return payloads
 
 
 def _try_printix_native(
@@ -165,124 +230,108 @@ def _try_printix_native(
     request_id: str,
 ) -> tuple[bool, int, str]:
     """
-    Printix native signature verification (v4.6.3).
+    Focused Printix native signature verification (v4.6.4).
 
-    Per official Printix docs (printix.github.io):
-      x-printix-signature = HMAC-SHA512 over the raw request body.
-
-    Verification order (fast path first):
-      1. DOCUMENTED: body-only + SHA-512 (all key variants, all encodings)
-      2. FALLBACK:   body-only + SHA-256 (common alternative)
-      3. EXHAUSTIVE: canonical strings with timestamp/path (undocumented Capture variants)
-
-    Also handles comma-separated multi-signatures (key rotation).
+    Detects algorithm from signature length (44 chars = SHA-256),
+    then tries all key variants × canonical formats × encodings.
+    Logs every candidate at INFO level for diagnostics.
 
     Returns (matched, secret_index, description_of_match).
     """
-    # Parse comma-separated signatures (key rotation support)
     sig_candidates = _parse_comma_sigs(sig_value)
+    payloads = _build_canonical_payloads(body_bytes, timestamp, request_path, request_id)
+
+    # Detect expected algo from signature length
+    detected_algo = _detect_algo_from_sig(sig_candidates[0])
+
+    # Order algos: detected first, then others
+    all_algos: list[tuple[str, type]] = [
+        ("sha256", hashlib.sha256),
+        ("sha512", hashlib.sha512),
+        ("sha1", hashlib.sha1),
+    ]
+    if detected_algo == "sha512":
+        all_algos = [("sha512", hashlib.sha512), ("sha256", hashlib.sha256), ("sha1", hashlib.sha1)]
+    elif detected_algo == "sha1":
+        all_algos = [("sha1", hashlib.sha1), ("sha256", hashlib.sha256), ("sha512", hashlib.sha512)]
+    # else sha256 first (default) — matches 44-char sig
 
     for sig in sig_candidates:
         sig_clean = _strip_prefix(sig)
 
-        # ── FAST PATH: Documented format (body-only) ───────────────────────
-        # Per printix.github.io: HMAC-SHA512 over raw body
-        for algo_name, algo in [("sha512", hashlib.sha512), ("sha256", hashlib.sha256)]:
-            for secret_idx, secret in enumerate(secrets):
-                for key_bytes, key_desc in _get_key_variants(secret):
-                    mac = _hmac.new(key_bytes, body_bytes, algo)
-                    matched, enc = _compare_sig(mac.digest(), sig_clean)
-                    if matched:
-                        desc = (f"key={key_desc}, algo={algo_name}, "
-                                f"format=body-only(documented), encoding={enc}")
-                        logger.info("Auth: ✓ MATCH via documented format: %s", desc)
-                        return True, secret_idx, desc
-
-        # ── EXHAUSTIVE: Canonical strings with timestamp/path ──────────────
-        # Undocumented but possible for Capture Connector API
-        algos: list[tuple[str, type]] = [
-            ("sha512", hashlib.sha512),
-            ("sha256", hashlib.sha256),
-            ("sha1", hashlib.sha1),
-        ]
-
-        extra_payloads: list[tuple[bytes, str]] = []
-        ts = timestamp
-        path = request_path
-        rid = request_id
-
-        if ts and path:
-            extra_payloads.append((f"{ts}.{path}.".encode() + body_bytes, "ts.path.body(dot-trail)"))
-            extra_payloads.append((f"{ts}.{path}".encode() + body_bytes, "ts.path+body(dot-notrail)"))
-            extra_payloads.append((f"{ts}{path}".encode() + body_bytes, "ts+path+body(nosep)"))
-            extra_payloads.append((f"{ts}\n{path}\n".encode() + body_bytes, "ts\\npath\\nbody"))
-
-        if ts:
-            extra_payloads.append((f"{ts}.".encode() + body_bytes, "ts.body(dot-trail)"))
-            extra_payloads.append((f"{ts}".encode() + body_bytes, "ts+body(nosep)"))
-            extra_payloads.append((f"{ts}\n".encode() + body_bytes, "ts\\nbody"))
-
-        if ts and path and rid:
-            extra_payloads.append((f"{ts}.{path}.{rid}.".encode() + body_bytes, "ts.path.rid.body"))
-            extra_payloads.append((f"{ts}.{rid}.{path}.".encode() + body_bytes, "ts.rid.path.body"))
-
-        if ts and path:
-            path_clean = path.lstrip("/")
-            extra_payloads.append((f"{ts}.{path_clean}.".encode() + body_bytes, "ts.path_noslash.body"))
-
         for secret_idx, secret in enumerate(secrets):
             for key_bytes, key_desc in _get_key_variants(secret):
-                for algo_name, algo in algos:
-                    for payload, fmt_desc in extra_payloads:
-                        mac = _hmac.new(key_bytes, payload, algo)
+                for algo_name, algo_cls in all_algos:
+                    for payload, fmt_desc in payloads:
+                        mac = _hmac.new(key_bytes, payload, algo_cls)
                         matched, enc = _compare_sig(mac.digest(), sig_clean)
                         if matched:
                             desc = (f"key={key_desc}, algo={algo_name}, "
                                     f"format={fmt_desc}, encoding={enc}")
-                            logger.info("Auth: ✓ MATCH via canonical string: %s", desc)
+                            logger.info("Auth: MATCH — %s", desc)
                             return True, secret_idx, desc
 
     return False, -1, ""
 
 
-def _debug_log_mismatch(
+def _diagnostic_log(
     body_bytes: bytes,
     sig_value: str,
     secrets: list[str],
     timestamp: str,
     request_path: str,
+    request_id: str,
 ):
-    """Log detailed debug info for signature mismatch diagnosis (v4.6.3)."""
-    sig_stripped = _strip_prefix(sig_value)
+    """
+    v4.6.4: Detailed diagnostic log for signature mismatch.
+    Logs at INFO level so it's visible in standard logs.
+    Shows full values, not truncated.
+    """
+    sig_clean = _strip_prefix(sig_value)
+    detected_algo = _detect_algo_from_sig(sig_value)
+    body_hash = hashlib.sha256(body_bytes).hexdigest()
+
+    logger.info("┏━━━ SIGNATURE DIAGNOSTIC (v4.6.4) ━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logger.info("┃ received_sig  = %s", sig_clean)
+    logger.info("┃ sig_len       = %d chars → detected algo: %s", len(sig_clean), detected_algo)
+    logger.info("┃ timestamp     = %s", timestamp or "(none)")
+    logger.info("┃ request_path  = %s", request_path or "(none)")
+    logger.info("┃ request_id    = %s", request_id or "(none)")
+    logger.info("┃ body_len      = %d bytes", len(body_bytes))
+    logger.info("┃ body_sha256   = %s", body_hash)
+    logger.info("┃ secrets       = %d configured", len(secrets))
+
     if not secrets:
+        logger.info("┗━━━ NO SECRETS — cannot compute candidates")
         return
 
-    secret = secrets[0]
-    key_variants = _get_key_variants(secret)
+    # Focus on detected algo (sha256 for 44-char sig)
+    if detected_algo == "sha256":
+        focus_algos = [("sha256", hashlib.sha256)]
+    elif detected_algo == "sha512":
+        focus_algos = [("sha512", hashlib.sha512)]
+    else:
+        focus_algos = [("sha256", hashlib.sha256), ("sha512", hashlib.sha512)]
 
-    # Show key info (without revealing the full secret)
-    for key_bytes, key_desc in key_variants:
-        logger.debug("Auth debug: key_variant=%s key_len=%d key_preview=%s...",
-                     key_desc, len(key_bytes), key_bytes[:4].hex())
+    payloads = _build_canonical_payloads(body_bytes, timestamp, request_path, request_id)
 
-    # Show documented format (body-only) prominently, then canonical strings
-    core_formats = [
-        ("body-only(documented)", body_bytes),
-        ("ts.path.body", f"{timestamp}.{request_path}.".encode() + body_bytes),
-        ("ts.body", f"{timestamp}.".encode() + body_bytes),
-    ]
-    for key_bytes, key_desc in key_variants:
-        for fmt_name, payload in core_formats:
-            # SHA-512 first (documented), then SHA-256
-            for algo_name, algo in [("sha512", hashlib.sha512), ("sha256", hashlib.sha256)]:
-                mac = _hmac.new(key_bytes, payload, algo)
-                exp_b64 = base64.b64encode(mac.digest()).decode("ascii")
-                exp_hex = mac.digest().hex()
-                logger.debug("Auth debug: key=%s algo=%s fmt=%s → b64=%s... hex=%s...",
-                             key_desc, algo_name, fmt_name, exp_b64[:24], exp_hex[:24])
+    for s_idx, secret in enumerate(secrets):
+        key_variants = _get_key_variants(secret)
+        logger.info("┃")
+        logger.info("┃ Secret #%d: %d key variants", s_idx + 1, len(key_variants))
 
-    logger.debug("Auth debug: received sig=%s... (len=%d)",
-                 sig_stripped[:24], len(sig_stripped))
+        for key_bytes, key_desc in key_variants:
+            logger.info("┃   Key: %s (preview: %s...)", key_desc, key_bytes[:6].hex())
+
+            for algo_name, algo_cls in focus_algos:
+                for payload, fmt_desc in payloads:
+                    mac = _hmac.new(key_bytes, payload, algo_cls)
+                    expected_b64 = base64.b64encode(mac.digest()).decode("ascii")
+                    match_marker = "✓ MATCH" if _hmac.compare_digest(sig_clean, expected_b64) else "✗"
+                    logger.info("┃     %s %s [%s] → %s",
+                                match_marker, algo_name, fmt_desc, expected_b64)
+
+    logger.info("┗━━━ END DIAGNOSTIC ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 
 def verify_capture_auth(
@@ -327,39 +376,32 @@ def verify_capture_auth(
             request_path = headers.get("x-printix-request-path", "")
             request_id = headers.get("x-printix-request-id", "")
 
-            # v4.6.3: Note comma-separated signatures (key rotation)
+            detected_algo = _detect_algo_from_sig(sig_native)
             n_sigs = len(_parse_comma_sigs(sig_native))
-            logger.info("Auth: Printix native signature detected "
-                        "(sigs=%d, timestamp=%s, path=%s, request_id=%s)",
-                        n_sigs,
-                        timestamp or "(none)", request_path or "(none)",
-                        request_id or "(none)")
-            logger.info("Auth: Trying documented format first: "
-                        "HMAC-SHA512 over raw body (per printix.github.io)")
+            sig_len = len(_strip_prefix(sig_native))
+
+            logger.info("Auth: x-printix-signature detected — "
+                        "len=%d → %s, sigs=%d, ts=%s, path=%s",
+                        sig_len, detected_algo, n_sigs,
+                        timestamp or "(none)", request_path or "(none)")
 
             matched, idx, desc = _try_printix_native(
                 body_bytes, sig_native, secrets, timestamp, request_path, request_id
             )
             if matched:
-                detail = (f"Printix native signature verified "
+                detail = (f"Printix signature verified "
                           f"(secret #{idx + 1}/{len(secrets)}, {desc})")
                 logger.info("Auth: %s", detail)
                 return AuthResult(True, "printix-native", detail, idx)
 
-            # Mismatch — log exhaustive debug info
-            n_keys = sum(len(_get_key_variants(s)) for s in secrets)
-            logger.warning("Auth: Printix native signature mismatch "
-                           "(tried %d secrets, %d key variants, 3 algos, "
-                           "body-only(documented) + 10 canonical formats, 4 encodings, "
-                           "%d sig candidates)",
-                           len(secrets), n_keys, n_sigs)
-            _debug_log_mismatch(body_bytes, sig_native, secrets, timestamp, request_path)
+            # Mismatch — full diagnostic dump at INFO level
+            logger.warning("Auth: Printix signature mismatch — running full diagnostic")
+            _diagnostic_log(body_bytes, sig_native, secrets,
+                            timestamp, request_path, request_id)
 
             return AuthResult(False, "printix-native",
-                              f"Printix native signature mismatch "
-                              f"(exhaustive: {len(secrets)} secrets, "
-                              f"{n_sigs} sig candidates, "
-                              f"tried HMAC-SHA512 body-only first per docs)")
+                              f"Signature mismatch (sig_len={sig_len}, "
+                              f"algo={detected_algo}, secrets={len(secrets)})")
 
         # ── 1b. x-printix-signature-256 / x-hub-signature-256 ─────────────
         sig_256 = headers.get("x-printix-signature-256", "") or headers.get("x-hub-signature-256", "")

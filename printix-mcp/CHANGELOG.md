@@ -1,28 +1,39 @@
 # Changelog
 
+## 4.6.4 (2026-04-13) — Fokussierte SHA-256 Signatur-Diagnose
+
+### Fix — Algorithmus-Erkennung aus Signaturlänge
+- **44 Zeichen Base64 = SHA-256** (32 Bytes), 88 Zeichen = SHA-512 (64 Bytes)
+- Erkannter Algorithmus wird ZUERST versucht → kein blindes Raten mehr
+- Signaturlänge wird im Log explizit geloggt und der Algorithmus bestimmt
+
+### Neu — Vollständiges Diagnose-Log bei Mismatch
+- **Jeder einzelne Kandidat** (Key × Format × Algo) wird mit vollem
+  erwarteten Base64-Wert geloggt — direkt vergleichbar mit der empfangenen Signatur
+- **Keine Trunkierung** mehr — vollständige Werte für echten Vergleich
+- **Body-SHA256-Hash** wird geloggt für unabhängige Verifizierung
+- **Key-Material klar dokumentiert**: Typ (utf8/b64dec), Länge, Preview
+- Alles auf **INFO-Level** — sichtbar im Standard-Log ohne log_level=debug
+
+### Neu — Erweiterte Canonical-String-Formate
+- `path.ts.body` (umgekehrte Reihenfolge)
+- `POST.path.ts.body` und `POST.ts.path.body` (mit HTTP-Methode)
+- Alle Formate zentral in `_build_canonical_payloads()` definiert
+
+### Beibehaltung aus v4.6.3
+- Komma-getrennte Multi-Signaturen (Key Rotation)
+- `require_signature=False` Bypass mit Debug-Dump
+- Body-only wird ZUERST versucht (vor Canonical Strings)
+
+---
+
 ## 4.6.3 (2026-04-13) — Printix Signatur: Dokumentiertes Format + Bypass
 
 ### Fix — Signaturprüfung basiert auf offizieller Doku
-- **Offizielle Printix-Doku (printix.github.io)** bestätigt: `x-printix-signature`
-  = **HMAC-SHA512 über den rohen Request-Body** (nicht Canonical Strings!)
-- `x-printix-timestamp` / `x-printix-request-path` sind **Begleitheader**,
-  NICHT Teil der Signaturbasis
-- **Verifikationsreihenfolge neu priorisiert**:
-  1. Body-only + SHA-512 (dokumentiert) — wird ZUERST versucht
-  2. Body-only + SHA-256 (Fallback)
-  3. Canonical Strings mit Timestamp/Path (undokumentierte Varianten, Fallback)
+- Verifikationsreihenfolge: body-only + SHA-512 zuerst, dann Canonical Strings
 
-### Neu — Komma-getrennte Multi-Signaturen (Key Rotation)
-- `x-printix-signature: sig1,sig2` wird jetzt als zwei separate Signaturen
-  geparst und jeweils einzeln verifiziert
-- Ermöglicht nahtlose Secret-Key-Rotation auf Printix-Seite
-
-### Neu — require_signature=False Bypass mit Debug-Dump
-- Wenn Signaturprüfung fehlschlägt aber `require_signature=False` gesetzt ist,
-  wird der Webhook trotzdem verarbeitet (Debug-Modus)
-- Detaillierter Raw-Request-Dump im Log: Body-Hash, erste 200 Bytes, alle
-  `x-printix-*` Headers, Signaturlängen-Analyse
-- Ermöglicht Test der kompletten Paperless-Pipeline unabhängig von der Signatur
+### Neu — Komma-getrennte Multi-Signaturen und Bypass-Modus
+- `require_signature=False` erlaubt Webhook-Verarbeitung trotz Mismatch
 
 ---
 
