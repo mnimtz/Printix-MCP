@@ -30,6 +30,7 @@ Companion headers (informational, used in canonical string):
   x-printix-request-id         — Request correlation ID
 """
 
+import base64
 import hashlib
 import hmac as _hmac
 import logging
@@ -76,6 +77,11 @@ def _try_hmac(body_bytes: bytes, sig_value: str, secrets: list[str], algo) -> tu
     return False, -1
 
 
+def _is_base64(s: str) -> bool:
+    """Heuristic: contains uppercase or +/= chars typical of Base64 but not hex."""
+    return any(c in s for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZz+/=")
+
+
 def _try_printix_native(
     body_bytes: bytes,
     sig_value: str,
@@ -94,9 +100,15 @@ def _try_printix_native(
       2. "{timestamp}.{body}"                 — without path
       3. body only                            — simplest variant
 
+    The signature can be either:
+      - Base64-encoded (Printix default): e.g. "YmTIM5AjLATJA97t..."
+      - Hex-encoded: e.g. "6264c8339023..."
+
+    Base64 is case-SENSITIVE, hex is case-insensitive.
+
     Returns (matched, secret_index, canonical_format_used).
     """
-    sig_clean = _strip_prefix(sig_value).lower()
+    sig_stripped = _strip_prefix(sig_value)
 
     # Build candidate signing payloads in priority order
     candidates: list[tuple[bytes, str]] = []
@@ -114,9 +126,22 @@ def _try_printix_native(
 
     for payload, fmt_desc in candidates:
         for i, secret in enumerate(secrets):
-            expected = _hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
-            if _hmac.compare_digest(sig_clean, expected.lower()):
-                return True, i, fmt_desc
+            mac = _hmac.new(secret.encode("utf-8"), payload, hashlib.sha256)
+
+            # Try Base64 comparison (case-sensitive, Printix default)
+            expected_b64 = base64.b64encode(mac.digest()).decode("ascii")
+            if _hmac.compare_digest(sig_stripped, expected_b64):
+                return True, i, f"{fmt_desc} [base64]"
+
+            # Try Base64 URL-safe variant (some APIs use this)
+            expected_b64url = base64.urlsafe_b64encode(mac.digest()).decode("ascii")
+            if _hmac.compare_digest(sig_stripped, expected_b64url):
+                return True, i, f"{fmt_desc} [base64url]"
+
+            # Try hex comparison (case-insensitive)
+            expected_hex = mac.hexdigest()
+            if _hmac.compare_digest(sig_stripped.lower(), expected_hex.lower()):
+                return True, i, f"{fmt_desc} [hex]"
 
     return False, -1, ""
 
@@ -186,17 +211,20 @@ def verify_capture_auth(
                 return AuthResult(True, "printix-native", detail, idx)
 
             logger.warning("Auth: Printix native signature mismatch "
-                           "(tried %d secrets x 3 canonical formats)", len(secrets))
+                           "(tried %d secrets x 3 formats x 3 encodings)", len(secrets))
             # Log expected vs received for first secret (debug aid)
+            sig_stripped = _strip_prefix(sig_native)
             if secrets:
                 for payload_desc, payload in [
                     ("ts.path.body", f"{timestamp}.{request_path}.".encode() + body_bytes),
                     ("ts.body", f"{timestamp}.".encode() + body_bytes),
                     ("body", body_bytes),
                 ]:
-                    exp = _hmac.new(secrets[0].encode(), payload, hashlib.sha256).hexdigest()
-                    logger.debug("Auth debug: format=%s expected=%s... got=%s...",
-                                 payload_desc, exp[:16], _strip_prefix(sig_native).lower()[:16])
+                    mac = _hmac.new(secrets[0].encode(), payload, hashlib.sha256)
+                    exp_b64 = base64.b64encode(mac.digest()).decode("ascii")
+                    exp_hex = mac.hexdigest()
+                    logger.debug("Auth debug: format=%s expected_b64=%s... expected_hex=%s... got=%s...",
+                                 payload_desc, exp_b64[:20], exp_hex[:16], sig_stripped[:20])
 
             return AuthResult(False, "printix-native",
                               f"Printix native signature mismatch "
