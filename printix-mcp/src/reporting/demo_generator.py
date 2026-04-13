@@ -549,6 +549,16 @@ def _gen_print_jobs(
     jobs_rows: list[tuple] = []
     tracking_rows: list[tuple] = []
 
+    # v4.4.15: Realistische Fehlerquoten für Service-Desk-Report
+    ERROR_STATUSES = [
+        "PRINT_FAILED",       # Allgemeiner Druckfehler
+        "PRINT_CANCELLED",    # Vom Benutzer abgebrochen
+        "PRINTER_OFFLINE",    # Drucker nicht erreichbar
+        "PAPER_JAM",          # Papierstau
+        "TONER_EMPTY",        # Toner leer
+    ]
+    ERROR_RATE = 0.03  # 3% aller Jobs schlagen fehl
+
     user_weights = [rng.uniform(0.3, 2.5) for _ in users]
 
     for day in working_days:
@@ -569,9 +579,10 @@ def _gen_print_jobs(
                     job_id, tenant_id, color, duplex, pages, paper,
                     printer["id"], ts, user["id"], fname, session_id,
                 ))
+                status = rng.choice(ERROR_STATUSES) if rng.random() < ERROR_RATE else "PRINT_OK"
                 tracking_rows.append((
                     job_id, tenant_id, pages, color, duplex, ts,
-                    printer["id"], "PRINT_OK", session_id,
+                    printer["id"], status, session_id,
                 ))
 
     return jobs_rows, tracking_rows

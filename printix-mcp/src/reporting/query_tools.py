@@ -906,12 +906,42 @@ def query_anomalies(
         logger.warning("SQL query failed (anomalies), using demo-only: %s", e)
         sql_results = []
 
-    # v4.4.14: Demo-Daten mergen — Anomalien muessen bei geaenderten Tageswerten
-    # komplett neu berechnet werden, daher recompute in Python
+    # v4.4.15: Demo-Daten mergen — Anomalien muessen auf kombinierten
+    # SQL+Demo Tageswerten komplett neu berechnet werden (z-Scores).
+    # Die SQL-CTE liefert nur Anomalie-Tage, nicht alle. Daher:
+    # 1) Separate SQL-Abfrage fuer ALLE Tages-Totals
+    # 2) Demo-Tages-Totals aggregieren
+    # 3) Kombinieren (key-based merge auf Tag)
+    # 4) Statistik + z-Scores komplett neu berechnen
     if _has_active_demo():
         demo_rows = _get_demo_rows(start_date, end_date)
         if demo_rows:
-            # Aggregate demo daily
+            # Step 1: Alle SQL-Tageswerte holen (nicht nur Anomalien)
+            sql_daily: dict[str, dict] = {}
+            try:
+                daily_sql = f"""
+                    SELECT
+                        CAST(print_time AS DATE) AS print_day,
+                        SUM(page_count) AS daily_pages,
+                        COUNT(DISTINCT job_id) AS daily_jobs
+                    FROM {_V('tracking_data')}
+                    WHERE tenant_id = ?
+                      AND print_time >= ?
+                      AND print_time < DATEADD(day, 1, CAST(? AS DATE))
+                      AND print_job_status = 'PRINT_OK'
+                    GROUP BY CAST(print_time AS DATE)
+                """
+                sql_daily_rows = query_fetchall(daily_sql, params)
+                for r in sql_daily_rows:
+                    d = str(r.get("print_day", ""))[:10]
+                    sql_daily[d] = {
+                        "pages": int(r.get("daily_pages") or 0),
+                        "jobs": int(r.get("daily_jobs") or 0),
+                    }
+            except Exception:
+                pass  # SQL nicht verfuegbar — nur Demo-Daten
+
+            # Step 2: Demo-Tageswerte aggregieren
             daily_demo: dict[str, dict] = {}
             for r in demo_rows:
                 d = str(_parse_demo_date(str(r.get("print_time", ""))))
@@ -920,16 +950,18 @@ def query_anomalies(
                 daily_demo[d]["pages"] += int(r.get("page_count") or 0)
                 daily_demo[d]["job_ids"].add(r.get("job_id", ""))
 
-            # Merge with SQL daily data (SQL results have anomaly-flagged rows only;
-            # we need ALL daily totals for proper stats, so rebuild from scratch)
-            # Since SQL only returns anomaly rows (not all days), we use demo-only
-            # approach if demo data exists: aggregate all days, compute z-scores
+            # Step 3: Key-based merge auf Tages-Ebene
             daily_all: dict[str, dict] = {}
-            # Sadly SQL anomalies CTE only returns anomaly rows. We need to re-aggregate
-            # from tracking_data. Use demo data directly for the full picture.
+            for d, v in sql_daily.items():
+                daily_all[d] = {"pages": v["pages"], "jobs": v["jobs"]}
             for d, v in daily_demo.items():
-                daily_all[d] = {"pages": v["pages"], "jobs": len(v["job_ids"])}
+                if d in daily_all:
+                    daily_all[d]["pages"] += v["pages"]
+                    daily_all[d]["jobs"] += len(v["job_ids"])
+                else:
+                    daily_all[d] = {"pages": v["pages"], "jobs": len(v["job_ids"])}
 
+            # Step 4: Statistik + z-Scores komplett neu berechnen
             if daily_all:
                 pages_list = [v["pages"] for v in daily_all.values()]
                 n = len(pages_list)
@@ -939,7 +971,7 @@ def query_anomalies(
                     threshold = avg_p + threshold_multiplier * std_p
                     low_threshold = max(0, avg_p - threshold_multiplier * std_p)
 
-                    demo_anomalies = []
+                    combined_anomalies = []
                     for day, v in sorted(daily_all.items()):
                         z = round((v["pages"] - avg_p) / std_p, 2) if std_p else 0
                         if v["pages"] > threshold:
@@ -948,18 +980,16 @@ def query_anomalies(
                             status = "ANOMALIE_NIEDRIG"
                         else:
                             continue  # normal — skip
-                        demo_anomalies.append({
+                        combined_anomalies.append({
                             "print_day": day, "daily_pages": v["pages"],
                             "daily_jobs": v["jobs"],
                             "avg_pages": round(avg_p), "std_pages": round(std_p),
                             "threshold": round(threshold), "z_score": z,
                             "status": status,
                         })
-                    # Merge: add demo anomalies for days not already in SQL results
-                    existing_days = {str(r.get("print_day", ""))[:10] for r in sql_results}
-                    for da in demo_anomalies:
-                        if da["print_day"] not in existing_days:
-                            sql_results.append(da)
+                    # Ersetze SQL-Ergebnis komplett — die neuen z-Scores basieren
+                    # auf kombinierten Daten und sind daher korrekter
+                    sql_results = combined_anomalies
                     sql_results.sort(key=lambda x: abs(x.get("daily_pages", 0) - x.get("avg_pages", 0)), reverse=True)
 
     return sql_results
@@ -1020,7 +1050,34 @@ def query_trend(
         logger.warning("SQL query failed (trend p2): %s", e)
         p2 = {}
 
-    # v4.4.14: Demo-Daten mergen
+    # v4.4.15: Demo-Daten mergen — distinct sets fuer active_users/printers
+    def _get_sql_distinct_ids(start, end):
+        """Holt distinct user_ids und printer_ids aus SQL fuer korrekte Merge."""
+        try:
+            sql_u = f"""
+                SELECT DISTINCT j.tenant_user_id
+                FROM {_V('tracking_data')} td
+                JOIN {_V('jobs')} j ON j.id = td.job_id AND j.tenant_id = td.tenant_id
+                WHERE td.tenant_id = ?
+                  AND td.print_time >= ? AND td.print_time < DATEADD(day, 1, CAST(? AS DATE))
+                  AND td.print_job_status = 'PRINT_OK'
+            """
+            sql_p = f"""
+                SELECT DISTINCT td.printer_id
+                FROM {_V('tracking_data')} td
+                WHERE td.tenant_id = ?
+                  AND td.print_time >= ? AND td.print_time < DATEADD(day, 1, CAST(? AS DATE))
+                  AND td.print_job_status = 'PRINT_OK'
+            """
+            p = (tenant_id, _fmt_date(start), _fmt_date(end))
+            u_rows = query_fetchall(sql_u, p)
+            p_rows = query_fetchall(sql_p, p)
+            sql_users = {str(r.get("tenant_user_id", "")) for r in u_rows if r.get("tenant_user_id")}
+            sql_printers = {str(r.get("printer_id", "")) for r in p_rows if r.get("printer_id")}
+            return sql_users, sql_printers
+        except Exception:
+            return set(), set()
+
     def _merge_trend_period(sql_row, start, end):
         if not _has_active_demo():
             return sql_row
@@ -1028,14 +1085,14 @@ def query_trend(
         if not demo_rows:
             return sql_row
         job_ids = set()
-        user_ids = set()
-        printer_ids = set()
+        demo_user_ids = set()
+        demo_printer_ids = set()
         tp = cp = bp = dp = 0
         tc = 0.0
         for r in demo_rows:
             job_ids.add(r.get("job_id", ""))
-            user_ids.add(r.get("user_email", ""))
-            printer_ids.add(r.get("printer_id", ""))
+            demo_user_ids.add(r.get("user_email", ""))
+            demo_printer_ids.add(r.get("printer_id", ""))
             pc = int(r.get("page_count") or 0)
             is_color = bool(int(r.get("color") or 0))
             is_duplex = bool(int(r.get("duplex") or 0))
@@ -1045,14 +1102,18 @@ def query_trend(
             if is_duplex: dp += pc
             sheets = math.ceil(pc / 2) if is_duplex else pc
             tc += sheets * cost_per_sheet + pc * (cost_per_color if is_color else cost_per_mono)
+        # Distinct union fuer active_users/printers
+        sql_users, sql_printers = _get_sql_distinct_ids(start, end)
+        all_users = sql_users | demo_user_ids
+        all_printers = sql_printers | demo_printer_ids
         merged = dict(sql_row)
         merged["total_jobs"] = (merged.get("total_jobs") or 0) + len(job_ids)
         merged["total_pages"] = (merged.get("total_pages") or 0) + tp
         merged["color_pages"] = (merged.get("color_pages") or 0) + cp
         merged["bw_pages"] = (merged.get("bw_pages") or 0) + bp
         merged["duplex_pages"] = (merged.get("duplex_pages") or 0) + dp
-        merged["active_users"] = (merged.get("active_users") or 0) + len(user_ids)
-        merged["active_printers"] = (merged.get("active_printers") or 0) + len(printer_ids)
+        merged["active_users"] = len(all_users) if all_users else (merged.get("active_users") or 0) + len(demo_user_ids)
+        merged["active_printers"] = len(all_printers) if all_printers else (merged.get("active_printers") or 0) + len(demo_printer_ids)
         merged["total_cost"] = round((merged.get("total_cost") or 0) + tc, 2)
         return merged
 
@@ -1145,7 +1206,7 @@ def query_printer_history(
         logger.warning("SQL query failed (printer_history), using demo-only: %s", e)
         sql_results = []
 
-    # v4.4.14: Demo-Daten mergen
+    # v4.4.15: Demo-Daten key-based merge (period + printer_name)
     if _has_active_demo():
         demo_rows = _get_demo_rows(start_date, end_date)
         if demo_rows:
@@ -1155,13 +1216,18 @@ def query_printer_history(
             if site_id:
                 filtered = [r for r in filtered if r.get("network_id") == site_id]
             if filtered:
-                groups = defaultdict(list)
+                demo_groups = defaultdict(list)
                 for r in filtered:
                     d = _parse_demo_date(str(r.get("print_time", "")))
                     pk = str(d) if group_by == "day" else str(_demo_week_start(d)) if group_by == "week" else str(_demo_month_start(d))
                     pn = r.get("printer_name", "Unknown")
-                    groups[(pk, pn)].append(r)
-                for (period, pn), rows in groups.items():
+                    demo_groups[(pk, pn)].append(r)
+                # Build index of existing SQL rows by (period, printer_name)
+                sql_index: dict[tuple, dict] = {}
+                for r in sql_results:
+                    k = (str(r.get("period", ""))[:10], r.get("printer_name", ""))
+                    sql_index[k] = r
+                for (period, pn), rows in demo_groups.items():
                     job_ids = set()
                     tp = cp = bp = dp = 0
                     model = site = ""
@@ -1174,13 +1240,24 @@ def query_printer_history(
                         if bool(int(r.get("duplex") or 0)): dp += pc
                         model = model or r.get("model_name", "")
                         site = site or r.get("network_name", "")
-                    sql_results.append({
-                        "period": period, "printer_name": pn,
-                        "model_name": model, "site_name": site,
-                        "total_jobs": len(job_ids), "total_pages": tp,
-                        "color_pages": cp, "bw_pages": bp, "duplex_pages": dp,
-                        "duplex_pct": round(dp * 100.0 / tp, 1) if tp else 0,
-                    })
+                    key = (period, pn)
+                    if key in sql_index:
+                        e = sql_index[key]
+                        e["total_jobs"] = (e.get("total_jobs") or 0) + len(job_ids)
+                        e["total_pages"] = (e.get("total_pages") or 0) + tp
+                        e["color_pages"] = (e.get("color_pages") or 0) + cp
+                        e["bw_pages"] = (e.get("bw_pages") or 0) + bp
+                        e["duplex_pages"] = (e.get("duplex_pages") or 0) + dp
+                        mtp = e.get("total_pages", 0)
+                        e["duplex_pct"] = round(e.get("duplex_pages", 0) * 100.0 / mtp, 1) if mtp else 0
+                    else:
+                        sql_results.append({
+                            "period": period, "printer_name": pn,
+                            "model_name": model, "site_name": site,
+                            "total_jobs": len(job_ids), "total_pages": tp,
+                            "color_pages": cp, "bw_pages": bp, "duplex_pages": dp,
+                            "duplex_pct": round(dp * 100.0 / tp, 1) if tp else 0,
+                        })
 
     return sql_results
 
@@ -1446,7 +1523,7 @@ def query_queue_stats(
         logger.warning("SQL query failed (queue_stats), using demo-only: %s", e)
         sql_results = []
 
-    # v4.4.14: Demo-Daten mergen
+    # v4.4.15: Demo-Daten key-based merge (paper_size + color + duplex)
     if _has_active_demo():
         demo_rows = _get_demo_rows(start_date, end_date)
         if demo_rows:
@@ -1465,13 +1542,23 @@ def query_queue_stats(
                                        "job_ids": set(), "total_pages": 0}
                     combos[key]["job_ids"].add(r.get("job_id", ""))
                     combos[key]["total_pages"] += int(r.get("page_count") or 0)
-                for combo in combos.values():
-                    sql_results.append({
-                        "paper_size": combo["paper_size"], "color": combo["color"],
-                        "duplex": combo["duplex"], "total_jobs": len(combo["job_ids"]),
-                        "total_pages": combo["total_pages"], "pct_of_total": 0,
-                    })
-                # Recalculate pct_of_total
+                # Build index of existing SQL rows by (paper_size, color, duplex)
+                sql_index: dict[tuple, dict] = {}
+                for r in sql_results:
+                    k = (r.get("paper_size", "UNKNOWN"), int(r.get("color") or 0), int(r.get("duplex") or 0))
+                    sql_index[k] = r
+                for key, combo in combos.items():
+                    if key in sql_index:
+                        e = sql_index[key]
+                        e["total_jobs"] = (e.get("total_jobs") or 0) + len(combo["job_ids"])
+                        e["total_pages"] = (e.get("total_pages") or 0) + combo["total_pages"]
+                    else:
+                        sql_results.append({
+                            "paper_size": combo["paper_size"], "color": combo["color"],
+                            "duplex": combo["duplex"], "total_jobs": len(combo["job_ids"]),
+                            "total_pages": combo["total_pages"], "pct_of_total": 0,
+                        })
+                # Recalculate pct_of_total on merged data
                 grand = sum(r.get("total_pages", 0) for r in sql_results)
                 if grand:
                     for r in sql_results:
@@ -1805,8 +1892,15 @@ def query_workstation_overview(
             "WHERE TABLE_SCHEMA IN ('dbo','reporting') AND TABLE_NAME IN ('workstations','v_workstations')"
         )
         if not (tbl_check or {}).get("cnt"):
+            # v4.4.15: Klare Meldung wenn nur Demo-Daten aktiv
+            if _has_active_demo():
+                return [{"info": "Workstation-Daten sind in Demo-Daten nicht enthalten. "
+                         "Dieser Report erfordert eine Azure SQL Datenbank mit dbo.workstations-Tabelle."}]
             return [{"info": "workstations-Tabelle nicht in diesem Schema vorhanden"}]
     except Exception:
+        if _has_active_demo():
+            return [{"info": "Workstation-Daten sind in Demo-Daten nicht enthalten. "
+                     "Dieser Report erfordert eine Azure SQL Datenbank mit dbo.workstations-Tabelle."}]
         return [{"info": "workstations-Tabelle nicht in diesem Schema vorhanden"}]
 
     where_extra = ""
@@ -1861,8 +1955,14 @@ def query_workstation_detail(
             "WHERE TABLE_SCHEMA IN ('dbo','reporting') AND TABLE_NAME IN ('workstations','v_workstations')"
         )
         if not (tbl_check or {}).get("cnt"):
+            if _has_active_demo():
+                return [{"info": "Workstation-Daten sind in Demo-Daten nicht enthalten. "
+                         "Dieser Report erfordert eine Azure SQL Datenbank mit dbo.workstations-Tabelle."}]
             return [{"info": "workstations-Tabelle nicht in diesem Schema vorhanden"}]
     except Exception:
+        if _has_active_demo():
+            return [{"info": "Workstation-Daten sind in Demo-Daten nicht enthalten. "
+                     "Dieser Report erfordert eine Azure SQL Datenbank mit dbo.workstations-Tabelle."}]
         return [{"info": "workstations-Tabelle nicht in diesem Schema vorhanden"}]
 
     group_expr = {
@@ -2064,7 +2164,7 @@ def query_service_desk(
         logger.warning("SQL query failed (service_desk), using demo-only: %s", e)
         sql_results = []
 
-    # v4.4.14: Demo-Daten mergen (nur Jobs mit Status != PRINT_OK)
+    # v4.4.15: Demo-Daten key-based merge (group_key + status)
     if _has_active_demo():
         demo_rows = _get_demo_rows(start_date, end_date)
         if demo_rows:
@@ -2074,7 +2174,7 @@ def query_service_desk(
             if user_email:
                 failed = [r for r in failed if r.get("user_email") == user_email]
             if failed:
-                groups: dict[tuple, list[dict]] = defaultdict(list)
+                demo_groups: dict[tuple, list[dict]] = defaultdict(list)
                 for r in failed:
                     status = r.get("print_job_status", "UNKNOWN")
                     if group_by == "status":
@@ -2087,8 +2187,13 @@ def query_service_desk(
                         gk = r.get("user_email", "Unknown")
                     else:
                         gk = status
-                    groups[(gk, status)].append(r)
-                for (gk, status), rows in groups.items():
+                    demo_groups[(gk, status)].append(r)
+                # Build index of existing SQL rows by (group_key, status)
+                sql_index: dict[tuple, dict] = {}
+                for r in sql_results:
+                    k = (str(r.get("group_key", "")), str(r.get("print_job_status", "")))
+                    sql_index[k] = r
+                for (gk, status), rows in demo_groups.items():
                     job_ids = set()
                     tp = 0
                     last = ""
@@ -2097,11 +2202,20 @@ def query_service_desk(
                         tp += int(r.get("page_count") or 0)
                         pt = str(r.get("print_time", ""))
                         if pt > last: last = pt
-                    sql_results.append({
-                        "group_key": gk, "print_job_status": status,
-                        "total_jobs": len(job_ids), "total_pages": tp,
-                        "last_occurrence": last,
-                    })
+                    key = (gk, status)
+                    if key in sql_index:
+                        e = sql_index[key]
+                        e["total_jobs"] = (e.get("total_jobs") or 0) + len(job_ids)
+                        e["total_pages"] = (e.get("total_pages") or 0) + tp
+                        el = str(e.get("last_occurrence", ""))
+                        if last > el:
+                            e["last_occurrence"] = last
+                    else:
+                        sql_results.append({
+                            "group_key": gk, "print_job_status": status,
+                            "total_jobs": len(job_ids), "total_pages": tp,
+                            "last_occurrence": last,
+                        })
 
     return sql_results
 
@@ -2280,14 +2394,18 @@ def query_sensitive_documents(
         _print_src = "dbo.jobs"
         _print_filename_expr = "j.name"
 
-    # Entscheide Scan-Quelle (dbo.jobs_scan hat i.d.R. keinen filename — nur
-    # die neue reporting.v_jobs_scan kennt ihn via demo-Migration).
+    # v4.4.15: Entscheide Scan-Quelle — demo.jobs_scan existiert NICHT in
+    # Azure SQL (Demo-Daten liegen in lokaler SQLite seit v4.4.0).
+    # Nur die reporting.v_jobs_scan-View hat ein filename-Feld.
+    # Wenn die View nicht vorhanden ist, wird der Scan-SQL-Zweig deaktiviert
+    # und Demo-Scan-Daten werden weiter unten per Python gemerged.
     if include_scans:
         if _jobs_scan_tbl.startswith("reporting.") and _view_has_column(_jobs_scan_tbl, "filename"):
             _scan_src = _jobs_scan_tbl
         else:
-            # Scan-View stale — direkt auf demo.jobs_scan mit filename
-            _scan_src = "demo.jobs_scan"
+            # View stale oder nicht vorhanden — SQL-Scan-Branch deaktivieren,
+            # Demo-Merge weiter unten liefert Scan-Daten aus SQLite
+            _scan_src = None
     else:
         _scan_src = None
 
@@ -2318,7 +2436,7 @@ def query_sensitive_documents(
     # aus v_jobs (dort als `name`/`filename` aliased); Scan-Jobs brauchen
     # ebenfalls einen `filename`-Alias im View `reporting.v_jobs_scan`.
     scan_union = ""
-    if include_scans:
+    if _scan_src:  # v4.4.15: nur wenn View tatsaechlich vorhanden
         scan_union = f"""
             UNION ALL
             SELECT
@@ -2382,7 +2500,7 @@ def query_sensitive_documents(
     # 3) keyword like_params (einmal, auf aggregiertem q)
     # 4) extra filters (site_id, user_email)
     params: list = [tenant_id, _fmt_date(start_date), _fmt_date(end_date)]
-    if include_scans:
+    if _scan_src:  # v4.4.15: nur wenn SQL-Scan-Branch aktiv
         params.extend([tenant_id, _fmt_date(start_date), _fmt_date(end_date)])
     params.extend(like_params)
     params.extend(extra_params)
