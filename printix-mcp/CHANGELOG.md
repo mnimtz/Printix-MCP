@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.6.15 (2026-04-13) — Tenant URL als Pflichtfeld in Einstellungen
+
+### Änderung — Einstellungsseite: Tenant URL statt Tenant Name
+- Neues Pflichtfeld "Tenant URL" ersetzt "Tenant Name" unter Einstellungen
+- Placeholder: `https://firmenname.printix.net`
+- DB-Migration: neue Spalte `tenant_url` in tenants
+- Trailing Slash wird automatisch entfernt beim Speichern
+- Package Builder nutzt die gespeicherte Tenant URL für Vorbelegung
+- Kein Fallback-Raten mehr aus der Tenant ID
+
 ## 4.6.14 (2026-04-13) — Clientless / Zero Trust Package Builder
 
 ### Neu — Package Builder unter Druckerflotte → `/fleet/package-builder`

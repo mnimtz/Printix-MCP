@@ -150,7 +150,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE tenants ADD COLUMN mail_from_name TEXT NOT NULL DEFAULT ''")
         if "poller_state" not in existing_t:
             conn.execute("ALTER TABLE tenants ADD COLUMN poller_state TEXT NOT NULL DEFAULT '{}'")
-
+        if "tenant_url" not in existing_t:
+            conn.execute("ALTER TABLE tenants ADD COLUMN tenant_url TEXT NOT NULL DEFAULT ''")
     # v3.9.1: bearer_token_hash — indexierter SHA-256-Lookup (O(1) statt
     # Full-Table-Scan über alle Tenants bei jedem authenticated Request).
     # Der Hash ist nicht sensitiv: der Bearer-Token hat 48 Bytes Zufall (>384 Bit),
@@ -777,6 +778,7 @@ def get_tenant_full_by_user_id(user_id: str) -> Optional[dict]:
     return {
         "id":                  d["id"],
         "name":                d["name"],
+        "tenant_url":          d.get("tenant_url", ""),
         "printix_tenant_id":   d["printix_tenant_id"],
         "print_client_id":     d["print_client_id"],
         "print_client_secret": _dec(d.get("print_client_secret", "")),
@@ -817,6 +819,7 @@ def update_tenant_credentials(
     user_id: str,
     printix_tenant_id: Optional[str] = None,
     name: Optional[str] = None,
+    tenant_url: Optional[str] = None,
     print_client_id: Optional[str] = None,
     print_client_secret: Optional[str] = None,
     card_client_id: Optional[str] = None,
@@ -847,6 +850,7 @@ def update_tenant_credentials(
             params.append(_enc(val) if encrypt and val else val)
 
     _add("name",                 name)
+    _add("tenant_url",           tenant_url)
     _add("printix_tenant_id",    printix_tenant_id)
     _add("print_client_id",      print_client_id)
     _add("print_client_secret",  print_client_secret, encrypt=True)
