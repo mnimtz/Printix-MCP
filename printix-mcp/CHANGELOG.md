@@ -1,5 +1,50 @@
 # Changelog
 
+## 4.5.2 (2026-04-13) — Capture Connector Model
+
+### Feature — Printix/Tungsten Capture Connector Alignment
+- **Multi-Secret HMAC**: Mehrere HMAC-Secrets pro Profil (zeilengetrennt) —
+  Key-Rotation ohne Downtime, alle Secrets werden bei Verifizierung durchprobiert
+- **Multi-Token Connector Auth**: Mehrere Connector-Tokens pro Profil —
+  `Authorization: Bearer <token>` und `x-connector-token` Header
+- **`require_signature` Flag**: Pro Profil konfigurierbar ob Authentifizierung
+  Pflicht ist — ohne Flag gilt Printix-Kompatibilitaetsmodus (Requests ohne
+  Credentials werden akzeptiert)
+- **Neues `capture/auth.py` Modul**: Ersetzt `hmac_verify.py` mit `AuthResult`
+  Dataclass, Multi-Secret/Token-Support, `x-hub-signature-256` Support
+
+### Feature — CaptureEvent Model
+- **Strukturiertes Event-Modell**: `CaptureEvent` Dataclass mit event_type,
+  document_url, filename, system_metadata, index_fields, content_type, file_size,
+  user_name, device_name, timestamp
+- **Bekannte Event-Typen**: FileDeliveryJobReady, DocumentCaptured, ScanComplete,
+  ScanJobCompleted, JobCreated/Completed/Failed/Cancelled, etc.
+- **System-Metadaten vs. Index Fields**: Klare Trennung zwischen
+  Plattform-Metadaten (tenant_id, user, device, job_id) und benutzerdefinierten
+  Index-Feldern (indexFields/metadata)
+- **Payload-Validierung**: Strukturierte Pruefung mit Warnungen fuer fehlende/
+  unbekannte Felder
+
+### Feature — Erweitertes Capture-Profilmodell
+- **3 neue DB-Spalten**: `require_signature`, `metadata_format`, `index_fields_json`
+- **Metadata Format**: flat (key-value), structured (system + index), passthrough
+- **Index Field Definitions**: JSON-Array zur Definition erwarteter Custom-Felder
+- **UI-Update**: Textarea fuer Multi-Secrets/Tokens, Checkbox fuer
+  require_signature, Select fuer metadata_format, Textarea fuer index_fields
+
+### Feature — Enhanced Debug Endpoint
+- Debug-Antwort zeigt jetzt: erkannte Auth-Methode, geparseter Event-Typ,
+  vorhandene/fehlende Pflichtfelder, ob Payload dem Capture-Format entspricht,
+  System-Metadaten und Validierungswarnungen
+
+### Feature — Strukturiertes Capture-Logging
+- Jeder Verarbeitungsschritt mit eigenem Log-Marker:
+  `[step:profile]`, `[step:auth]`, `[step:parse]`, `[step:event]`,
+  `[step:validate]`, `[step:plugin]`, `[step:process]`
+- Auth-Methode und Event-Details im Capture-Log (details-Feld)
+
+---
+
 ## 4.5.1 (2026-04-13) — Fleet Fix + HA Schema Fix
 
 ### Fix — config.yaml Schema-Validierung (KRITISCH)
