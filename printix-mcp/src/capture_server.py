@@ -1,5 +1,5 @@
 """
-Printix Capture Server — Standalone Webhook Endpoint (v4.6.13)
+Printix Capture Server — Standalone Webhook Endpoint (v4.6.14)
 =============================================================
 Optionaler dedizierter Server nur fuer Capture Webhooks.
 Laeuft IMMER auf Container-Port 8775 (fest, passend zu config.yaml ports).
@@ -64,7 +64,7 @@ def create_capture_app() -> FastAPI:
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "service": "capture", "version": "4.6.13"}
+        return {"status": "ok", "service": "capture", "version": "4.6.14"}
 
     # ── Capture Webhook ──────────────────────────────────────────────────────
 
@@ -160,7 +160,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     logger.info("╔══════════════════════════════════════════════════════════════╗")
-    logger.info("║        PRINTIX CAPTURE SERVER v4.6.13 — STANDALONE           ║")
+    logger.info("║        PRINTIX CAPTURE SERVER v4.6.14 — STANDALONE           ║")
     logger.info("╠══════════════════════════════════════════════════════════════╣")
     logger.info("║  Host:     %s:%d", host, port)
     logger.info("║  Webhook:  %s/capture/webhook/<profile_id>", base)

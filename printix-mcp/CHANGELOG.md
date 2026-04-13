@@ -1,5 +1,38 @@
 # Changelog
 
+## 4.6.14 (2026-04-13) — Clientless / Zero Trust Package Builder
+
+### Neu — Package Builder unter Druckerflotte → `/fleet/package-builder`
+
+Wizard-Assistent für herstellerspezifische Clientless-/Zero-Trust-Installerpakete.
+
+**Ricoh-Adapter (erster Hersteller):**
+- Erkennt Ricoh-Pakete via `PrintixGoRicohInstaller/deploysetting.json`
+- Versionstolerant: sucht nach Glob-Mustern statt fixen Dateinamen
+  (`rxspServletPackage-*.zip`, `rxspServlet-*.zip`, `rxspservletsop-*.zip`)
+- Öffnet 3-stufige ZIP-Verschachtelung vollständig in-Memory
+- Patcht DALP-XML strukturiert via `xml.etree.ElementTree` (kein String-Replacement)
+- Liest `deploysetting.json` aus → findet inneres RXSP-Paket dynamisch
+- Patcht `rxspServlet.dalp`: `<description type="detail">` → `servlet_url`
+- `rxspservletsop.dalp` bereits erkannt (read-only, Regeln vorbereitet)
+- Baut alle ZIP-Ebenen korrekt neu (äußer → inner → sub-ZIPs)
+
+**Vorbelegung aus Tenant-Kontext:**
+- `tenant_id`, `tenant_url`, `client_id`, `public_url` (→ servlet_url-Basis) vorausgefüllt
+- Client Secret nie automatisch befüllt (Security)
+
+**Architektur (mehrherstellerfähig):**
+- `src/package_builder/core.py` — Orchestrator, Session-Management
+- `src/package_builder/vendors/base.py` — Abstrakte Basisklasse
+- `src/package_builder/vendors/__init__.py` — Auto-Discovery (pkgutil)
+- `src/package_builder/vendors/ricoh.py` — Ricoh-Adapter
+- `src/package_builder/models.py` — Datenmodelle (FieldSchema, AnalysisResult etc.)
+
+**Sicherheit:**
+- ZIPs temporär (`tempfile.mkdtemp`), automatische Bereinigung nach 1h oder Download
+- Secrets erscheinen nie in Logs
+- Tenantbezogene Isolation (nur eigene Daten)
+
 ## 4.6.13 (2026-04-13) — Workstation Online/Offline Toggle-Filter
 
 ### Neu — Status-Filter für Workstations
