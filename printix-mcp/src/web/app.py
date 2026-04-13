@@ -46,8 +46,8 @@ import os
 import logging
 from typing import Optional
 
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import FastAPI, Request, Form, UploadFile, File
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -62,6 +62,10 @@ def create_app(session_secret: str) -> FastAPI:
     app.add_middleware(SessionMiddleware, secret_key=session_secret, max_age=3600 * 8)
 
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+    # ── Package Builder (singleton, lebt für die Laufzeit der App) ────────────
+    from package_builder import PackageBuilderCore as _PBC
+    _pkg_builder = _PBC()
 
     # ── i18n ──────────────────────────────────────────────────────────────────
 
@@ -1208,6 +1212,101 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception as e:
             logger.error("Fleet /fleet/data Fehler: %s", e, exc_info=True)
             return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+    # ── Package Builder — Clientless / Zero Trust ─────────────────────────────
+
+    @app.get("/fleet/package-builder", response_class=HTMLResponse)
+    async def pkg_builder_page(request: Request):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        vendors = _pkg_builder.get_vendors_list()
+        return templates.TemplateResponse("fleet_package_builder.html", {
+            "request": request, "user": user,
+            "vendors": vendors, **tc,
+        })
+
+    @app.post("/fleet/package-builder/upload")
+    async def pkg_builder_upload(
+        request: Request,
+        vendor_id: str = Form(""),
+        file: UploadFile = File(...),
+    ):
+        user = require_login(request)
+        if user is None:
+            return JSONResponse({"ok": False, "error": "Nicht angemeldet."}, status_code=401)
+
+        file_bytes = await file.read()
+        session_id, error = _pkg_builder.receive_upload(
+            file_bytes,
+            filename=file.filename or "package.zip",
+            vendor_id=vendor_id or None,
+        )
+        if not session_id:
+            return JSONResponse({"ok": False, "error": error})
+
+        # Tenant-Kontext für Vorbelegung
+        tenant = None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+        except Exception:
+            pass
+
+        result = _pkg_builder.analyze(session_id, tenant=tenant)
+        if not result.ok:
+            _pkg_builder.cleanup_session(session_id)
+            return JSONResponse({"ok": False, "error": result.error})
+
+        resp = result.to_dict()
+        resp["session_id"] = session_id
+        resp["original_filename"] = file.filename or "package.zip"
+        return JSONResponse(resp)
+
+    @app.post("/fleet/package-builder/patch")
+    async def pkg_builder_patch(request: Request):
+        user = require_login(request)
+        if user is None:
+            return JSONResponse({"ok": False, "error": "Nicht angemeldet."}, status_code=401)
+
+        body = await request.json()
+        session_id = body.get("session_id", "")
+        field_values: dict = body.get("fields", {})
+        original_filename: str = body.get("original_filename", "package.zip")
+
+        if not session_id:
+            return JSONResponse({"ok": False, "error": "Keine Session-ID."})
+
+        result = _pkg_builder.patch(session_id, field_values, original_filename)
+        resp = result.to_dict()
+        if result.ok:
+            notes = _pkg_builder.get_install_notes(session_id, field_values)
+            resp["install_notes"] = notes
+        return JSONResponse(resp)
+
+    @app.get("/fleet/package-builder/download/{session_id}")
+    async def pkg_builder_download(request: Request, session_id: str):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+
+        path, filename = _pkg_builder.get_download_path(session_id)
+        if not path:
+            return HTMLResponse("<h2>Download nicht verfügbar oder abgelaufen.</h2>", status_code=404)
+
+        import asyncio as _aio
+        # Nach dem Senden bereinigen (verzögert, damit FileResponse fertig ist)
+        async def _cleanup():
+            await _aio.sleep(5)
+            _pkg_builder.cleanup_session(session_id)
+
+        _aio.create_task(_cleanup())
+        return FileResponse(
+            path=path,
+            filename=filename,
+            media_type="application/zip",
+        )
 
     # ── Sustainability Report (v4.3.3) ────────────────────────────────────────
 
