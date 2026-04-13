@@ -1,5 +1,5 @@
 """
-Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.8)
+Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.19)
 ===================================================================
 Kanonischer Handler fuer Printix Capture Webhooks. Wird aufgerufen von:
   - capture_server.py  (Capture Port, source="capture")

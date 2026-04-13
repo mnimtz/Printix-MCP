@@ -1,6 +1,12 @@
 # Changelog
 
-## 4.6.15 (2026-04-13) — Tenant URL als Pflichtfeld in Einstellungen
+## 4.6.19 (2026-04-13) — Fix Tenant URL Feld-Styling
+
+### Fix — `input[type=url]` fehlte im globalen CSS
+- `input[type=url]` zu den CSS-Selektoren in `base.html` hinzugefügt (Haupt-Styling + Responsive)
+- Tenant URL Feld hat jetzt identisches Padding, Border-Radius und Breite wie alle anderen Felder
+
+## 4.6.18 (2026-04-13) — Tenant URL als Pflichtfeld in Einstellungen
 
 ### Änderung — Einstellungsseite: Tenant URL statt Tenant Name
 - Neues Pflichtfeld "Tenant URL" ersetzt "Tenant Name" unter Einstellungen
