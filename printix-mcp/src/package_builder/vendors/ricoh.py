@@ -1,19 +1,24 @@
 """
 Package Builder — Ricoh Adapter
-Verarbeitet mehrstufig verschachtelte Ricoh-Installerpakete.
+Patcht Printix Go Ricoh DALP-Dateien für Clientless / Zero Trust Deployment.
 
-Paketstruktur (versionstolerant):
-  äußeres ZIP
-    PrintixGoRicohInstaller/
-      deploysetting.json       ← steuert den Build
-      config.json              ← Runtime-Launcher (read-only)
-      acl.dist                 ← ACL (read-only)
-      rxspServletPackage-*.zip ← inneres Paket (Version variiert)
-        app_install_settings.xml
-        rxspServlet-*.zip
-          rxspServlet.dalp     ← Patch-Ziel 1 (Pflicht)
-        rxspservletsop-*.zip
-          rxspservletsop.dalp  ← Patch-Ziel 2 (optional)
+Unterstützte Pakettypen:
+  1. Einfaches Go-Ricoh-ZIP: enthält .dalp + .apk direkt
+     → Offizieller Download von printix.net → Software → Ricoh (ZIP)
+  2. Installer-Paket (PrintixGoRicohInstaller): verschachtelte ZIP-Struktur
+     → Enthält deploysetting.json + rxspServletPackage-*.zip
+
+DALP-Patch-Ziel: <app-extension>-Sektion
+  Laut offizieller Printix-Doku müssen folgende Tags in <app-extension>
+  hinzugefügt oder aktualisiert werden:
+    <EnableRegistration>true</EnableRegistration>
+    <ClientID>...</ClientID>
+    <ClientSecret>...</ClientSecret>
+    <TenantId>...</TenantId>
+    <TenantUrl>...</TenantUrl>
+
+  Credentials stammen aus einer Printix-Anwendung vom Typ "Go registration"
+  (NICHT Print API!) — erstellt unter Applications im Printix-Admin.
 """
 from __future__ import annotations
 
@@ -36,60 +41,20 @@ logger = logging.getLogger("printix.package_builder.ricoh")
 RICOH_ROOT_FOLDER = "PrintixGoRicohInstaller"
 RICOH_DEPLOY_SETTING = "deploysetting.json"
 
-# ── Muster für versionierte Dateinamen ────────────────────────────────────────
-
+# Muster für versionierte Dateinamen (Installer-Paket)
 INNER_PKG_PATTERN = "rxspServletPackage-*.zip"
 SERVLET_ZIP_PATTERN = "rxspServlet-*.zip"
 SOP_ZIP_PATTERN = "rxspservletsop-*.zip"
 
-# ── DALP-Patch-Regeln ─────────────────────────────────────────────────────────
-# Jede Regel mappt ein UI-Feld auf eine XPath-Stelle im DALP-XML.
-# attribute=None → Text-Content des Elements
-# attribute="name" → Attributwert
-
-SERVLET_DALP_RULES = [
-    {
-        "xpath": ".//description[@type='detail']",
-        "attribute": None,
-        "field": "servlet_url",
-        "optional": False,
-    },
-    {
-        "xpath": ".//property[@name='tenantId']",
-        "attribute": "value",
-        "field": "tenant_id",
-        "optional": True,
-    },
-    {
-        "xpath": ".//property[@name='tenantUrl']",
-        "attribute": "value",
-        "field": "tenant_url",
-        "optional": True,
-    },
-    {
-        "xpath": ".//property[@name='clientId']",
-        "attribute": "value",
-        "field": "client_id",
-        "optional": True,
-    },
-    {
-        "xpath": ".//property[@name='clientSecret']",
-        "attribute": "value",
-        "field": "client_secret",
-        "optional": True,
-    },
-    # Installer-URL: Hostteil automatisch aus servlet_url ableiten
-    {
-        "xpath": ".//installer",
-        "attribute": "url",
-        "field": "__auto_installer_url",
-        "optional": True,
-        "derived": True,  # wird aus servlet_url hergeleitet
-    },
-]
-
-# rxspservletsop.dalp: aktuell read-only; Regeln für spätere Erweiterung vorbereitet
-SOP_DALP_RULES: list = []
+# ── DALP <app-extension> Tag-Mapping ──────────────────────────────────────────
+# XML-Tagname → Feldschlüssel im UI
+APP_EXT_TAGS: Dict[str, str] = {
+    "EnableRegistration": "enable_registration",
+    "ClientID": "go_client_id",
+    "ClientSecret": "go_client_secret",
+    "TenantId": "tenant_id",
+    "TenantUrl": "tenant_url",
+}
 
 
 class RicohVendor(VendorBase):
@@ -97,16 +62,23 @@ class RicohVendor(VendorBase):
 
     VENDOR_ID = "ricoh"
     VENDOR_DISPLAY = "Ricoh"
-    VENDOR_DESCRIPTION = "Printix Go für Ricoh-Geräte (rxspServlet / DALP)"
+    VENDOR_DESCRIPTION = "Printix Go für Ricoh-Geräte (DALP / Clientless)"
 
     # ── Erkennung ──────────────────────────────────────────────────────────────
 
     def detect(self, zip_namelist: List[str]) -> bool:
-        """True wenn das Paket einen PrintixGoRicohInstaller/-Ordner mit deploysetting.json hat."""
+        """
+        Erkennt zwei Pakettypen:
+        1. Einfaches Go-Ricoh-ZIP: enthält *.dalp direkt
+        2. Installer: PrintixGoRicohInstaller/ mit deploysetting.json
+        """
+        # Typ 1: einfaches ZIP mit DALP
+        if any(n.lower().endswith(".dalp") for n in zip_namelist):
+            return True
+        # Typ 2: Installer-Paket
         has_folder = any(n.startswith(RICOH_ROOT_FOLDER + "/") for n in zip_namelist)
         has_deploy = any(
-            n == f"{RICOH_ROOT_FOLDER}/{RICOH_DEPLOY_SETTING}"
-            or n.endswith(f"/{RICOH_DEPLOY_SETTING}")
+            n.split("/")[-1] == RICOH_DEPLOY_SETTING
             for n in zip_namelist
         )
         return has_folder and has_deploy
@@ -116,56 +88,60 @@ class RicohVendor(VendorBase):
     def get_fields(self) -> List[FieldSchema]:
         return [
             FieldSchema(
-                key="servlet_url",
-                label="Servlet-URL",
-                field_type="url",
-                required=True,
-                placeholder="https://servername:51443/rxsp",
-                help_text=(
-                    "Basis-URL des rxspServlet-Endpunkts. "
-                    "Wird in <description type=\"detail\"> in rxspServlet.dalp eingetragen."
-                ),
-                group="Verbindung",
+                key="enable_registration",
+                label="Enable Registration",
+                field_type="checkbox",
+                required=False,
+                default="true",
+                help_text="Aktiviert die Geräteregistrierung. Standardmäßig true.",
+                group="Registrierung",
                 order=10,
+            ),
+            FieldSchema(
+                key="go_client_id",
+                label="Client ID (Go Registration)",
+                field_type="text",
+                required=True,
+                placeholder="236b1f58-adab-4888-ba05-acfc9a804523",
+                help_text=(
+                    "Client ID aus einer Printix-Anwendung vom Typ 'Go registration'. "
+                    "Erstellt unter Applications im Printix-Admin."
+                ),
+                group="Go Registration",
+                order=20,
+            ),
+            FieldSchema(
+                key="go_client_secret",
+                label="Client Secret (Go Registration)",
+                field_type="password",
+                required=True,
+                placeholder="",
+                help_text=(
+                    "Client Secret der Go-Registration-App. "
+                    "Wird beim Erstellen nur einmal angezeigt! "
+                    "Wird weder gespeichert noch geloggt."
+                ),
+                group="Go Registration",
+                order=30,
             ),
             FieldSchema(
                 key="tenant_id",
                 label="Tenant ID",
                 field_type="text",
                 required=True,
-                placeholder="printix-tenant-id",
-                help_text="Printix Tenant ID aus den API-Einstellungen.",
-                group="Authentifizierung",
-                order=20,
+                placeholder="cbd7e0b5-da2a-4cb6-b7f7-a04ee31cac90",
+                help_text="Printix Tenant ID — identisch mit dem Wert aus Ihren Portal-Einstellungen.",
+                group="Tenant",
+                order=40,
             ),
             FieldSchema(
                 key="tenant_url",
                 label="Tenant URL",
                 field_type="url",
                 required=True,
-                placeholder="https://xxx.printix.net",
-                help_text="Printix Portal-URL des Tenants.",
-                group="Authentifizierung",
-                order=30,
-            ),
-            FieldSchema(
-                key="client_id",
-                label="Client ID (Print API)",
-                field_type="text",
-                required=True,
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-                help_text="Print API Client ID aus den Printix API-Einstellungen.",
-                group="Authentifizierung",
-                order=40,
-            ),
-            FieldSchema(
-                key="client_secret",
-                label="Client Secret (Print API)",
-                field_type="password",
-                required=True,
-                placeholder="",
-                help_text="Print API Client Secret. Wird nicht gespeichert oder geloggt.",
-                group="Authentifizierung",
+                placeholder="https://acme.printix.net",
+                help_text="Printix Portal-URL des Tenants (z.B. https://firmenname.printix.net).",
+                group="Tenant",
                 order=50,
             ),
         ]
@@ -176,29 +152,20 @@ class RicohVendor(VendorBase):
         prefill: Dict[str, str] = {}
         if not tenant:
             return prefill
+        # Enable Registration: Standard true
+        prefill["enable_registration"] = "true"
         # Tenant ID
         tid = tenant.get("tenant_id") or tenant.get("printix_tenant_id") or ""
         if tid:
             prefill["tenant_id"] = str(tid)
-        # Tenant URL — aus tenant_id oder explizitem Feld ableiten
+        # Tenant URL
         tenant_url = tenant.get("tenant_url") or ""
         if not tenant_url and tid:
-            # Heuristic: Printix-Tenant-URL basiert oft auf der Tenant-ID
             tenant_url = f"https://{tid}.printix.net"
         if tenant_url:
             prefill["tenant_url"] = tenant_url
-        # Client ID (Print API)
-        cid = tenant.get("client_id") or tenant.get("print_client_id") or ""
-        if cid:
-            prefill["client_id"] = str(cid)
-        # Client Secret — Vorsicht: nur vorbelegen wenn der User es explizit gespeichert hat
-        # Niemals automatisch aus DB-Verschlüsselung extrahieren — Nutzer muss es eingeben
-        # Public URL als Basis für servlet_url
-        public_url = tenant.get("public_url") or tenant.get("mcp_public_url") or ""
-        if public_url:
-            # Servlet URL ist typisch <base>:51443/rxsp oder ähnlich
-            # Wir befüllen nur wenn eine sinnvolle URL vorliegt
-            prefill["servlet_url"] = public_url.rstrip("/") + ":51443/rxsp"
+        # Go Client ID / Secret: NICHT aus Print-API-Credentials vorbelegen,
+        # da Go Registration eine eigene Anwendung in Printix ist.
         return prefill
 
     # ── Analyse ────────────────────────────────────────────────────────────────
@@ -215,76 +182,67 @@ class RicohVendor(VendorBase):
         notes: List[str] = []
         found_files: List[str] = []
 
-        with zipfile.ZipFile(outer_zip_path, "r") as outer_zf:
-            namelist = outer_zf.namelist()
+        with zipfile.ZipFile(outer_zip_path, "r") as zf:
+            namelist = zf.namelist()
 
-            # 1. deploysetting.json finden
-            deploy_path = _find_in_zip(namelist, RICOH_DEPLOY_SETTING)
-            if not deploy_path:
-                return AnalysisResult(
-                    ok=False,
-                    error="deploysetting.json nicht gefunden. Falsches Paket?",
-                )
+        pkg_type, dalp_info = _detect_package_type(outer_zip_path)
+
+        if pkg_type == "simple":
+            # Einfaches Go-Ricoh-ZIP (DALP + APK)
+            dalp_name = dalp_info["dalp_name"]
+            found_files.append(f"DALP-Datei: {dalp_name}")
+            apk_name = dalp_info.get("apk_name")
+            if apk_name:
+                found_files.append(f"APK: {apk_name}")
+            # Version aus Dateiname
+            version = _extract_version(dalp_name) or "?"
+            # DALP analysieren
+            with zipfile.ZipFile(outer_zip_path, "r") as zf:
+                dalp_bytes = zf.read(dalp_name)
+            dalp_analysis = _analyze_dalp_content(dalp_bytes)
+            found_files.extend(dalp_analysis["found"])
+            warnings.extend(dalp_analysis["warnings"])
+            notes.append("Einfaches Go-Ricoh-Paket erkannt (DALP + APK).")
+            notes.append(f"Paketversion: {version}")
+
+        elif pkg_type == "installer":
+            # Installer-Paket mit verschachtelten ZIPs
             found_files.append("deploysetting.json")
-
-            deploy_data = json.loads(outer_zf.read(deploy_path).decode("utf-8"))
-
-            # 2. Inneres RXSP-Paket aus deploysetting.json
-            rxsp_file_path = _resolve_rxsp_path(deploy_data, namelist)
-            if not rxsp_file_path:
-                return AnalysisResult(
-                    ok=False,
-                    error=(
-                        "Inneres RXSP-Paket (rxspServletPackage-*.zip) nicht gefunden. "
-                        "Prüfen Sie deploysetting.json → servlet.rxsp_file_path."
-                    ),
-                )
-            pkg_version = _extract_version(rxsp_file_path)
-            found_files.append(f"rxspServletPackage ({pkg_version})")
-
-            # 3. Inneres ZIP öffnen
-            inner_bytes = outer_zf.read(rxsp_file_path)
-
-        with zipfile.ZipFile(io.BytesIO(inner_bytes), "r") as inner_zf:
-            inner_names = inner_zf.namelist()
-
-            # 4. Servlet-ZIP finden
-            servlet_zip_name = _glob_find(inner_names, SERVLET_ZIP_PATTERN)
-            if not servlet_zip_name:
-                return AnalysisResult(
-                    ok=False,
-                    error=f"rxspServlet-*.zip nicht im inneren Paket gefunden. Inhalt: {inner_names[:10]}",
-                )
-            found_files.append(f"rxspServlet-ZIP ({_extract_version(servlet_zip_name)})")
-
-            # 5. SOP-ZIP finden (optional)
-            sop_zip_name = _glob_find(inner_names, SOP_ZIP_PATTERN)
-            if sop_zip_name:
-                found_files.append(f"rxspservletsop-ZIP ({_extract_version(sop_zip_name)})")
+            inner_info = dalp_info.get("inner_info", {})
+            version = inner_info.get("version", "?")
+            found_files.append(f"rxspServletPackage ({version})")
+            if inner_info.get("servlet_zip"):
+                found_files.append(f"rxspServlet-ZIP ({_extract_version(inner_info['servlet_zip'])})")
+            if inner_info.get("sop_zip"):
+                found_files.append(f"rxspservletsop-ZIP ({_extract_version(inner_info['sop_zip'])})")
+            # DALP aus tiefster Ebene analysieren
+            dalp_bytes = inner_info.get("dalp_bytes")
+            if dalp_bytes:
+                dalp_analysis = _analyze_dalp_content(dalp_bytes)
+                found_files.extend(dalp_analysis["found"])
+                warnings.extend(dalp_analysis["warnings"])
             else:
-                warnings.append("rxspservletsop-*.zip nicht gefunden (optional).")
+                warnings.append("Keine DALP-Datei im Installer-Paket gefunden.")
+            notes.append("Ricoh-Installer-Paket erkannt (PrintixGoRicohInstaller).")
+            notes.append(f"Paketversion: {version}")
 
-            # 6. rxspServlet.dalp analysieren
-            servlet_bytes = inner_zf.read(servlet_zip_name)
-            dalp_info, dalp_warn = _analyze_dalp_zip(servlet_bytes, "rxspServlet.dalp")
-            found_files.extend(dalp_info)
-            warnings.extend(dalp_warn)
-
-        notes.append(f"Erkannte Paketversion: {pkg_version}")
-        notes.append("deploysetting.json, Servlet-DALP und RXSP-Struktur erfolgreich analysiert.")
+        else:
+            return AnalysisResult(
+                ok=False,
+                error=(
+                    "Ricoh-Paketstruktur nicht erkannt. Bitte das Original-ZIP von der "
+                    "Printix-Softwareseite hochladen (Ricoh ZIP oder Ricoh Installer ZIP)."
+                ),
+            )
 
         structure = StructureInfo(
             vendor=self.VENDOR_ID,
             vendor_display=self.VENDOR_DISPLAY,
-            package_version=pkg_version,
+            package_version=version,
             found_files=found_files,
             warnings=warnings,
             notes=notes,
-            raw_info={
-                "rxsp_zip_path": rxsp_file_path,
-                "servlet_zip": servlet_zip_name,
-                "sop_zip": sop_zip_name,
-            },
+            raw_info={"type": pkg_type, **dalp_info},
         )
 
         return AnalysisResult(
@@ -314,84 +272,322 @@ class RicohVendor(VendorBase):
         output_path: str,
     ) -> PatchResult:
         summary = PatchSummary()
+        pkg_type, dalp_info = _detect_package_type(outer_zip_path)
 
-        # ── Äußeres ZIP lesen ─────────────────────────────────────────────────
-        with zipfile.ZipFile(outer_zip_path, "r") as outer_zf:
-            namelist = outer_zf.namelist()
-            deploy_path = _find_in_zip(namelist, RICOH_DEPLOY_SETTING)
-            if not deploy_path:
-                return PatchResult(ok=False, error="deploysetting.json nicht gefunden.")
-
-            deploy_data = json.loads(outer_zf.read(deploy_path).decode("utf-8"))
-            rxsp_file_path = _resolve_rxsp_path(deploy_data, namelist)
-            if not rxsp_file_path:
-                return PatchResult(ok=False, error="Inneres RXSP-Paket nicht gefunden.")
-
-            # Alle Dateien des äußeren ZIP in Memory laden
-            outer_files: Dict[str, bytes] = {}
-            for name in namelist:
-                outer_files[name] = outer_zf.read(name)
-
-        # ── Inneres Paket patchen ──────────────────────────────────────────────
-        inner_bytes = outer_files[rxsp_file_path]
-        patched_inner, s = _patch_inner_package(inner_bytes, field_values)
-        summary.patched_logical_files.extend(s.patched_logical_files)
-        summary.patched_fields.extend(s.patched_fields)
-        summary.skipped_fields.extend(s.skipped_fields)
-        summary.notes.extend(s.notes)
-
-        # ── Äußeres ZIP neu bauen ─────────────────────────────────────────────
-        outer_files[rxsp_file_path] = patched_inner
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf:
-            for name, data in outer_files.items():
-                out_zf.writestr(name, data)
-        with open(output_path, "wb") as fh:
-            fh.write(buf.getvalue())
+        if pkg_type == "simple":
+            self._patch_simple(outer_zip_path, field_values, output_path, dalp_info, summary)
+        elif pkg_type == "installer":
+            self._patch_installer(outer_zip_path, field_values, output_path, dalp_info, summary)
+        else:
+            return PatchResult(ok=False, error="Paketstruktur nicht erkannt.")
 
         logger.info(
-            "Ricoh patch erfolgreich: %d Felder, Dateien: %s",
+            "Ricoh patch erfolgreich: %d Felder in %s",
             len(summary.patched_fields),
             summary.patched_logical_files,
         )
         return PatchResult(ok=True, summary=summary)
 
+    # ── Patch: einfaches Go-Ricoh-ZIP ──────────────────────────────────────────
+
+    def _patch_simple(
+        self,
+        outer_zip_path: str,
+        field_values: Dict[str, str],
+        output_path: str,
+        dalp_info: Dict,
+        summary: PatchSummary,
+    ):
+        dalp_name = dalp_info["dalp_name"]
+        files: Dict[str, bytes] = {}
+        with zipfile.ZipFile(outer_zip_path, "r") as zf:
+            for name in zf.namelist():
+                files[name] = zf.read(name)
+
+        # DALP patchen
+        dalp_bytes = files[dalp_name]
+        patched_dalp = _patch_dalp_app_extension(dalp_bytes, field_values, summary)
+        files[dalp_name] = patched_dalp
+        summary.patched_logical_files.append(dalp_name)
+
+        # ZIP neu bauen
+        _write_zip(files, output_path)
+
+    # ── Patch: Installer-Paket (verschachtelt) ─────────────────────────────────
+
+    def _patch_installer(
+        self,
+        outer_zip_path: str,
+        field_values: Dict[str, str],
+        output_path: str,
+        dalp_info: Dict,
+        summary: PatchSummary,
+    ):
+        inner_info = dalp_info.get("inner_info", {})
+        rxsp_file_path = inner_info.get("rxsp_file_path")
+        servlet_zip_name = inner_info.get("servlet_zip")
+
+        # Äußeres ZIP einlesen
+        outer_files: Dict[str, bytes] = {}
+        with zipfile.ZipFile(outer_zip_path, "r") as zf:
+            for name in zf.namelist():
+                outer_files[name] = zf.read(name)
+
+        if not rxsp_file_path or rxsp_file_path not in outer_files:
+            summary.notes.append("Inneres RXSP-Paket nicht gefunden — kann nicht patchen.")
+            _write_zip(outer_files, output_path)
+            return
+
+        # Inneres ZIP öffnen und patchen
+        inner_files = _read_zip_bytes(outer_files[rxsp_file_path])
+
+        if servlet_zip_name and servlet_zip_name in inner_files:
+            # Sub-ZIP öffnen, DALP finden und patchen
+            sub_files = _read_zip_bytes(inner_files[servlet_zip_name])
+            dalp_name = _find_dalp_in_names(list(sub_files.keys()))
+            if dalp_name:
+                patched = _patch_dalp_app_extension(sub_files[dalp_name], field_values, summary)
+                sub_files[dalp_name] = patched
+                summary.patched_logical_files.append(dalp_name)
+            else:
+                summary.notes.append("DALP-Datei nicht im Servlet-ZIP gefunden.")
+            # Sub-ZIP neu bauen
+            inner_files[servlet_zip_name] = _build_zip_bytes(sub_files)
+
+        # Inneres ZIP neu bauen
+        outer_files[rxsp_file_path] = _build_zip_bytes(inner_files)
+
+        # Äußeres ZIP neu bauen
+        _write_zip(outer_files, output_path)
+
     # ── Installationshinweise ──────────────────────────────────────────────────
 
     def get_install_notes(self, field_values: Dict[str, str]) -> List[str]:
-        servlet_url = field_values.get("servlet_url", "")
+        tenant_url = field_values.get("tenant_url", "")
         notes = [
-            "Das gepatchte Paket kann direkt über das Ricoh Remote Communication Gate S (RCG/S) oder "
-            "den Ricoh @Remote-Dienst deployed werden.",
-            "Alternativ: Paket über das Ricoh Streamline NX-Portal hochladen.",
+            "Nächste Schritte gemäß Printix-Dokumentation:",
+            "1. Ein dediziertes Netzwerk in Printix erstellen (ohne Printix Client).",
+            "2. Drucker manuell registrieren (Manual Registration).",
+            "3. Sign-in-Profil und Go-Konfiguration erstellen.",
         ]
-        if servlet_url:
-            notes.append(
-                f"Stellen Sie sicher, dass {servlet_url} von den Ricoh-Geräten "
-                "erreichbar ist (Firewall, Port 51443)."
-            )
         notes.append(
-            "Nach dem Deployment: Anmeldung an einem Gerät testen "
-            "(Karte einlesen oder PIN eingeben)."
+            "4a. Installation per Installer: "
+            "PrintixGoRicohInstaller.exe -i <IP> -u <Admin-User> -p <Admin-Passwort> "
+            "-m installall -f <gepatchtes-zip>"
+        )
+        notes.append(
+            "4b. Alternativ: Installation via Drucker-Webseite → "
+            "Device Management → Configuration → Install → Local File."
+        )
+        notes.append(
+            "Stellen Sie sicher, dass folgende Endpoints erreichbar sind: "
+            "device-api.printix.net, on-device-api.printix.net, "
+            "on-device-printer-sign-in.printix.net, "
+            "on-device-printer-release-documents.printix.net"
+        )
+        if tenant_url:
+            notes.append(f"Tenant-URL: {tenant_url}")
+        notes.append(
+            "Hinweis: Das Client Secret wird beim Erstellen der Go-Registration-App "
+            "nur einmal angezeigt und kann danach nicht mehr abgerufen werden."
         )
         return notes
 
 
-# ── Hilfsfunktionen ────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# Hilfsfunktionen
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _detect_package_type(zip_path: str) -> Tuple[str, Dict]:
+    """
+    Erkennt ob es sich um ein einfaches Go-Ricoh-ZIP oder ein Installer-Paket handelt.
+    Gibt (typ, info_dict) zurück.
+    """
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        namelist = zf.namelist()
+
+        # Typ 1: einfaches ZIP mit DALP + APK
+        dalp_name = _find_dalp_in_names(namelist)
+        if dalp_name and not any(n.startswith(RICOH_ROOT_FOLDER + "/") for n in namelist):
+            apk_name = next(
+                (n for n in namelist if n.lower().endswith(".apk")),
+                None,
+            )
+            return "simple", {"dalp_name": dalp_name, "apk_name": apk_name}
+
+        # Typ 2: Installer-Paket
+        deploy_path = _find_in_zip(namelist, RICOH_DEPLOY_SETTING)
+        if deploy_path:
+            inner_info = _analyze_installer_structure(zf, deploy_path)
+            return "installer", {"deploy_path": deploy_path, "inner_info": inner_info}
+
+        # Fallback: vielleicht hat das ZIP trotzdem eine DALP-Datei?
+        if dalp_name:
+            apk_name = next(
+                (n for n in namelist if n.lower().endswith(".apk")),
+                None,
+            )
+            return "simple", {"dalp_name": dalp_name, "apk_name": apk_name}
+
+    return "unknown", {}
+
+
+def _analyze_installer_structure(outer_zf: zipfile.ZipFile, deploy_path: str) -> Dict:
+    """Analysiert die verschachtelte Installer-Struktur."""
+    info: Dict = {}
+    namelist = outer_zf.namelist()
+
+    try:
+        deploy_data = json.loads(outer_zf.read(deploy_path).decode("utf-8"))
+    except Exception as e:
+        logger.warning("deploysetting.json nicht parsebar: %s", e)
+        return info
+
+    # Inneres RXSP-Paket finden
+    rxsp_file_path = _resolve_rxsp_path(deploy_data, namelist)
+    if not rxsp_file_path:
+        return info
+
+    info["rxsp_file_path"] = rxsp_file_path
+    info["version"] = _extract_version(rxsp_file_path)
+
+    # Inneres ZIP öffnen
+    try:
+        inner_bytes = outer_zf.read(rxsp_file_path)
+        with zipfile.ZipFile(io.BytesIO(inner_bytes), "r") as inner_zf:
+            inner_names = inner_zf.namelist()
+            info["servlet_zip"] = _glob_find(inner_names, SERVLET_ZIP_PATTERN)
+            info["sop_zip"] = _glob_find(inner_names, SOP_ZIP_PATTERN)
+
+            # DALP-Bytes aus Servlet-ZIP extrahieren für Analyse
+            if info["servlet_zip"]:
+                servlet_bytes = inner_zf.read(info["servlet_zip"])
+                with zipfile.ZipFile(io.BytesIO(servlet_bytes), "r") as sub_zf:
+                    sub_names = sub_zf.namelist()
+                    dalp_name = _find_dalp_in_names(sub_names)
+                    if dalp_name:
+                        info["dalp_bytes"] = sub_zf.read(dalp_name)
+                        info["dalp_name"] = dalp_name
+    except Exception as e:
+        logger.warning("Installer-Struktur Analyse-Fehler: %s", e)
+
+    return info
+
+
+def _patch_dalp_app_extension(
+    dalp_bytes: bytes,
+    field_values: Dict[str, str],
+    summary: PatchSummary,
+) -> bytes:
+    """
+    Patcht die <app-extension>-Sektion einer DALP-Datei.
+    Tags werden erstellt wenn sie nicht existieren, oder aktualisiert.
+    """
+    encoding, has_decl = _detect_xml_encoding(dalp_bytes)
+    try:
+        root = ET.fromstring(dalp_bytes.decode(encoding))
+    except ET.ParseError as e:
+        summary.notes.append(f"XML-Parse-Fehler: {e}")
+        return dalp_bytes
+
+    # <app-extension> finden oder erstellen
+    app_ext = root.find(".//app-extension")
+    if app_ext is None:
+        app_ext = ET.SubElement(root, "app-extension")
+        summary.notes.append("<app-extension> erstellt (war nicht vorhanden).")
+
+    # Jeden Tag setzen
+    for tag_name, field_key in APP_EXT_TAGS.items():
+        value = field_values.get(field_key, "")
+        if not value:
+            if field_key not in ("enable_registration",):  # Checkbox: leer = false
+                summary.skipped_fields.append(field_key)
+            continue
+
+        elem = app_ext.find(tag_name)
+        if elem is None:
+            # Tag existiert nicht → erstellen
+            elem = ET.SubElement(app_ext, tag_name)
+        elem.text = value
+        # Nicht loggen welcher Wert für Secrets gesetzt wurde
+        if "secret" in field_key.lower():
+            summary.patched_fields.append(f"{tag_name} (gesetzt)")
+        else:
+            summary.patched_fields.append(tag_name)
+
+    # Validierung: gepatchtes XML muss parsebar sein
+    patched = _serialize_xml(root, encoding, has_decl)
+    try:
+        ET.fromstring(patched.decode(encoding))
+    except ET.ParseError as e:
+        summary.notes.append(f"Patch-Validierungsfehler: {e} — Original wird beibehalten.")
+        return dalp_bytes
+
+    return patched
+
+
+def _analyze_dalp_content(dalp_bytes: bytes) -> Dict:
+    """Analysiert den Inhalt einer DALP-Datei und gibt found/warnings zurück."""
+    result: Dict = {"found": [], "warnings": []}
+    try:
+        encoding, _ = _detect_xml_encoding(dalp_bytes)
+        root = ET.fromstring(dalp_bytes.decode(encoding))
+
+        # Produktinfo
+        title_elem = root.find(".//information/title")
+        if title_elem is not None and title_elem.text:
+            result["found"].append(f"App: {title_elem.text}")
+
+        vendor_elem = root.find(".//information/vendor")
+        if vendor_elem is not None and vendor_elem.text:
+            result["found"].append(f"Hersteller: {vendor_elem.text}")
+
+        ver_elem = root.find(".//information/application-ver")
+        if ver_elem is not None and ver_elem.text:
+            result["found"].append(f"App-Version: {ver_elem.text}")
+
+        # Bestehende <app-extension>
+        app_ext = root.find(".//app-extension")
+        if app_ext is not None:
+            existing_tags = [child.tag for child in app_ext]
+            if existing_tags:
+                result["found"].append(f"Vorhandene app-extension Tags: {', '.join(existing_tags)}")
+            # Prüfen welche Tags schon Werte haben
+            for tag_name in APP_EXT_TAGS:
+                elem = app_ext.find(tag_name)
+                if elem is not None and elem.text and elem.text.strip():
+                    if "secret" in tag_name.lower():
+                        result["found"].append(f"  {tag_name}: ******* (vorhanden)")
+                    else:
+                        result["found"].append(f"  {tag_name}: {elem.text}")
+        else:
+            result["found"].append("<app-extension> nicht vorhanden — wird beim Patchen erstellt.")
+
+    except ET.ParseError as e:
+        result["warnings"].append(f"DALP XML nicht parsebar: {e}")
+    return result
+
+
+# ── ZIP/Datei-Hilfsfunktionen ──────────────────────────────────────────────────
 
 def _find_in_zip(namelist: List[str], filename: str) -> Optional[str]:
-    """Findet eine Datei im ZIP (exakter Dateiname, beliebiger Pfad)."""
+    """Findet eine Datei im ZIP (exakter basename, beliebiger Pfad)."""
     for name in namelist:
         if name.split("/")[-1] == filename:
             return name
     return None
 
 
+def _find_dalp_in_names(namelist: List[str]) -> Optional[str]:
+    """Findet die erste .dalp-Datei in einer Namensliste."""
+    for name in namelist:
+        if name.lower().endswith(".dalp") and not name.startswith("__MACOSX"):
+            return name
+    return None
+
+
 def _glob_find(namelist: List[str], pattern: str) -> Optional[str]:
-    """
-    Findet die erste Datei die dem Glob-Muster entspricht.
-    Vergleicht nur den Dateinamen-Teil (basename), nicht den vollen Pfad.
-    """
+    """Findet die erste Datei die dem Glob-Muster entspricht (nur basename)."""
     for name in namelist:
         basename = name.split("/")[-1]
         if fnmatch.fnmatch(basename, pattern):
@@ -400,18 +596,16 @@ def _glob_find(namelist: List[str], pattern: str) -> Optional[str]:
 
 
 def _extract_version(filename: str) -> str:
-    """Extrahiert die Versionsnummer aus einem Dateinamen wie rxspServletPackage-3.8.11.zip"""
+    """Extrahiert die Versionsnummer aus einem Dateinamen."""
     match = re.search(r"(\d+\.\d+(?:\.\d+)*)", filename)
     return match.group(1) if match else "?"
 
 
 def _resolve_rxsp_path(deploy_data: Dict, namelist: List[str]) -> Optional[str]:
     """
-    Ermittelt den Pfad des inneren RXSP-Pakets.
-    Bevorzugt: Wert aus deploysetting.json → servlet.rxsp_file_path.
-    Fallback: Glob-Suche nach rxspServletPackage-*.zip.
+    Ermittelt den Pfad des inneren RXSP-Pakets aus deploysetting.json.
+    Fallback: Glob-Suche.
     """
-    # Aus deploysetting.json lesen
     rxsp_path: Optional[str] = None
     servlet_cfg = deploy_data.get("servlet", {})
     if isinstance(servlet_cfg, dict):
@@ -420,214 +614,35 @@ def _resolve_rxsp_path(deploy_data: Dict, namelist: List[str]) -> Optional[str]:
         rxsp_path = deploy_data.get("rxsp_file_path") or deploy_data.get("rxspFilePath")
 
     if rxsp_path:
-        # Normalisieren: nur basename verwenden, dann im ZIP suchen
         basename = rxsp_path.replace("\\", "/").split("/")[-1]
-        # Exakter Treffer
         exact = next((n for n in namelist if n.split("/")[-1] == basename), None)
         if exact:
             return exact
-        # Version könnte abweichen → Glob-Fallback
-        logger.info(
-            "Exakter Pfad '%s' nicht gefunden, verwende Glob-Fallback.", rxsp_path
-        )
+        logger.info("Exakter Pfad '%s' nicht gefunden, Glob-Fallback.", rxsp_path)
 
-    # Glob-Fallback
     return _glob_find(namelist, INNER_PKG_PATTERN)
 
 
-def _analyze_dalp_zip(zip_bytes: bytes, dalp_filename: str) -> Tuple[List[str], List[str]]:
-    """Öffnet ein Sub-ZIP und analysiert eine DALP-Datei."""
-    found: List[str] = []
-    warnings: List[str] = []
-    try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
-            names = zf.namelist()
-            dalp_name = _find_in_zip(names, dalp_filename)
-            if not dalp_name:
-                warnings.append(f"{dalp_filename} nicht im ZIP gefunden.")
-                return found, warnings
-            found.append(dalp_filename)
-            dalp_bytes = zf.read(dalp_name)
-            try:
-                ET.fromstring(dalp_bytes.decode("utf-8"))
-                found.append(f"{dalp_filename} (XML gültig)")
-            except ET.ParseError as e:
-                warnings.append(f"{dalp_filename} XML-Fehler: {e}")
-    except zipfile.BadZipFile as e:
-        warnings.append(f"Sub-ZIP nicht lesbar: {e}")
-    return found, warnings
-
-
-def _patch_inner_package(inner_bytes: bytes, field_values: Dict[str, str]) -> Tuple[bytes, PatchSummary]:
-    """
-    Öffnet das innere rxspServletPackage-*.zip, patcht die DALP-Dateien
-    und gibt das neu verpackte ZIP als Bytes zurück.
-    """
-    summary = PatchSummary()
-
-    with zipfile.ZipFile(io.BytesIO(inner_bytes), "r") as inner_zf:
-        inner_names = inner_zf.namelist()
-        inner_files: Dict[str, bytes] = {}
-        for name in inner_names:
-            inner_files[name] = inner_zf.read(name)
-
-    # Servlet-ZIP patchen
-    servlet_zip_name = _glob_find(inner_names, SERVLET_ZIP_PATTERN)
-    if servlet_zip_name:
-        patched_servlet, s = _patch_dalp_zip(
-            inner_files[servlet_zip_name],
-            "rxspServlet.dalp",
-            SERVLET_DALP_RULES,
-            field_values,
-        )
-        inner_files[servlet_zip_name] = patched_servlet
-        summary.patched_logical_files.extend(s.patched_logical_files)
-        summary.patched_fields.extend(s.patched_fields)
-        summary.skipped_fields.extend(s.skipped_fields)
-        summary.notes.extend(s.notes)
-    else:
-        summary.notes.append("rxspServlet-*.zip nicht gefunden — kein Servlet-Patch.")
-
-    # SOP-ZIP: aktuell read-only, Regeln für spätere Erweiterung vorbereitet
-    sop_zip_name = _glob_find(inner_names, SOP_ZIP_PATTERN)
-    if sop_zip_name and SOP_DALP_RULES:
-        patched_sop, s2 = _patch_dalp_zip(
-            inner_files[sop_zip_name],
-            "rxspservletsop.dalp",
-            SOP_DALP_RULES,
-            field_values,
-        )
-        inner_files[sop_zip_name] = patched_sop
-        summary.patched_logical_files.extend(s2.patched_logical_files)
-        summary.patched_fields.extend(s2.patched_fields)
-    elif sop_zip_name:
-        summary.notes.append("rxspservletsop.dalp erkannt (read-only, aktuell kein Patch nötig).")
-
-    # Inneres ZIP neu bauen
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf:
-        for name, data in inner_files.items():
-            out_zf.writestr(name, data)
-    return buf.getvalue(), summary
-
-
-def _patch_dalp_zip(
-    zip_bytes: bytes,
-    dalp_filename: str,
-    rules: List[Dict],
-    field_values: Dict[str, str],
-) -> Tuple[bytes, PatchSummary]:
-    """
-    Öffnet ein Sub-ZIP, patcht die angegebene DALP-Datei per XML-Parser
-    und gibt das neu verpackte ZIP als Bytes zurück.
-    """
-    summary = PatchSummary()
-
+def _read_zip_bytes(zip_bytes: bytes) -> Dict[str, bytes]:
+    """Liest ein ZIP aus Bytes in ein Dict ein."""
     with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
-        names = zf.namelist()
-        sub_files: Dict[str, bytes] = {}
-        for n in names:
-            sub_files[n] = zf.read(n)
+        return {name: zf.read(name) for name in zf.namelist()}
 
-    dalp_name = _find_in_zip(names, dalp_filename)
-    if not dalp_name:
-        summary.notes.append(f"{dalp_filename} nicht im Sub-ZIP gefunden — übersprungen.")
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf:
-            for n, d in sub_files.items():
-                out_zf.writestr(n, d)
-        return buf.getvalue(), summary
 
-    # XML parsen
-    dalp_bytes = sub_files[dalp_name]
-    try:
-        # Namespace-Registrierung verhindern (ElementTree fügt ns0: hinzu)
-        root = ET.fromstring(dalp_bytes.decode("utf-8"))
-    except ET.ParseError as e:
-        return zip_bytes, PatchSummary(notes=[f"XML-Parse-Fehler in {dalp_filename}: {e}"])
-
-    # Regeln anwenden
-    for rule in rules:
-        if rule.get("derived"):
-            continue  # wird separat behandelt
-        field_key = rule["field"]
-        value = field_values.get(field_key)
-        if not value:
-            if not rule.get("optional", True):
-                summary.skipped_fields.append(field_key)
-            continue
-
-        xpath = rule["xpath"]
-        attr = rule.get("attribute")
-        elements = root.findall(xpath)
-
-        if not elements:
-            if not rule.get("optional", True):
-                summary.skipped_fields.append(field_key)
-                summary.notes.append(
-                    f"Pflichtfeld '{field_key}': XPath '{xpath}' nicht in {dalp_filename} gefunden."
-                )
-            continue
-
-        for elem in elements:
-            if attr is None:
-                elem.text = value
-            else:
-                elem.set(attr, value)
-        summary.patched_fields.append(field_key)
-
-    # Installer-URL aus servlet_url ableiten (falls Regel vorhanden)
-    _apply_installer_url_rule(root, field_values, summary)
-
-    # XML serialisieren — Original-Encoding beibehalten
-    encoding, xml_declaration = _detect_xml_encoding(dalp_bytes)
-    patched_xml = _serialize_xml(root, encoding, xml_declaration)
-    sub_files[dalp_name] = patched_xml
-    summary.patched_logical_files.append(dalp_filename)
-
-    # Validierung: gepatchtes XML muss parsebar sein
-    try:
-        ET.fromstring(patched_xml.decode(encoding))
-    except ET.ParseError as e:
-        return zip_bytes, PatchSummary(notes=[f"Patch-Validierungsfehler: {e}"])
-
-    # Sub-ZIP neu bauen
+def _build_zip_bytes(files: Dict[str, bytes]) -> bytes:
+    """Baut ein ZIP aus einem Dict als Bytes."""
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf:
-        for n, d in sub_files.items():
-            out_zf.writestr(n, d)
-    return buf.getvalue(), summary
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
 
 
-def _apply_installer_url_rule(root: ET.Element, field_values: Dict[str, str], summary: PatchSummary):
-    """
-    Leitet die Installer-URL aus der servlet_url ab und aktualisiert <installer url="...">.
-    Heuristik: ersetzt den Host-Teil der bestehenden Installer-URL.
-    """
-    servlet_url = field_values.get("servlet_url", "").rstrip("/")
-    if not servlet_url:
-        return
-    # Host aus servlet_url extrahieren
-    new_host = _extract_url_host(servlet_url)
-    if not new_host:
-        return
-
-    for installer_elem in root.findall(".//installer"):
-        old_url = installer_elem.get("url", "")
-        if not old_url:
-            continue
-        old_host = _extract_url_host(old_url)
-        if old_host and old_host != new_host:
-            updated_url = old_url.replace(old_host, new_host, 1)
-            installer_elem.set("url", updated_url)
-            if "installer_url" not in summary.patched_fields:
-                summary.patched_fields.append("installer_url (abgeleitet)")
-
-
-def _extract_url_host(url: str) -> Optional[str]:
-    """Extrahiert 'host:port' aus einer URL wie https://host:51443/path"""
-    match = re.match(r"https?://([^/]+)", url)
-    return match.group(1) if match else None
+def _write_zip(files: Dict[str, bytes], output_path: str):
+    """Schreibt ein Dict als ZIP-Datei auf Disk."""
+    with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
 
 
 def _detect_xml_encoding(xml_bytes: bytes) -> Tuple[str, bool]:
