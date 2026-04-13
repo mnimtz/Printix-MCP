@@ -1,14 +1,21 @@
 # Changelog
 
-## 4.6.10 (2026-04-13) — Fix: Workstation Reports + Plugin-Architektur
+## 4.6.11 (2026-04-13) — Workstations UI-Tab + Report-Fix + Plugin-Architektur
 
-### Fix — Workstation Reports: dynamische Schema-Erkennung
-- **workstation_overview**: `dbo.jobs` hat in vielen Printix-Schemas keine `workstation_id`
-  Spalte. Neue dynamische Prüfung via `INFORMATION_SCHEMA.COLUMNS`:
-  - Wenn `workstation_id` vorhanden → volle Statistik mit Job-Daten
-  - Wenn nicht → Workstation-Stammdaten ohne Job-Statistiken
-- **workstation_detail**: `workstation_id` ist jetzt optional (Default `""`).
-  Gibt klare Hinweise wenn ID fehlt oder Schema keine Verknüpfung unterstützt.
+### Neu — Workstations Tab im Web-UI
+- Neuer Tab unter Printix: Drucker → Queues → Benutzer → **Workstations** → Demo
+- Route `/tenant/workstations` — live aus der Printix Workstation Monitoring API
+- Zeigt Status, Name, OS, Site, IP, Client-Version, letzter User
+- i18n in allen 14 Sprachen
+
+### Fix — Workstation Reports: vollständig dynamische Schema-Erkennung
+- **workstation_overview**: Fragt `INFORMATION_SCHEMA.COLUMNS` ab, um die
+  tatsächlichen Spalten der workstations-Tabelle zu ermitteln. Keine harten
+  Annahmen mehr über `os_type`, `network_id`, `workstation_id` etc.
+  - Wenn `workstation_id` in jobs vorhanden → volle Statistik
+  - Wenn nicht → Workstation-Stammdaten (nur vorhandene Spalten)
+- **workstation_detail**: `workstation_id` optional, Preset auf `available: false`
+  gesetzt (Vorschau ohne ID nicht möglich)
 
 ### Neu — Plugin-Architektur: `capture/plugins/` Unterordner
 - Jedes Capture-Ziel-Plugin in eigener Datei unter `capture/plugins/`

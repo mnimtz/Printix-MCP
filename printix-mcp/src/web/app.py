@@ -2134,6 +2134,38 @@ def create_app(session_secret: str) -> FastAPI:
             "active_tab": "users", **tc,
         })
 
+    # ─── Printix Tenant: Workstations ─────────────────────────────────────────
+
+    @app.get("/tenant/workstations", response_class=HTMLResponse)
+    async def tenant_workstations(request: Request, search: str = ""):
+        user = require_login(request)
+        if user is None: return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        workstations = []
+        error = None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("ws_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                data = client.list_workstations(search=search or None, size=200)
+                raw = data.get("workstations", data.get("content", []))
+                if isinstance(raw, list):
+                    for ws in raw:
+                        workstations.append(ws)
+            elif not tenant:
+                error = "no_tenant"
+            else:
+                error = "no_ws_creds"
+        except Exception as e:
+            logger.error("tenant_workstations error: %s", e)
+            error = str(e)
+        return templates.TemplateResponse("tenant_workstations.html", {
+            "request": request, "user": user,
+            "workstations": workstations, "search": search, "error": error,
+            "active_tab": "workstations", **tc,
+        })
+
     # ─── Printix Tenant: Users/Cards (create must be before {user_id}) ──────────
 
     @app.get("/tenant/users/create", response_class=HTMLResponse)
