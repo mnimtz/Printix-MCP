@@ -1,6 +1,6 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# Printix MCP Server v4.6.3 — Home Assistant Add-on Entrypoint
+# Printix MCP Server v4.6.4 — Home Assistant Add-on Entrypoint
 #
 # Startet bis zu drei Services:
 #   1. Web-Verwaltungsoberfläche  (WEB_PORT,      Standard: 8080)
@@ -38,7 +38,7 @@ export MCP_PUBLIC_URL="${PUBLIC_URL}"
 # Fallback falls MCP_PORT leer
 MCP_PORT="${MCP_PORT:-8765}"
 
-# v4.6.3: Capture-Server Konfiguration (Architektur-Redesign)
+# v4.6.4: Capture-Server Konfiguration (Architektur-Redesign)
 # ─────────────────────────────────────────────────────────────────────────────
 # capture_enabled (bool) — reiner Ein/Aus-Schalter fuer den separaten Server.
 # Container-Port ist IMMER 8775 (fest, passend zu config.yaml ports: 8775/tcp).
@@ -59,7 +59,7 @@ CAPTURE_PUBLIC_URL=$(bashio::config 'capture_public_url' || echo "")
 CAPTURE_PUBLIC_URL="${CAPTURE_PUBLIC_URL%/}"
 export CAPTURE_PUBLIC_URL
 
-# v4.6.3: Logging — klar trennen zwischen internem Port und Host-Erreichbarkeit
+# v4.6.4: Logging — klar trennen zwischen internem Port und Host-Erreichbarkeit
 bashio::log.info "Capture-Config: capture_enabled=${CAPTURE_ENABLED} container_port=${CAPTURE_CONTAINER_PORT}"
 if [ "${CAPTURE_ENABLED}" = "true" ]; then
     bashio::log.info "Separater Capture-Server: AKTIV auf Container-Port ${CAPTURE_CONTAINER_PORT}"
@@ -82,7 +82,7 @@ else
 fi
 
 bashio::log.info "╔══════════════════════════════════════════════════════════════╗"
-bashio::log.info "║        PRINTIX MCP SERVER v4.6.3 — MULTI-TENANT             ║"
+bashio::log.info "║        PRINTIX MCP SERVER v4.6.4 — MULTI-TENANT             ║"
 bashio::log.info "╠══════════════════════════════════════════════════════════════╣"
 bashio::log.info "║ Web-Verwaltung:  http://<HA-IP>:${HOST_WEB_PORT}"
 bashio::log.info "║  → Erstkonfiguration / Benutzer registrieren"
@@ -123,7 +123,7 @@ if [ "${CAPTURE_ENABLED}" = "true" ]; then
     export CAPTURE_HOST="0.0.0.0"
     export CAPTURE_PORT=${CAPTURE_CONTAINER_PORT}
 
-    # v4.6.3: Prüfe ob capture_server.py existiert
+    # v4.6.4: Prüfe ob capture_server.py existiert
     if [ ! -f /app/capture_server.py ]; then
         bashio::log.error "FEHLER: /app/capture_server.py nicht gefunden!"
         bashio::log.error "Capture-Server kann nicht gestartet werden."
@@ -133,11 +133,11 @@ if [ "${CAPTURE_ENABLED}" = "true" ]; then
         CAPTURE_PID=$!
         bashio::log.info "Capture-Server gestartet (PID: ${CAPTURE_PID})"
 
-        # v4.6.3: Kurze Wartezeit + Prozess-Check
+        # v4.6.4: Kurze Wartezeit + Prozess-Check
         sleep 2
         if kill -0 "${CAPTURE_PID}" 2>/dev/null; then
             bashio::log.info "Capture-Server laeuft auf Container-Port ${CAPTURE_CONTAINER_PORT} (PID: ${CAPTURE_PID})"
-            # v4.6.3: Lokaler Konnektivitaetstest
+            # v4.6.4: Lokaler Konnektivitaetstest
             if python3 -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', ${CAPTURE_CONTAINER_PORT})); s.close(); print('OK')" 2>/dev/null; then
                 bashio::log.info "Capture-Server antwortet auf 127.0.0.1:${CAPTURE_CONTAINER_PORT}"
             else
