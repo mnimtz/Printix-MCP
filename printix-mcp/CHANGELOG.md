@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.5.4 (2026-04-13) — Capture Port Architecture Fix
+
+### Fix — Capture-Port wird im Container nicht veröffentlicht
+- **Root Cause**: `capture_port` Config-Option diente gleichzeitig als Ein/Aus-Schalter
+  UND als Port-Nummer. Docker mapped aber immer den fixen Container-Port 8775
+  (definiert in `config.yaml ports:`). Wenn z.B. `capture_port=8775` gesetzt war,
+  band der Server zwar auf 8775, aber die Config-Logik war fragil.
+  Bei `capture_port=0` (Standard) startete nichts — korrekt, aber undurchsichtig.
+- **run.sh**: Architektur-Fix — `capture_port` ist jetzt NUR ein Ein/Aus-Schalter
+  (0=aus, >0=ein). Der Container-Port ist IMMER 8775 (Konstante `CAPTURE_CONTAINER_PORT`),
+  passend zum Docker-Portmapping in `config.yaml`. Der Host-Port wird in HA unter
+  Add-on → Netzwerk konfiguriert (wie bei Web-Port 8080).
+- **run.sh**: Neuer Hinweis im Log: "Port 8775 muss in HA unter Add-on > Netzwerk
+  aktiviert sein!" — wichtig weil HA Supervisor neue Ports bei Updates ggf. deaktiviert
+- **run.sh**: Lokaler Konnektivitätstest nach Startup — prüft ob 127.0.0.1:8775
+  tatsächlich antwortet (nicht nur ob der Prozess lebt)
+- **config.yaml**: Kommentar verdeutlicht dass `capture_port` ein Ein/Aus-Schalter ist
+
+---
+
 ## 4.5.3 (2026-04-13) — Capture-Server Startup Fix
 
 ### Fix — Separater Capture-Server startet nicht
