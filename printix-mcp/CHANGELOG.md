@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.6.2 (2026-04-13) — Printix Signatur: Exhaustive Discovery
+
+### Fix — Signatur-Mismatch trotz Base64-Vergleich
+- **Problem**: v4.6.1 verglich korrekt als Base64, aber keins der drei kanonischen
+  Formate (ts.path.body / ts.body / body) mit SHA-256 und UTF-8-Key matchte.
+- **Neue Discovery-Engine**: `_try_printix_native()` probiert jetzt systematisch
+  ALLE Kombinationen durch:
+  - **Key-Varianten**: Raw UTF-8, Base64-dekodiert, Base64-URL-safe-dekodiert
+    (viele APIs wie Azure/Tungsten speichern den Secret als Base64 — der dekodierte
+    Wert ist dann der HMAC-Key)
+  - **Algorithmen**: SHA-256, SHA-1, SHA-512
+  - **10+ Canonical Formats**: `ts.path.body`, `ts.body`, `body`, mit/ohne
+    Trennzeichen (`.`, `\n`, keins), mit/ohne Request-ID, Pfad mit/ohne `/`
+  - **4 Signature-Encodings**: Base64 (mit/ohne Padding), Base64-URL-safe, Hex
+- **Debug-Logging**: Bei Mismatch zeigt das Log für jede Key-Variante × Algo × Format
+  den erwarteten Base64-Wert — damit sieht man sofort welche Kombination am
+  nächsten kommt oder ob das Secret falsch ist
+
+---
+
 ## 4.6.1 (2026-04-13) — Printix Signatur Base64 Fix
 
 ### Fix — Printix-Signatur Base64 statt Hex
