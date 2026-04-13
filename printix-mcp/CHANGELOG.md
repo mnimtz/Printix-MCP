@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.6.5 (2026-04-13) — Erweiterte Body-Integritätsprüfung + Neue Canonical Formate
+
+### Neu — Raw-Body-Analyse im Diagnose-Log
+- **body_first32** / **body_last32**: Erste und letzte 32 Bytes als Hex-Dump
+- **body_has_crlf**: Prüft ob Body `\r\n` enthält (Proxy-Normalisierung)
+- **body_ends_nl**: Letztes Byte + ob Body auf `\n` endet
+- **body_has_bom**: UTF-8 BOM-Erkennung
+- **Content-Type**, **Content-Length**, **Host** aus Request-Headers
+
+### Neu — Erweiterte Canonical-String-Formate
+- **Body-Varianten**: `\r\n`→`\n` normalisiert, trailing-whitespace gestrippt
+- **Double-Hash**: HMAC über `SHA256(body)` als Hex-String und Raw-Bytes
+- **URL-basiert**: `https://host/path + body`, `ts.https-url.body`
+- **Content-Type**: `ts.content-type.path.body`
+- Insgesamt ~30 Kandidaten pro Key-Variante (vorher ~15)
+
+### Verbesserung — Headers durchgereicht
+- `_try_printix_native()` und `_diagnostic_log()` erhalten jetzt
+  das vollständige Headers-Dict für URL-basierte Canonical Strings
+
+---
+
 ## 4.6.4 (2026-04-13) — Fokussierte SHA-256 Signatur-Diagnose
 
 ### Fix — Algorithmus-Erkennung aus Signaturlänge
