@@ -1,6 +1,6 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# Printix MCP Server v4.5.4 — Home Assistant Add-on Entrypoint
+# Printix MCP Server v4.5.5 — Home Assistant Add-on Entrypoint
 #
 # Startet bis zu drei Services:
 #   1. Web-Verwaltungsoberfläche  (WEB_PORT,      Standard: 8080)
@@ -38,24 +38,39 @@ export MCP_PUBLIC_URL="${PUBLIC_URL}"
 # Fallback falls MCP_PORT leer
 MCP_PORT="${MCP_PORT:-8765}"
 
-# v4.5.4: Capture-Server Konfiguration
+# v4.5.5: Capture-Server Konfiguration
 # capture_port aus config ist NUR ein Ein/Aus-Schalter (0=aus, >0=ein).
 # Im Container bindet der Capture-Server IMMER auf Port 8775 —
 # das muss zum Docker-Portmapping in config.yaml passen (ports: 8775/tcp).
 # Der Host-Port wird in HA unter Add-on > Netzwerk konfiguriert.
+#
+# WICHTIG: Capture-Webhooks funktionieren IMMER auch ueber den MCP-Port (${MCP_PORT})
+# und den Web-Port (8080) — der separate Capture-Server auf 8775 ist optional.
 CAPTURE_ENABLED=$(bashio::config 'capture_port' || echo "0")
 CAPTURE_ENABLED="${CAPTURE_ENABLED:-0}"
 CAPTURE_CONTAINER_PORT=8775
-export CAPTURE_PORT=${CAPTURE_CONTAINER_PORT}
+
+# CAPTURE_PORT nur exportieren wenn der separate Server auch wirklich startet.
+# Wenn CAPTURE_PORT > 0 ist, zeigt der MCP-Server den Hinweis "laeuft auf eigenem Port".
+# Wenn CAPTURE_PORT = 0, weiss der MCP-Server: Webhooks laufen nur ueber ihn selbst.
+if [ "${CAPTURE_ENABLED}" -gt 0 ] 2>/dev/null; then
+    export CAPTURE_PORT=${CAPTURE_CONTAINER_PORT}
+else
+    export CAPTURE_PORT=0
+fi
 
 CAPTURE_PUBLIC_URL=$(bashio::config 'capture_public_url' || echo "")
 CAPTURE_PUBLIC_URL="${CAPTURE_PUBLIC_URL%/}"
 export CAPTURE_PUBLIC_URL
 
-# v4.5.4: Capture-Konfiguration diagnostisch loggen
-bashio::log.info "Capture-Config: enabled=${CAPTURE_ENABLED} container_port=${CAPTURE_CONTAINER_PORT} capture_public_url=${CAPTURE_PUBLIC_URL:-'(leer)'}"
+# v4.5.5: Capture-Konfiguration diagnostisch loggen
+bashio::log.info "Capture-Config: enabled=${CAPTURE_ENABLED} container_port=${CAPTURE_CONTAINER_PORT} CAPTURE_PORT=${CAPTURE_PORT}"
 if [ "${CAPTURE_ENABLED}" -gt 0 ] 2>/dev/null; then
     bashio::log.info "HINWEIS: Port 8775 muss in HA unter Add-on > Netzwerk aktiviert sein!"
+    bashio::log.info "  Pruefe: Einstellungen > Add-ons > Printix MCP > Netzwerk > 8775"
+else
+    bashio::log.info "Capture-Webhooks laufen ueber MCP-Port (${MCP_PORT}) — kein separater Port noetig"
+    bashio::log.info "  Webhook-URL: http://<HA-IP>:${MCP_PORT}/capture/webhook/<profile_id>"
 fi
 
 # ─── Entra ID Auto-Setup (v4.3.0: Device Code Flow, keine Bootstrap-App noetig)
@@ -69,7 +84,7 @@ else
 fi
 
 bashio::log.info "╔══════════════════════════════════════════════════════════════╗"
-bashio::log.info "║        PRINTIX MCP SERVER v4.5.4 — MULTI-TENANT             ║"
+bashio::log.info "║        PRINTIX MCP SERVER v4.5.5 — MULTI-TENANT             ║"
 bashio::log.info "╠══════════════════════════════════════════════════════════════╣"
 bashio::log.info "║ Web-Verwaltung:  http://<HA-IP>:${HOST_WEB_PORT}"
 bashio::log.info "║  → Erstkonfiguration / Benutzer registrieren"
@@ -109,7 +124,7 @@ if [ "${CAPTURE_ENABLED}" -gt 0 ] 2>/dev/null; then
     bashio::log.info "Starte Capture-Server auf Container-Port ${CAPTURE_CONTAINER_PORT}..."
     export CAPTURE_HOST="0.0.0.0"
 
-    # v4.5.4: Prüfe ob capture_server.py existiert
+    # v4.5.5: Prüfe ob capture_server.py existiert
     if [ ! -f /app/capture_server.py ]; then
         bashio::log.error "FEHLER: /app/capture_server.py nicht gefunden!"
         bashio::log.error "Capture-Server kann nicht gestartet werden."
@@ -119,11 +134,11 @@ if [ "${CAPTURE_ENABLED}" -gt 0 ] 2>/dev/null; then
         CAPTURE_PID=$!
         bashio::log.info "Capture-Server gestartet (PID: ${CAPTURE_PID})"
 
-        # v4.5.4: Kurze Wartezeit + Prozess-Check
+        # v4.5.5: Kurze Wartezeit + Prozess-Check
         sleep 2
         if kill -0 "${CAPTURE_PID}" 2>/dev/null; then
             bashio::log.info "Capture-Server laeuft auf Container-Port ${CAPTURE_CONTAINER_PORT} (PID: ${CAPTURE_PID})"
-            # v4.5.4: Lokaler Konnektivitaetstest
+            # v4.5.5: Lokaler Konnektivitaetstest
             if python3 -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', ${CAPTURE_CONTAINER_PORT})); s.close(); print('OK')" 2>/dev/null; then
                 bashio::log.info "Capture-Server antwortet auf 127.0.0.1:${CAPTURE_CONTAINER_PORT}"
             else

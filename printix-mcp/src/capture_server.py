@@ -1,5 +1,5 @@
 """
-Printix Capture Server — Standalone Webhook Endpoint (v4.5.4)
+Printix Capture Server — Standalone Webhook Endpoint (v4.5.5)
 =============================================================
 Optionaler dedizierter Server nur fuer Capture Webhooks.
 Laeuft auf einem eigenen Port (capture_port), getrennt vom MCP-Server.
@@ -20,7 +20,7 @@ import json
 import logging
 import traceback
 
-# v4.5.4: Sofort loggen — noch vor allen Imports die fehlschlagen koennten
+# v4.5.5: Sofort loggen — noch vor allen Imports die fehlschlagen koennten
 print(f"[capture_server] Starting... (PID={os.getpid()}, "
       f"CAPTURE_PORT={os.environ.get('CAPTURE_PORT', '?')}, "
       f"CAPTURE_HOST={os.environ.get('CAPTURE_HOST', '?')})",
@@ -64,7 +64,7 @@ def create_capture_app() -> FastAPI:
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "service": "capture", "version": "4.5.4"}
+        return {"status": "ok", "service": "capture", "version": "4.5.5"}
 
     # ── Capture Webhook ──────────────────────────────────────────────────────
 
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     port_str = os.environ.get("CAPTURE_PORT", "8775")
     log_level = os.environ.get("MCP_LOG_LEVEL", "info").lower()
 
-    # v4.5.4: Port robust parsen
+    # v4.5.5: Port robust parsen
     try:
         port = int(port_str)
     except (ValueError, TypeError):
@@ -160,7 +160,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     logger.info("╔══════════════════════════════════════════════════════════════╗")
-    logger.info("║        PRINTIX CAPTURE SERVER v4.5.4 — STANDALONE           ║")
+    logger.info("║        PRINTIX CAPTURE SERVER v4.5.5 — STANDALONE           ║")
     logger.info("╠══════════════════════════════════════════════════════════════╣")
     logger.info("║  Host:     %s:%d", host, port)
     logger.info("║  Webhook:  %s/capture/webhook/<profile_id>", base)

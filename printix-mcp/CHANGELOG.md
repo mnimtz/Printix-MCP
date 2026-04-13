@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.5.5 (2026-04-13) — Capture Webhook ohne separaten Port
+
+### Fix — Port 8775 wird von HA nicht nach außen gemappt
+- **Root Cause**: HA Supervisor mappt nachträglich hinzugefügte Ports (8775) nicht
+  automatisch nach außen. Im `docker ps` steht nur `8775/tcp` (intern), aber kein
+  `0.0.0.0:8775->8775/tcp`. Der User muss den Port unter Add-on → Netzwerk manuell
+  aktivieren — das ist HA-Standardverhalten, kein Code-Bug.
+- **Lösung**: Capture-Webhooks funktionieren **immer** über den MCP-Port (8765) und
+  den Web-Port (8080). Der separate Server auf 8775 ist rein optional.
+- **run.sh**: `CAPTURE_PORT` env var wird jetzt nur exportiert wenn der separate
+  Capture-Server tatsächlich aktiv ist (CAPTURE_ENABLED > 0). Vorher wurde immer
+  `CAPTURE_PORT=8775` exportiert — dadurch dachte der MCP-Server fälschlicherweise,
+  der separate Capture-Server laufe, und zeigte irreführende Log-Meldungen.
+- **run.sh**: Klare Log-Meldung wenn kein separater Port aktiv:
+  `"Capture-Webhooks laufen über MCP-Port (8765) — kein separater Port nötig"`
+- **run.sh**: Wenn separater Port aktiv, Hinweis mit Pfad:
+  `"Einstellungen > Add-ons > Printix MCP > Netzwerk > 8775"`
+- **server.py**: MCP-Server erkennt jetzt korrekt ob separate Capture läuft
+  (CAPTURE_PORT=0 wenn deaktiviert, statt fälschlicherweise 8775)
+
+### Hinweis für Benutzer
+Capture-Webhooks funktionieren über **drei** Endpunkte:
+- `http://<HA-IP>:8765/capture/webhook/<profile_id>` — MCP-Port (immer aktiv)
+- `http://<HA-IP>:8080/capture/webhook/<profile_id>` — Web-Port (immer aktiv)
+- `http://<HA-IP>:8775/capture/webhook/<profile_id>` — Separater Port (optional, capture_port > 0)
+
+Wenn Port 8775 nicht von außen erreichbar ist:
+1. Webhooks über Port 8765 (MCP) oder 8080 (Web) routen — kein Konfigurationsaufwand
+2. Oder: HA → Einstellungen → Add-ons → Printix MCP → Netzwerk → Port 8775 aktivieren
+
+---
+
 ## 4.5.4 (2026-04-13) — Capture Port Architecture Fix
 
 ### Fix — Capture-Port wird im Container nicht veröffentlicht
