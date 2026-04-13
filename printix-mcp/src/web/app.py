@@ -2163,7 +2163,7 @@ def create_app(session_secret: str) -> FastAPI:
     # ─── Printix Tenant: Workstations ─────────────────────────────────────────
 
     @app.get("/tenant/workstations", response_class=HTMLResponse)
-    async def tenant_workstations(request: Request, search: str = ""):
+    async def tenant_workstations(request: Request, search: str = "", status: str = ""):
         user = require_login(request)
         if user is None: return RedirectResponse("/login", status_code=302)
         tc = t_ctx(request)
@@ -2187,10 +2187,17 @@ def create_app(session_secret: str) -> FastAPI:
             logger.error("tenant_workstations error: %s", e)
             error = str(e)
         active_count = sum(1 for ws in workstations if ws.get("active"))
+        total_count = len(workstations)
+        # Filter by status toggle
+        if status == "online":
+            workstations = [ws for ws in workstations if ws.get("active")]
+        elif status == "offline":
+            workstations = [ws for ws in workstations if not ws.get("active")]
         return templates.TemplateResponse("tenant_workstations.html", {
             "request": request, "user": user,
             "workstations": workstations, "search": search, "error": error,
-            "active_tab": "workstations", "active_count": active_count, **tc,
+            "active_tab": "workstations", "active_count": active_count,
+            "total_count": total_count, "status_filter": status, **tc,
         })
 
     # ─── Printix Tenant: Users/Cards (create must be before {user_id}) ──────────

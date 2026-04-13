@@ -18,6 +18,16 @@
   .dot-red { background:#ef4444; }
   .dot-gray { background:#9ca3af; }
   .time-ago { font-size:.78em; color:#9ca3af; }
+  .toggle-group { display:inline-flex; border:1px solid #d1d5db; border-radius:8px; overflow:hidden; font-size:.85em; }
+  .toggle-btn {
+    padding:6px 14px; text-decoration:none; color:#6b7280; font-weight:600;
+    border-right:1px solid #d1d5db; background:#fff; transition:background .15s;
+  }
+  .toggle-btn:last-child { border-right:none; }
+  .toggle-btn:hover { background:#f3f4f6; }
+  .toggle-btn.active-all { background:#2563eb; color:#fff; }
+  .toggle-btn.active-on { background:#dcfce7; color:#166534; }
+  .toggle-btn.active-off { background:#fee2e2; color:#991b1b; }
 </style>
 {% endblock %}
 {% block content %}
@@ -44,12 +54,21 @@
       </a>
     </div>
 
-    <!-- Search -->
+    <!-- Search + Filter -->
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
       <form class="search-bar" method="get" action="/tenant/workstations" style="flex:1;min-width:200px;margin:0;">
         <input type="text" name="search" value="{{ search }}" placeholder="Search…">
+        {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
         <button type="submit">🔍</button>
       </form>
+      <div class="toggle-group">
+        <a href="/tenant/workstations{% if search %}?search={{ search }}{% endif %}"
+           class="toggle-btn {% if not status_filter %}active-all{% endif %}">{{ _('ws_filter_all') }}</a>
+        <a href="/tenant/workstations?status=online{% if search %}&search={{ search }}{% endif %}"
+           class="toggle-btn {% if status_filter == 'online' %}active-on{% endif %}">🟢 Online</a>
+        <a href="/tenant/workstations?status=offline{% if search %}&search={{ search }}{% endif %}"
+           class="toggle-btn {% if status_filter == 'offline' %}active-off{% endif %}">🔴 Offline</a>
+      </div>
       <a href="/tenant/workstations{%- if search %}?search={{ search }}{%- endif -%}" class="btn btn-secondary" title="Reload from Printix API">
         🔄 Aktualisieren
       </a>
@@ -63,9 +82,12 @@
     <div class="alert alert-error">❌ {{ error }}</div>
     {% elif workstations %}
     <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">
-      {{ workstations|length }} workstation(s)
-      — <span style="color:#16a34a;">{{ active_count }}</span> active,
-      <span style="color:#991b1b;">{{ workstations|length - active_count }}</span> inactive
+      {{ total_count }} workstation(s)
+      — <span style="color:#16a34a;">{{ active_count }}</span> online,
+      <span style="color:#991b1b;">{{ total_count - active_count }}</span> offline
+      {% if status_filter %}
+        — {{ _('ws_filter_showing') }}: <strong>{{ workstations|length }}</strong>
+      {% endif %}
     </p>
     <div style="overflow-x:auto;">
       <table>
