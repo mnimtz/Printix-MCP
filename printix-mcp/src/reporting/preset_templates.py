@@ -307,10 +307,13 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
 
     # ── 14. Workstation-Details (→ Workstation - Details) ─────────────────────
+    # v4.6.11: available=False — Vorschau nicht möglich ohne Workstation-ID.
+    # Nutzbar über MCP-Tool oder als gespeicherter Report mit konkreter ID.
     "workstation_details": {
         "name": "Workstation-Details (einzeln)",
         "description": "Druckverlauf einer einzelnen Workstation über Zeit. "
-                       "Benötigt Workstation-ID als Parameter.",
+                       "Benötigt Workstation-ID als Parameter — nur über MCP-Tool "
+                       "oder gespeicherten Report mit konkreter ID nutzbar.",
         "icon": "🖥️",
         "pbi_page": "Workstation - Details",
         "query_type": "workstation_detail",
@@ -324,7 +327,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "mail_subject": "Printix Workstation-Details",
         "schedule_suggestion": None,
         "tag": "Infrastruktur",
-        "available": True,
+        "available": False,
     },
 
     # ── 15. Tree-O-Meter / Nachhaltigkeit (→ Tree-O-Meter) ────────────────────

@@ -1883,8 +1883,9 @@ def query_workstation_overview(
     Workstation-Statistik. Erfordert dbo.workstations (optional in Printix BI Schema).
     Gibt leere Liste zurück wenn Tabelle nicht vorhanden.
 
-    v4.6.10: Dynamische Spalten-Prüfung — dbo.jobs hat nicht immer workstation_id.
-    Wenn die Spalte fehlt, werden Workstations ohne Job-Statistiken aufgelistet.
+    v4.6.11: Vollständig dynamische Spalten-Erkennung — fragt INFORMATION_SCHEMA.COLUMNS
+    ab, um die tatsächlich vorhandenen Spalten der workstations-Tabelle zu ermitteln.
+    Keine harten Spalten-Annahmen mehr (os_type, network_id, etc.).
     """
     tenant_id = get_tenant_id()
     from .sql_client import query_fetchone
@@ -1905,7 +1906,41 @@ def query_workstation_overview(
                      "Dieser Report erfordert eine Azure SQL Datenbank mit dbo.workstations-Tabelle."}]
         return [{"info": "workstations-Tabelle nicht in diesem Schema vorhanden"}]
 
-    # v4.6.10: Prüfe ob dbo.jobs eine workstation_id Spalte hat
+    # v4.6.11: Dynamisch die vorhandenen Spalten der workstations-Tabelle ermitteln
+    ws_cols: set[str] = set()
+    try:
+        col_rows = query_fetchall(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME IN ('workstations','v_workstations')"
+        )
+        ws_cols = {r.get("COLUMN_NAME", "").lower() for r in col_rows}
+        logger.debug("workstations columns: %s", ws_cols)
+    except Exception:
+        pass
+
+    # Verfügbare optionale Spalten für SELECT zusammenbauen
+    select_extra = []
+    group_extra = []
+    if "os_type" in ws_cols:
+        select_extra.append("w.os_type")
+        group_extra.append("w.os_type")
+    if "os_version" in ws_cols:
+        select_extra.append("w.os_version")
+        group_extra.append("w.os_version")
+    if "last_seen" in ws_cols:
+        select_extra.append("w.last_seen")
+        group_extra.append("w.last_seen")
+    if "hostname" in ws_cols:
+        select_extra.append("w.hostname")
+        group_extra.append("w.hostname")
+    if "ip_address" in ws_cols:
+        select_extra.append("w.ip_address")
+        group_extra.append("w.ip_address")
+
+    extra_select_sql = (", " + ", ".join(select_extra)) if select_extra else ""
+    extra_group_sql = (", " + ", ".join(group_extra)) if group_extra else ""
+
+    # Prüfe ob dbo.jobs eine workstation_id Spalte hat (für Job-Statistiken)
     has_ws_fk = False
     try:
         col_check = query_fetchone(
@@ -1917,7 +1952,6 @@ def query_workstation_overview(
         pass
 
     if has_ws_fk:
-        # Schema hat workstation_id FK in jobs → volle Statistik möglich
         where_extra = ""
         params_extra: list = []
         if site_id:
@@ -1926,12 +1960,12 @@ def query_workstation_overview(
 
         sql = f"""
             SELECT
-                w.id                                                                AS workstation_id,
-                w.name                                                              AS workstation_name,
-                w.os_type,
-                n.name                                                              AS site_name,
-                COUNT(DISTINCT j.id)                                                AS total_jobs,
-                SUM(j.page_count)                                                   AS total_pages
+                w.id                     AS workstation_id,
+                w.name                   AS workstation_name
+                {extra_select_sql},
+                n.name                   AS site_name,
+                COUNT(DISTINCT j.id)     AS total_jobs,
+                SUM(j.page_count)        AS total_pages
             FROM {_V('workstations')} w
             LEFT JOIN {_V('jobs')} j      ON j.workstation_id = w.id AND j.tenant_id = w.tenant_id
                                          AND j.submit_time >= ?
@@ -1940,20 +1974,17 @@ def query_workstation_overview(
             LEFT JOIN {_V('networks')} n  ON n.id = p.network_id AND n.tenant_id = w.tenant_id
             WHERE w.tenant_id = ?
               {where_extra}
-            GROUP BY w.id, w.name, w.os_type, n.name
+            GROUP BY w.id, w.name{extra_group_sql}, n.name
             ORDER BY total_pages DESC
         """
         params = (_fmt_date(start_date), _fmt_date(end_date), tenant_id) + tuple(params_extra)
     else:
-        # v4.6.10: Kein workstation_id FK → nur Workstation-Stammdaten auflisten
         logger.info("dbo.jobs has no workstation_id column — listing workstations without job stats")
         sql = f"""
             SELECT
-                w.id                                                                AS workstation_id,
-                w.name                                                              AS workstation_name,
-                w.os_type,
-                0                                                                   AS total_jobs,
-                0                                                                   AS total_pages
+                w.id                     AS workstation_id,
+                w.name                   AS workstation_name
+                {extra_select_sql}
             FROM {_V('workstations')} w
             WHERE w.tenant_id = ?
             ORDER BY w.name
