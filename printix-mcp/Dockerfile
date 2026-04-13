@@ -38,8 +38,9 @@ COPY src/ /app/
 COPY run.sh /app/run.sh
 RUN chmod a+x /app/run.sh
 
-# Expose MCP port and Web-UI port
+# Expose MCP port, Web-UI port, and Capture port
 EXPOSE 8765
 EXPOSE 8080
+EXPOSE 8775
 
 CMD [ "/app/run.sh" ]

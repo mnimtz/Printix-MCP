@@ -1,6 +1,6 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# Printix MCP Server v4.5.2 — Home Assistant Add-on Entrypoint
+# Printix MCP Server v4.5.3 — Home Assistant Add-on Entrypoint
 #
 # Startet bis zu drei Services:
 #   1. Web-Verwaltungsoberfläche  (WEB_PORT,      Standard: 8080)
@@ -47,6 +47,9 @@ CAPTURE_PUBLIC_URL=$(bashio::config 'capture_public_url' || echo "")
 CAPTURE_PUBLIC_URL="${CAPTURE_PUBLIC_URL%/}"
 export CAPTURE_PUBLIC_URL
 
+# v4.5.3: Capture-Konfiguration diagnostisch loggen
+bashio::log.info "Capture-Config: capture_port=${CAPTURE_PORT} capture_public_url=${CAPTURE_PUBLIC_URL:-'(leer)'}"
+
 # ─── Entra ID Auto-Setup (v4.3.0: Device Code Flow, keine Bootstrap-App noetig)
 
 # ─── Verbindungsinfo im Log ────────────────────────────────────────────────────
@@ -58,7 +61,7 @@ else
 fi
 
 bashio::log.info "╔══════════════════════════════════════════════════════════════╗"
-bashio::log.info "║        PRINTIX MCP SERVER v4.5.2 — MULTI-TENANT             ║"
+bashio::log.info "║        PRINTIX MCP SERVER v4.5.3 — MULTI-TENANT             ║"
 bashio::log.info "╠══════════════════════════════════════════════════════════════╣"
 bashio::log.info "║ Web-Verwaltung:  http://<HA-IP>:${HOST_WEB_PORT}"
 bashio::log.info "║  → Erstkonfiguration / Benutzer registrieren"
@@ -97,11 +100,29 @@ bashio::log.info "Web-UI läuft (PID: ${WEB_PID})"
 if [ "${CAPTURE_PORT}" -gt 0 ] 2>/dev/null; then
     bashio::log.info "Starte Capture-Server auf Port ${CAPTURE_PORT}..."
     export CAPTURE_HOST="0.0.0.0"
-    python3 /app/capture_server.py &
-    CAPTURE_PID=$!
-    bashio::log.info "Capture-Server läuft (PID: ${CAPTURE_PID})"
+
+    # v4.5.3: Prüfe ob capture_server.py existiert
+    if [ ! -f /app/capture_server.py ]; then
+        bashio::log.error "FEHLER: /app/capture_server.py nicht gefunden!"
+        bashio::log.error "Capture-Server kann nicht gestartet werden."
+    else
+        # Starte mit stderr-Weiterleitung damit Fehler sichtbar sind
+        python3 /app/capture_server.py 2>&1 &
+        CAPTURE_PID=$!
+        bashio::log.info "Capture-Server gestartet (PID: ${CAPTURE_PID})"
+
+        # v4.5.3: Kurze Wartezeit + Prozess-Check
+        sleep 2
+        if kill -0 "${CAPTURE_PID}" 2>/dev/null; then
+            bashio::log.info "Capture-Server läuft auf Port ${CAPTURE_PORT} (PID: ${CAPTURE_PID})"
+        else
+            bashio::log.error "FEHLER: Capture-Server (PID: ${CAPTURE_PID}) ist sofort beendet!"
+            bashio::log.error "Mögliche Ursachen: Import-Fehler, Port-Konflikt, fehlende Abhängigkeit."
+            bashio::log.error "Prüfe die Log-Ausgabe oberhalb für Details."
+        fi
+    fi
 else
-    bashio::log.info "Capture-Server deaktiviert (capture_port=0) — Webhooks laufen über MCP-Port"
+    bashio::log.info "Capture-Server deaktiviert (capture_port=${CAPTURE_PORT}) — Webhooks laufen über MCP-Port"
 fi
 
 # ─── MCP-Server starten (Vordergrund) ─────────────────────────────────────────

@@ -1,5 +1,5 @@
 """
-Printix Capture Server — Standalone Webhook Endpoint (v4.5.2)
+Printix Capture Server — Standalone Webhook Endpoint (v4.5.3)
 =============================================================
 Optionaler dedizierter Server nur fuer Capture Webhooks.
 Laeuft auf einem eigenen Port (capture_port), getrennt vom MCP-Server.
@@ -18,6 +18,13 @@ import os
 import sys
 import json
 import logging
+import traceback
+
+# v4.5.3: Sofort loggen — noch vor allen Imports die fehlschlagen koennten
+print(f"[capture_server] Starting... (PID={os.getpid()}, "
+      f"CAPTURE_PORT={os.environ.get('CAPTURE_PORT', '?')}, "
+      f"CAPTURE_HOST={os.environ.get('CAPTURE_HOST', '?')})",
+      flush=True)
 
 # Logging einrichten
 logging.basicConfig(
@@ -35,8 +42,13 @@ app_dir = os.path.dirname(os.path.abspath(__file__))
 if app_dir not in sys.path:
     sys.path.insert(0, app_dir)
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+try:
+    from fastapi import FastAPI, Request
+    from fastapi.responses import JSONResponse
+except ImportError as e:
+    logger.error("FATAL: FastAPI Import fehlgeschlagen: %s", e)
+    logger.error("Installierte Pakete pruefen: pip3 list | grep fastapi")
+    sys.exit(1)
 
 
 def create_capture_app() -> FastAPI:
@@ -52,7 +64,7 @@ def create_capture_app() -> FastAPI:
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "service": "capture"}
+        return {"status": "ok", "service": "capture", "version": "4.5.3"}
 
     # ── Capture Webhook ──────────────────────────────────────────────────────
 
@@ -113,26 +125,51 @@ def create_capture_app() -> FastAPI:
     return app
 
 
-# ── Entry Point ─���────────────────────────────────────────────────────────────
+# ── Entry Point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import uvicorn
+    try:
+        import uvicorn
+    except ImportError as e:
+        logger.error("FATAL: uvicorn Import fehlgeschlagen: %s", e)
+        sys.exit(1)
 
     host = os.environ.get("CAPTURE_HOST", "0.0.0.0")
-    port = int(os.environ.get("CAPTURE_PORT", "8775"))
+    port_str = os.environ.get("CAPTURE_PORT", "8775")
     log_level = os.environ.get("MCP_LOG_LEVEL", "info").lower()
+
+    # v4.5.3: Port robust parsen
+    try:
+        port = int(port_str)
+    except (ValueError, TypeError):
+        logger.error("FATAL: CAPTURE_PORT='%s' ist keine gueltige Portnummer!", port_str)
+        sys.exit(1)
+
+    if port <= 0 or port > 65535:
+        logger.error("FATAL: CAPTURE_PORT=%d liegt ausserhalb des gueltigen Bereichs (1-65535)!", port)
+        sys.exit(1)
 
     capture_public_url = os.environ.get("CAPTURE_PUBLIC_URL", "").rstrip("/")
     base = capture_public_url or f"http://{host}:{port}"
 
-    app = create_capture_app()
+    logger.info("Erstelle Capture-App...")
+    try:
+        app = create_capture_app()
+    except Exception as e:
+        logger.error("FATAL: Capture-App konnte nicht erstellt werden: %s", e, exc_info=True)
+        sys.exit(1)
 
     logger.info("╔══════════════════════════════════════════════════════════════╗")
-    logger.info("║        PRINTIX CAPTURE SERVER v4.5.2 — STANDALONE           ║")
+    logger.info("║        PRINTIX CAPTURE SERVER v4.5.3 — STANDALONE           ║")
     logger.info("╠══════════════════════════════════════════════════════════════╣")
+    logger.info("║  Host:     %s:%d", host, port)
     logger.info("║  Webhook:  %s/capture/webhook/<profile_id>", base)
     logger.info("║  Debug:    %s/capture/debug", base)
     logger.info("║  Health:   %s/health", base)
     logger.info("╚══════════════════════════════════════════════════════════════╝")
 
-    uvicorn.run(app, host=host, port=port, log_level=log_level)
+    try:
+        uvicorn.run(app, host=host, port=port, log_level=log_level)
+    except Exception as e:
+        logger.error("FATAL: Capture-Server konnte nicht starten: %s", e, exc_info=True)
+        sys.exit(1)

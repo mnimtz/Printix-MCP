@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.5.3 (2026-04-13) — Capture-Server Startup Fix
+
+### Fix — Separater Capture-Server startet nicht
+- **Dockerfile**: `EXPOSE 8775` fehlte — Port war im Container nicht freigegeben
+- **run.sh**: Diagnostisches Logging fuer `CAPTURE_PORT` und `CAPTURE_PUBLIC_URL`
+  direkt nach dem Lesen aus bashio::config — Werte jetzt im Add-on-Log sichtbar
+- **run.sh**: Existenz-Check fuer `/app/capture_server.py` vor dem Start
+- **run.sh**: `stderr` des Capture-Prozesses wird jetzt nach `stdout` umgeleitet
+  (`2>&1`) — Import-Fehler und Crashes sind im Add-on-Log sichtbar
+- **run.sh**: Nach 2s Wartezeit Prozess-Check (`kill -0`) — bei sofortigem
+  Crash erscheint eine klare Fehlermeldung im Log
+- **capture_server.py**: Sofort-Logging via `print()` noch vor allen Imports —
+  zeigt PID, CAPTURE_PORT und CAPTURE_HOST sofort im Log
+- **capture_server.py**: FastAPI/uvicorn Imports in try/except mit klarer
+  Fehlermeldung bei fehlendem Paket
+- **capture_server.py**: Port-Validierung (muss Integer 1-65535 sein)
+- **capture_server.py**: App-Erstellung und `uvicorn.run()` in try/except —
+  jeder Fehler wird geloggt und endet mit `sys.exit(1)` statt stillem Crash
+
+---
+
 ## 4.5.2 (2026-04-13) — Capture Connector Model
 
 ### Feature — Printix/Tungsten Capture Connector Alignment
