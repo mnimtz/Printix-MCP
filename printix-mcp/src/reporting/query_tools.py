@@ -1906,7 +1906,7 @@ def query_workstation_overview(
     where_extra = ""
     params_extra: list = []
     if site_id:
-        where_extra += " AND w.network_id = ?"
+        where_extra += " AND p.network_id = ?"
         params_extra.append(site_id)
 
     sql = f"""
@@ -1918,10 +1918,11 @@ def query_workstation_overview(
             COUNT(DISTINCT j.id)                                                AS total_jobs,
             SUM(j.page_count)                                                   AS total_pages
         FROM {_V('workstations')} w
-        LEFT JOIN {_V('networks')} n ON n.id = w.network_id AND n.tenant_id = w.tenant_id
         LEFT JOIN {_V('jobs')} j      ON j.workstation_id = w.id AND j.tenant_id = w.tenant_id
                                      AND j.submit_time >= ?
                                      AND j.submit_time < DATEADD(day, 1, CAST(? AS DATE))
+        LEFT JOIN {_V('printers')} p  ON p.id = j.printer_id AND p.tenant_id = w.tenant_id
+        LEFT JOIN {_V('networks')} n  ON n.id = p.network_id AND n.tenant_id = w.tenant_id
         WHERE w.tenant_id = ?
           {where_extra}
         GROUP BY w.id, w.name, w.os_type, n.name

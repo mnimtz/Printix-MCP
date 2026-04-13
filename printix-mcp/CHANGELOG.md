@@ -1,5 +1,24 @@
 # Changelog
 
+## 4.6.9 (2026-04-13) — Fix: Workstation Report SQL-Fehler + metadataUrl + Error-Parsing
+
+### Fix — Workstation Report: `Invalid column name 'network_id'`
+- **Ursache**: `query_workstation_overview()` referenzierte `w.network_id` auf der
+  Workstations-Tabelle, die kein `network_id`-Feld hat. Nur die Printers-Tabelle
+  hat `network_id`.
+- **Lösung**: JOIN-Pfad geändert: `workstations → jobs → printers → networks`
+  statt dem ungültigen direkten `workstations → networks` JOIN.
+
+### Neu — Printix metadataUrl Fetch (v4.6.8)
+- Webhook-Handler lädt Metadaten von der Printix `metadataUrl` mit signiertem
+  GET-Request (HMAC-SHA256, Printix Capture Connector Protokoll)
+- Plugin-Metadata angereichert mit `_printix_metadata`, `_scan_timestamp`,
+  `_user_name`, `_device_name`, `_job_id`, `_scan_id`
+
+### Fix — API Error-Parsing (v4.6.8)
+- `_handle_response()` parst jetzt `errorText`/`message` statt `description`,
+  und `printix-errorId` statt `errorId` — zeigt saubere Fehlermeldung statt rohem JSON
+
 ## 4.6.7 (2026-04-13) — Fix: Printix Capture Signaturverifikation
 
 ### Fix — Korrekte Printix Capture Connector Signaturformel implementiert

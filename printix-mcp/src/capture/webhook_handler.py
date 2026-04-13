@@ -375,7 +375,7 @@ async def handle_webhook(
             "status": "ok",
             "profile_id": profile_id,
             "endpoint": f"/capture/webhook/{profile_id}",
-            "version": "4.6.7",
+            "version": "4.6.9",
         }
 
     # ── Nur POST akzeptieren ────────────────────────────────────────────────
@@ -655,7 +655,7 @@ def _handle_debug(
         "timestamp": datetime.now().isoformat(),
         "method": method,
         "source": source,
-        "version": "4.6.7",
+        "version": "4.6.9",
         "auth": auth_info,
         "payload": field_analysis,
         "headers": headers,
