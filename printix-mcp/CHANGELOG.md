@@ -1,5 +1,44 @@
 # Changelog
 
+## 4.6.0 (2026-04-13) — Capture Architektur-Redesign
+
+### Breaking Change — `capture_port` durch `capture_enabled` ersetzt
+- **Alt**: `capture_port: 0` (int) — diente gleichzeitig als Ein/Aus-Schalter UND
+  als Port-Nummer. Das war ein Designfehler: der Wert suggerierte, dass er den
+  externen Port steuert, tatsächlich kontrolliert er nur den internen Listen-Port.
+  Das Docker-Portmapping (config.yaml `ports: 8775/tcp`) ist davon völlig unabhängig.
+- **Neu**: `capture_enabled: false` (bool) — reiner Ein/Aus-Schalter.
+  Der Container-Port ist **immer** 8775 (feste Konstante, nicht konfigurierbar).
+  Den Host-Port konfiguriert man in HA unter Add-on → Netzwerk.
+
+### Saubere Trennung der Verantwortlichkeiten
+- **config.yaml `ports: 8775/tcp`** — definiert das Docker-Portmapping (HA Supervisor)
+- **config.yaml `capture_enabled: bool`** — startet/stoppt den Capture-Server-Prozess
+- **HA Netzwerk-Tab** — aktiviert/deaktiviert den Host-Port (unabhängig vom Code)
+- Diese drei Ebenen sind jetzt klar getrennt statt vermischt
+
+### Änderungen im Detail
+- **config.yaml**: `capture_port: int` → `capture_enabled: bool` (Option + Schema)
+- **run.sh**: Liest `capture_enabled` (true/false) statt `capture_port` (int).
+  `CAPTURE_ENABLED` env var ist jetzt "true"/"false" statt einer Portnummer.
+  `CAPTURE_PORT` env var wird nur noch lokal gesetzt wenn der Server startet.
+  Container-Port ist die Konstante `CAPTURE_CONTAINER_PORT=8775`.
+- **server.py**: Middleware und Startup-Log prüfen `CAPTURE_ENABLED` env var
+  (true/false) statt `CAPTURE_PORT > 0`
+- **capture_routes.py**: `_is_capture_separate()` prüft `CAPTURE_ENABLED`
+- **capture_server.py**: Docstring aktualisiert — Port ist fest 8775
+- **Logging**: Klare Unterscheidung zwischen Container-Port (intern, fest) und
+  Host-Port (extern, HA-Netzwerk-Tab)
+
+### Migration
+Wer `capture_port: 8775` (oder einen anderen Wert > 0) hatte:
+→ Ersetzen durch `capture_enabled: true`
+
+Wer `capture_port: 0` hatte:
+→ Ersetzen durch `capture_enabled: false` (oder Option weglassen, Default ist false)
+
+---
+
 ## 4.5.5 (2026-04-13) — Capture Webhook ohne separaten Port
 
 ### Fix — Port 8775 wird von HA nicht nach außen gemappt

@@ -1,6 +1,6 @@
 # Printix MCP Server — Home Assistant Add-on
 
-**Version 4.5.5** · Multi-Tenant MCP Server for the Printix Cloud Print API
+**Version 4.6.0** · Multi-Tenant MCP Server for the Printix Cloud Print API
 
 A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix Cloud Print API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Manage printers, users, print jobs, and generate detailed reports — all through natural language in your AI chat.
 
@@ -306,6 +306,8 @@ Add-on options (via HA UI):
 | `mcp_port` | `8765` | MCP server port |
 | `web_port` | `8080` | Web UI port (external mapping) |
 | `public_url` | | Public URL for MCP endpoint (e.g. via Cloudflare Tunnel) |
+| `capture_enabled` | `false` | Enable separate Capture webhook server on port 8775 |
+| `capture_public_url` | | Public URL for Capture webhooks (e.g. `https://capture.example.com`) |
 | `log_level` | `info` | Logging verbosity (debug/info/warning/error/critical) |
 
 ---

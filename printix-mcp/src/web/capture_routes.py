@@ -84,14 +84,10 @@ def register_capture_routes(
         return f"{request.url.scheme}://{request.url.netloc}", False, False
 
     def _is_capture_separate() -> bool:
-        """Prueft ob Capture auf eigenem Port/URL laeuft (v4.5.0)."""
+        """Prueft ob separater Capture-Server aktiv (v4.6.0: bool statt Port)."""
         import os
-        cp = os.environ.get("CAPTURE_PORT", "0")
-        try:
-            if int(cp) > 0:
-                return True
-        except (ValueError, TypeError):
-            pass
+        if os.environ.get("CAPTURE_ENABLED", "false").lower() == "true":
+            return True
         if os.environ.get("CAPTURE_PUBLIC_URL", "").strip():
             return True
         try:
