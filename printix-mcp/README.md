@@ -54,6 +54,19 @@ Generate realistic Printix print data directly in your Azure SQL database for de
 - **Session management**: view, compare and delete individual demo datasets
 - **Reporting Views**: `setup_schema()` creates a `reporting.*` schema with 8 SQL views — demo data is automatically included in all BI reports
 
+### Printix Capture — Scan-to-Cloud Webhooks (since v4.5.0)
+
+Receive scanned documents from Printix Capture and route them to external systems:
+
+- **Webhook endpoint** — receives `FileDeliveryJobReady` events from Printix Capture
+- **HMAC-SHA256 signature verification** (v4.6.7) — cryptographic authentication using the exact Printix Capture Connector API protocol: `StringToSign = "{RequestId}.{Timestamp}.{method}.{RequestPath}.{Body}"`
+- **Plugin system** — extensible architecture for document processing
+- **Paperless-ngx plugin** — automatic document upload with tags, correspondents, and document types
+- **Standalone Capture Server** (optional) — dedicated port 8775, or use the MCP port
+- **Capture profiles** — per-profile configuration with secret keys, plugin selection, and settings
+- **Multi-secret key rotation** — zero-downtime key rotation with comma-separated signatures
+- **Comprehensive diagnostic logging** — full signature analysis when verification fails
+
 ### Multi-Tenant Architecture
 
 Each user manages their own Printix OAuth2 credentials independently. Multiple tenants can use the same server instance simultaneously. All credentials are stored encrypted (Fernet) in a local SQLite database. Full tenant isolation — no user can see data from another user.
@@ -254,40 +267,45 @@ The add-on exposes the following tools to connected AI assistants:
 |------|----------|-------------|
 | `8080` | HTTP | Web management interface |
 | `8765` | HTTP | MCP server (SSE + HTTP streaming) |
+| `8775` | HTTP | Capture webhook server (optional, when `capture_enabled=true`) |
 
-Both ports must be accessible from your AI assistant. If using Claude Desktop on the same network, the Home Assistant IP is sufficient. For cloud-based AI services, expose the MCP port through a reverse proxy with TLS.
+Ports 8080 and 8765 are always active. Port 8775 is only active when `capture_enabled=true`. Capture webhooks also work through the MCP port (8765) — the dedicated Capture server on 8775 is optional.
+
+For cloud-based AI services, expose the MCP port through a reverse proxy with TLS. **Important**: When using a reverse proxy for Capture webhooks, ensure `X-Printix-*` custom headers are forwarded (not stripped).
 
 ---
 
 ## Architecture
 
 ```
-+-----------------------------------------------------+
-|                 Home Assistant Add-on                |
-|                                                     |
-|  +------------------+    +----------------------+   |
-|  |   Web UI :8080   |    |   MCP Server :8765   |   |
-|  |  (FastAPI/Jinja2) |    |  (SSE + HTTP stream) |   |
-|  +--------+---------+    +----------+-----------+   |
-|           |                          |               |
-|           +----------+------------+-+               |
-|                      v            v                  |
-|            +---------+----+  +---+-------+          |
-|            |   SQLite DB  |  | Entra ID  |          |
-|            |  /data/*.db  |  |   (SSO)   |          |
-|            +------+-------+  +-----------+          |
-+--------------------+----------------------------+---+
-                     |                            |
-         +-----------+-----------+                |
-         v           v           v                v
-  Printix API    Azure SQL    Resend API    Microsoft
-  (Print/Card/  (Reports &   (Email        Graph API
-   Workstation)  Demo Data)   Delivery)    (Auto-Setup)
++------------------------------------------------------------------+
+|                    Home Assistant Add-on                          |
+|                                                                  |
+|  +------------------+ +------------------+ +------------------+  |
+|  |  Web UI :8080    | | MCP Server :8765 | | Capture :8775    |  |
+|  | (FastAPI/Jinja2) | | (SSE+HTTP stream)| | (optional)       |  |
+|  +--------+---------+ +--------+---------+ +--------+---------+  |
+|           |                     |                    |            |
+|           +----------+----------+----------+---------+           |
+|                      v                     v                     |
+|            +---------+----+  +---+-------+---+--------+         |
+|            |   SQLite DB  |  | Entra ID  | Plugin Sys |         |
+|            |  /data/*.db  |  |   (SSO)   | (Paperless)|         |
+|            +------+-------+  +-----------+---+--------+         |
++--------------------+----------------------------+----+-----------+
+                     |                            |    |
+         +-----------+-----------+                |    |
+         v           v           v                v    v
+  Printix API    Azure SQL    Resend API    Microsoft  Paperless-ngx
+  (Print/Card/  (Reports &   (Email        Graph API  (Document
+   Capture)      Demo Data)   Delivery)    (SSO)       Upload)
 ```
 
 **Data flow:**
-- Web UI and MCP server share the same SQLite database for credentials and configuration
+- Web UI, MCP server, and Capture server share the same SQLite database
 - Printix API calls use OAuth2 (client credentials flow) — tokens are cached and refreshed automatically
+- Printix Capture webhooks are authenticated via HMAC-SHA256/512 signatures
+- Capture plugins (e.g. Paperless-ngx) process documents from webhook events
 - Azure SQL is optional and only required for Reports and Demo Data features
 - Entra ID SSO uses OAuth2 Authorization Code Flow for user login
 - Device Code Flow + Graph API for automatic app registration
@@ -316,19 +334,16 @@ Add-on options (via HA UI):
 
 See [CHANGELOG.md](CHANGELOG.md) for a full version history.
 
-**v4.3.1** — Entra callback redirect fix, event poller fix, report delta rendering fix, Cockney + US Southern dialects (14 languages total)
-**v4.3.0** — Device Code Flow: true one-click Entra auto-setup (no bootstrap app needed)
-**v4.2.2** — Full i18n for Entra settings (43 keys x 12 languages), tenant isolation fix
-**v4.2.1** — One-click Entra auto-setup via bootstrap app
+**v4.6.7** — Printix Capture signature verification fixed (exact 5-component StringToSign formula)
+**v4.6.6** — Plugin registry fix for standalone Capture Server
+**v4.6.0** — Capture architecture redesign (`capture_enabled` bool, fixed port 8775)
+**v4.5.0** — Printix Capture webhooks, Paperless-ngx plugin, capture profiles
+**v4.3.1** — Entra callback redirect fix, Cockney + US Southern dialects (14 languages)
+**v4.3.0** — Device Code Flow: true one-click Entra auto-setup
 **v4.2.0** — AI Report Designer tools (list_design_options, preview_report, query_any)
 **v4.1.0** — Entra ID (Azure AD) SSO login
 **v4.0.0** — Bugfix release: demo-data schema, XSS fix, OAuth binding
-**v3.9.1** — Security hardening: OAuth redirect-URI whitelist, XSS fixes, indexed bearer-token lookup
 **v3.9.0** — Admin audit trail, feedback/feature-request ticket system
-**v3.8.1** — Hour x weekday heatmap report
-**v3.8.0** — Sensitive-documents compliance report
-**v3.7.0** — Report Designer Stage 2: 11 new query types, all 18 presets
-**v3.6.0** — Report Designer Stage 1: CSS charts, XLSX/PDF output
 **v3.5.0** — Demo Data Generator, reporting SQL views
 **v3.0.0** — Reports & automation, 18 presets, browser-based management
 
