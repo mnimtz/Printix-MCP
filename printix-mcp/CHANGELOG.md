@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.5.0 (2026-04-13) — Capture-Server Entkopplung
+
+### Feature — Separater Capture-Server (optional)
+- **Neuer eigenstaendiger Capture-Server** (`capture_server.py`): FastAPI/Uvicorn-App
+  nur fuer Capture Webhooks, laeuft auf eigenem Port getrennt vom MCP-Server
+- **Neue Konfigurationsoptionen** in `config.yaml`:
+  - `capture_port` (Standard: 0 = deaktiviert) — eigener Port fuer Capture-Webhooks
+  - `capture_public_url` — eigene oeffentliche URL (z.B. `https://capture.printix.cloud`)
+- **Drei-Server-Architektur** (optional): Web-UI (8080) + MCP (8765) + Capture (8775)
+- **Rueckwaertskompatibel**: Wenn `capture_port=0`, laufen Webhooks wie bisher ueber MCP-Port
+
+### Feature — Capture-URL in Web-UI konfigurierbar
+- **Admin-Einstellungen**: Neues Feld `Capture Webhook URL` zum Konfigurieren
+  einer separaten Capture-Domain
+- **Capture Store**: Zeigt Info-Banner wenn Capture separat konfiguriert ist
+- **URL-Prioritaet**: `capture_public_url` > `public_url` > Request-Fallback
+- Webhook-URLs in der UI werden automatisch aus der richtigen Basis-URL generiert
+
+### Feature — Verbessertes Logging fuer Capture
+- Eigener Log-Marker `[capture-server]` fuer Requests auf dem Capture-Port
+- MCP-Server loggt `[mcp-compat]` wenn Capture-Requests trotz separatem Server
+  noch ueber den MCP-Port kommen
+- Eigene Startup-Banner fuer den Capture-Server
+
+### Architektur
+- `capture/webhook_handler.py` bleibt der kanonische Handler — wird jetzt von
+  drei Quellen aufgerufen: `capture_server.py`, `server.py`, `web/capture_routes.py`
+- Kein duplizierter Code — alle Pfade nutzen denselben Handler
+- `run.sh` startet den Capture-Server als Hintergrund-Prozess wenn `capture_port > 0`
+
+---
+
 ## 4.4.15 (2026-04-13) — Demo-Merge Qualitaetsfixes
 
 ### Fix — Key-based Merge statt Blind-Append

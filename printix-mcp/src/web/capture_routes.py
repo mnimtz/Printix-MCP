@@ -49,22 +49,58 @@ def register_capture_routes(
 
     def _get_webhook_base(request: Request) -> tuple:
         """
-        Webhook Base-URL: MCP_PUBLIC_URL (env) > public_url (DB) > request URL.
-        Returns (base_url, is_configured) — is_configured=False means fallback.
+        Webhook Base-URL Prioritaet (v4.5.0):
+          1. CAPTURE_PUBLIC_URL (env) — eigene Capture-Domain
+          2. capture_public_url (DB Setting)
+          3. MCP_PUBLIC_URL (env) — Fallback auf MCP-Domain
+          4. public_url (DB Setting)
+          5. Fallback: request URL (wahrscheinlich FALSCH)
+        Returns (base_url, is_configured, is_separate_capture)
         """
         import os
+        # v4.5.0: Eigene Capture-URL hat hoechste Prioritaet
+        capture_url = os.environ.get("CAPTURE_PUBLIC_URL", "").strip().rstrip("/")
+        if capture_url:
+            return capture_url, True, True
+        try:
+            from db import get_setting
+            capture_url = get_setting("capture_public_url", "").strip().rstrip("/")
+        except Exception:
+            pass
+        if capture_url:
+            return capture_url, True, True
+        # Kein separater Capture-Endpunkt — Fallback auf MCP-URL
         wb = os.environ.get("MCP_PUBLIC_URL", "").strip().rstrip("/")
         if wb:
-            return wb, True
+            return wb, True, False
         try:
             from db import get_setting
             wb = get_setting("public_url", "").strip().rstrip("/")
         except Exception:
             pass
         if wb:
-            return wb, True
-        # Fallback: request URL — wahrscheinlich FALSCH für Webhooks
-        return f"{request.url.scheme}://{request.url.netloc}", False
+            return wb, True, False
+        # Fallback: request URL — wahrscheinlich FALSCH fuer Webhooks
+        return f"{request.url.scheme}://{request.url.netloc}", False, False
+
+    def _is_capture_separate() -> bool:
+        """Prueft ob Capture auf eigenem Port/URL laeuft (v4.5.0)."""
+        import os
+        cp = os.environ.get("CAPTURE_PORT", "0")
+        try:
+            if int(cp) > 0:
+                return True
+        except (ValueError, TypeError):
+            pass
+        if os.environ.get("CAPTURE_PUBLIC_URL", "").strip():
+            return True
+        try:
+            from db import get_setting
+            if get_setting("capture_public_url", "").strip():
+                return True
+        except Exception:
+            pass
+        return False
 
     # ── GET /capture — Store Overview ───────────────────────────────────────
 
@@ -111,6 +147,7 @@ def register_capture_routes(
             "active_count": sum(1 for p in profiles if p["is_active"]),
             "webhook_base": _get_webhook_base(request)[0],
             "webhook_base_configured": _get_webhook_base(request)[1],
+            "capture_separate": _get_webhook_base(request)[2],
         })
         return templates.TemplateResponse("capture_store.html", ctx)
 

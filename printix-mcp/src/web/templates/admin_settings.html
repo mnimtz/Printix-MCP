@@ -38,6 +38,25 @@
         OAuth: <code>{{ public_url or 'http://&lt;HA-IP&gt;:8765' }}/oauth/authorize</code>
       </div>
 
+      <!-- ── Capture Webhook URL (v4.5.0) ─────────────────────────────────── -->
+      <div class="form-group">
+        <label>Capture Webhook URL (optional)</label>
+        <input type="url" name="capture_public_url" value="{{ capture_public_url | default('') }}"
+               placeholder="https://capture.firma.de">
+        <small class="hint">Eigene URL fuer Capture Webhooks. Wenn leer, wird die MCP-URL verwendet.</small>
+      </div>
+
+      <div class="alert alert-info" style="margin-bottom:20px;font-size:.88em;">
+        <strong>Capture Webhook:</strong><br>
+        {% if capture_public_url %}
+        <code>{{ capture_public_url }}/capture/webhook/&lt;profile_id&gt;</code>
+        <span style="color:#059669;font-weight:600;"> (separater Endpunkt)</span>
+        {% else %}
+        <code>{{ public_url or 'http://&lt;HA-IP&gt;:8765' }}/capture/webhook/&lt;profile_id&gt;</code>
+        <span style="color:#6b7280;"> (via MCP-Server)</span>
+        {% endif %}
+      </div>
+
       <div class="divider"></div>
 
       <!-- ── Entra ID (Azure AD) SSO ─────────────────────────────────────── -->

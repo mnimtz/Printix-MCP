@@ -1,10 +1,11 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# Printix MCP Server v4.4.15 — Home Assistant Add-on Entrypoint
+# Printix MCP Server v4.5.0 — Home Assistant Add-on Entrypoint
 #
-# Startet zwei Services:
-#   1. Web-Verwaltungsoberfläche  (WEB_PORT,  Standard: 8080)
-#   2. MCP-Server (SSE + HTTP)   (MCP_PORT,  Standard: 8765)
+# Startet bis zu drei Services:
+#   1. Web-Verwaltungsoberfläche  (WEB_PORT,      Standard: 8080)
+#   2. MCP-Server (SSE + HTTP)   (MCP_PORT,      Standard: 8765)
+#   3. Capture-Server (optional) (CAPTURE_PORT,  Standard: 8775, 0=deaktiviert)
 #
 # Alle Zugangsdaten werden in der SQLite-DB (/data/printix_multi.db) verwaltet.
 # Erstkonfiguration über die Web-UI: http://<HA-IP>:<WEB_PORT>
@@ -37,6 +38,15 @@ export MCP_PUBLIC_URL="${PUBLIC_URL}"
 # Fallback falls MCP_PORT leer
 MCP_PORT="${MCP_PORT:-8765}"
 
+# v4.5.0: Capture-Server Konfiguration
+CAPTURE_PORT=$(bashio::config 'capture_port' || echo "0")
+CAPTURE_PORT="${CAPTURE_PORT:-0}"
+export CAPTURE_PORT
+
+CAPTURE_PUBLIC_URL=$(bashio::config 'capture_public_url' || echo "")
+CAPTURE_PUBLIC_URL="${CAPTURE_PUBLIC_URL%/}"
+export CAPTURE_PUBLIC_URL
+
 # ─── Entra ID Auto-Setup (v4.3.0: Device Code Flow, keine Bootstrap-App noetig)
 
 # ─── Verbindungsinfo im Log ────────────────────────────────────────────────────
@@ -48,7 +58,7 @@ else
 fi
 
 bashio::log.info "╔══════════════════════════════════════════════════════════════╗"
-bashio::log.info "║        PRINTIX MCP SERVER v4.4.15 — MULTI-TENANT             ║"
+bashio::log.info "║        PRINTIX MCP SERVER v4.5.0 — MULTI-TENANT             ║"
 bashio::log.info "╠══════════════════════════════════════════════════════════════╣"
 bashio::log.info "║ Web-Verwaltung:  http://<HA-IP>:${HOST_WEB_PORT}"
 bashio::log.info "║  → Erstkonfiguration / Benutzer registrieren"
@@ -58,6 +68,20 @@ bashio::log.info "║  claude.ai  → ${BASE}/mcp"
 bashio::log.info "║  ChatGPT    → ${BASE}/sse"
 bashio::log.info "║  Health     → ${BASE}/health"
 bashio::log.info "║  OAuth      → ${BASE}/oauth/authorize"
+bashio::log.info "╠══════════════════════════════════════════════════════════════╣"
+if [ "${CAPTURE_PORT}" -gt 0 ] 2>/dev/null; then
+    if [ -n "${CAPTURE_PUBLIC_URL}" ]; then
+        CAPTURE_BASE="${CAPTURE_PUBLIC_URL}"
+    else
+        CAPTURE_BASE="http://<HA-IP>:${CAPTURE_PORT}"
+    fi
+    bashio::log.info "║ Capture-Server (separat):"
+    bashio::log.info "║  Webhook   → ${CAPTURE_BASE}/capture/webhook/<profile_id>"
+    bashio::log.info "║  Debug     → ${CAPTURE_BASE}/capture/debug"
+else
+    bashio::log.info "║ Capture (via MCP):"
+    bashio::log.info "║  Webhook   → ${BASE}/capture/webhook/<profile_id>"
+fi
 bashio::log.info "╚══════════════════════════════════════════════════════════════╝"
 
 # ─── Web-Verwaltungsoberfläche starten (Hintergrund) ──────────────────────────
@@ -67,6 +91,18 @@ export WEB_HOST="0.0.0.0"
 python3 /app/web/run.py &
 WEB_PID=$!
 bashio::log.info "Web-UI läuft (PID: ${WEB_PID})"
+
+# ─── Capture-Server starten (optional, Hintergrund) ─────────────────────────
+
+if [ "${CAPTURE_PORT}" -gt 0 ] 2>/dev/null; then
+    bashio::log.info "Starte Capture-Server auf Port ${CAPTURE_PORT}..."
+    export CAPTURE_HOST="0.0.0.0"
+    python3 /app/capture_server.py &
+    CAPTURE_PID=$!
+    bashio::log.info "Capture-Server läuft (PID: ${CAPTURE_PID})"
+else
+    bashio::log.info "Capture-Server deaktiviert (capture_port=0) — Webhooks laufen über MCP-Port"
+fi
 
 # ─── MCP-Server starten (Vordergrund) ─────────────────────────────────────────
 

@@ -1,11 +1,12 @@
 """
-Capture Webhook Handler — Kanonische Verarbeitung (v4.4.13)
+Capture Webhook Handler — Kanonische Verarbeitung (v4.5.0)
 ==========================================================
-Einziger Ort für die Webhook-Logik. Wird aufgerufen von:
-  - web/capture_routes.py (Web-UI Port 8080)
-  - server.py / DualTransportApp (MCP Port 8765)
+Einziger Ort fuer die Webhook-Logik. Wird aufgerufen von:
+  - capture_server.py (Capture Port, v4.5.0, source="capture")
+  - server.py / DualTransportApp (MCP Port, source="mcp")
+  - web/capture_routes.py (Web-UI Port, source="web")
 
-Kein duplizierter Code mehr — beide Pfade rufen handle_webhook() auf.
+Kein duplizierter Code — alle drei Pfade rufen handle_webhook() auf.
 """
 
 import json

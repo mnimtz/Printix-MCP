@@ -1,5 +1,5 @@
 """
-Printix MCP Server — Home Assistant Add-on v4.4.15 (Multi-Tenant)
+Printix MCP Server — Home Assistant Add-on v4.5.0 (Multi-Tenant)
 =================================================================
 Model Context Protocol server for the Printix Cloud Print API.
 
@@ -2302,11 +2302,20 @@ class DualTransportApp:
 
     Capture Webhooks werden in BearerAuthMiddleware von der Bearer-Prüfung
     ausgenommen — sie nutzen HMAC-Verifizierung.
+
+    v4.5.0: Wenn CAPTURE_PORT gesetzt ist, laufen Webhooks primaer auf dem
+    separaten Capture-Server. Der MCP-Server akzeptiert Capture-Requests
+    weiterhin fuer Rueckwaertskompatibilitaet, loggt aber einen Hinweis.
     """
 
     def __init__(self, sse_app, http_app):
         self.sse_app = sse_app
         self.http_app = http_app
+        # v4.5.0: Pruefe ob separater Capture-Server aktiv
+        try:
+            self._capture_separate = int(os.environ.get("CAPTURE_PORT", "0")) > 0
+        except (ValueError, TypeError):
+            self._capture_separate = False
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
@@ -2318,7 +2327,11 @@ class DualTransportApp:
         if path == "/mcp" or path.startswith("/mcp/"):
             await self.http_app(scope, receive, send)
         elif path.startswith("/capture/webhook/") or path.startswith("/capture/debug"):
-            logger.info("▶ CAPTURE REQUEST: %s %s", method, path)
+            if self._capture_separate:
+                logger.info("▶ CAPTURE REQUEST [mcp-compat]: %s %s "
+                            "(Hinweis: Capture-Server laeuft auf eigenem Port)", method, path)
+            else:
+                logger.info("▶ CAPTURE REQUEST [mcp]: %s %s", method, path)
             await self._handle_capture(scope, receive, send)
         else:
             await self.sse_app(scope, receive, send)
@@ -2412,7 +2425,7 @@ if __name__ == "__main__":
             logger.warning("Scheduler-Init fehlgeschlagen: %s", _sched_err)
 
     logger.info("╔══════════════════════════════════════════════════════════════╗")
-    logger.info("║        PRINTIX MCP SERVER v4.4.15 — MULTI-TENANT            ║")
+    logger.info("║        PRINTIX MCP SERVER v4.5.0 — MULTI-TENANT            ║")
     logger.info("╠══════════════════════════════════════════════════════════════╣")
     logger.info("║  MCP (claude.ai):  %s/mcp", base)
     logger.info("║  SSE (ChatGPT):    %s/sse", base)
@@ -2429,6 +2442,17 @@ if __name__ == "__main__":
     except Exception:
         _host_web_port = int(os.environ.get("WEB_PORT", "8080"))
     logger.info("║  Benutzer registrieren:  http://<HA-IP>:%d", _host_web_port)
+    # v4.5.0: Capture-Status
+    _capture_port = os.environ.get("CAPTURE_PORT", "0")
+    try:
+        _capture_separate = int(_capture_port) > 0
+    except (ValueError, TypeError):
+        _capture_separate = False
+    if _capture_separate:
+        _cap_url = os.environ.get("CAPTURE_PUBLIC_URL", "").rstrip("/") or f"http://<HA-IP>:{_capture_port}"
+        logger.info("║  Capture (separat): %s/capture/webhook/<id>", _cap_url)
+    else:
+        logger.info("║  Capture (via MCP): %s/capture/webhook/<id>", base)
     logger.info("╚══════════════════════════════════════════════════════════════╝")
 
     uvicorn.run(app, host=host, port=port, log_level=LOG_LEVEL.lower())
