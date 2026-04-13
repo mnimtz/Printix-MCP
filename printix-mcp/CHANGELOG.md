@@ -1,11 +1,25 @@
 # Changelog
 
+## 4.6.12 (2026-04-13) — Workstation-Status Fix + User-Paginierung
+
+### Fix — Workstation-Status korrekt anzeigen
+- API-Feld `active` ist ein **Boolean** (nicht String wie `connectionStatus`)
+- Template komplett überarbeitet: zeigt nur die 5 echten API-Felder
+  (`id`, `name`, `active`, `lastConnectTime`, `lastDisconnectTime`)
+- Status-Dot grün/rot basiert auf `ws.get('active')` (Boolean-Check)
+
+### Neu — User-Liste mit Paginierung + Karten-Anzahl
+- User-Liste zeigt 10 Benutzer pro Seite mit Vor-/Zurück-Navigation
+- Karten-Anzahl (`_card_count`) wird nur für sichtbare User geladen
+  (vorher: immer 0, weil `list_users()` keine Karten zurückgibt)
+- Seitennavigation mit Seitenzahlen, Ellipsis und direkten Links
+
 ## 4.6.11 (2026-04-13) — Workstations UI-Tab + Report-Fix + Plugin-Architektur
 
 ### Neu — Workstations Tab im Web-UI
 - Neuer Tab unter Printix: Drucker → Queues → Benutzer → **Workstations** → Demo
 - Route `/tenant/workstations` — live aus der Printix Workstation Monitoring API
-- Zeigt Status, Name, OS, Site, IP, Client-Version, letzter User
+- Zeigt Status (active Boolean), Name, Last Connected, Last Disconnected
 - i18n in allen 14 Sprachen
 
 ### Fix — Workstation Reports: vollständig dynamische Schema-Erkennung
