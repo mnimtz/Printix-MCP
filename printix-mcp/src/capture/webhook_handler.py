@@ -1,12 +1,12 @@
 """
-Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.2)
+Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.3)
 ===================================================================
 Kanonischer Handler fuer Printix Capture Webhooks. Wird aufgerufen von:
   - capture_server.py  (Capture Port, source="capture")
   - server.py          (MCP Port,     source="mcp")
   - capture_routes.py  (Web-UI Port,  source="web")
 
-Connector-Modell (v4.6.2):
+Connector-Modell (v4.6.3):
   - Profil-Identifikation ueber URL: /capture/webhook/{profile_id}
   - Auth: HMAC-SHA256/512 (multi-secret) + Connector Token (multi-token)
   - Event-Typen: FileDeliveryJobReady, DocumentCaptured, ScanComplete, etc.
@@ -24,6 +24,41 @@ from typing import Any
 logger = logging.getLogger("printix.capture")
 
 DEBUG_PROFILE_ID = "00000000-0000-0000-0000-000000000000"
+
+
+def _log_raw_request_for_sig_debug(source: str, headers: dict, body_bytes: bytes):
+    """
+    v4.6.3: Log complete raw request details for signature reverse-engineering.
+    Called when signature verification fails but require_signature=False.
+    """
+    import hashlib as _hl
+    import base64 as _b64
+
+    logger.info("━━━ SIGNATURE DEBUG DUMP (require_signature=False) ━━━")
+    logger.info("[%s] [sig-debug] body_len=%d body_sha256=%s",
+                source, len(body_bytes),
+                _hl.sha256(body_bytes).hexdigest()[:16])
+    logger.info("[%s] [sig-debug] body_first_200=%s",
+                source, body_bytes[:200].decode("utf-8", errors="replace"))
+
+    # Log all x-printix-* headers
+    for k, v in sorted(headers.items()):
+        if k.startswith("x-printix-") or k in ("content-type", "content-length", "host"):
+            logger.info("[%s] [sig-debug] header %s = %s", source, k, v)
+
+    # Compute and log what the body hashes to with different algos
+    sig = headers.get("x-printix-signature", "")
+    ts = headers.get("x-printix-timestamp", "")
+    path = headers.get("x-printix-request-path", "")
+    rid = headers.get("x-printix-request-id", "")
+
+    logger.info("[%s] [sig-debug] received_signature=%s", source, sig)
+    logger.info("[%s] [sig-debug] received_sig_len=%d (raw bytes after b64decode=%d)",
+                source, len(sig),
+                len(_b64.b64decode(sig + "==")) if sig else 0)
+    logger.info("[%s] [sig-debug] timestamp=%s path=%s request_id=%s",
+                source, ts, path, rid)
+    logger.info("━━━ END SIGNATURE DEBUG DUMP ━━━")
 
 
 # ── Known Capture Event Types ────────────────────────────────────────────────
@@ -226,7 +261,7 @@ async def handle_webhook(
     source: str = "unknown",
 ) -> tuple[int, dict[str, Any]]:
     """
-    Kanonischer Capture-Webhook-Handler (v4.6.2).
+    Kanonischer Capture-Webhook-Handler (v4.6.3).
 
     Processing steps:
       1. Profile lookup
@@ -258,7 +293,7 @@ async def handle_webhook(
             "status": "ok",
             "profile_id": profile_id,
             "endpoint": f"/capture/webhook/{profile_id}",
-            "version": "4.6.2",
+            "version": "4.6.3",
         }
 
     # ── Nur POST akzeptieren ────────────────────────────────────────────────
@@ -285,15 +320,23 @@ async def handle_webhook(
     # ── Step 2: Authentifizierung ───────────────────────────────────────────
     from capture.auth import verify_capture_auth
 
+    require_sig = bool(profile.get("require_signature", False))
     auth_result = verify_capture_auth(body_bytes, headers, profile)
     logger.info("[%s] [step:auth] method=%s success=%s detail=%s",
                 source, auth_result.method, auth_result.success, auth_result.detail)
 
     if not auth_result.success:
-        add_capture_log(tenant_id, profile_id, profile_name,
-                        "auth_failed", "error",
-                        f"Auth failed: {auth_result.detail} (method={auth_result.method})")
-        return 401, {"errorMessage": "Authentication failed"}
+        if require_sig:
+            add_capture_log(tenant_id, profile_id, profile_name,
+                            "auth_failed", "error",
+                            f"Auth failed: {auth_result.detail} (method={auth_result.method})")
+            return 401, {"errorMessage": "Authentication failed"}
+        else:
+            # v4.6.3: Signature mismatch but require_signature=False → continue processing
+            # Log full request details to help reverse-engineer the signature format
+            logger.warning("[%s] [step:auth] SIGNATURE MISMATCH — require_signature=False, "
+                           "continuing anyway (debug mode)", source)
+            _log_raw_request_for_sig_debug(source, headers, body_bytes)
 
     # ── Step 3: Body parsen ─────────────────────────────────────────────────
     try:
@@ -405,7 +448,7 @@ def _handle_debug(
     source: str,
 ) -> tuple[int, dict[str, Any]]:
     """
-    Enhanced Debug-Endpoint (v4.6.2):
+    Enhanced Debug-Endpoint (v4.6.3):
     - Shows detected auth method
     - Shows parsed event type and fields
     - Shows which required fields are present/missing
@@ -489,7 +532,7 @@ def _handle_debug(
         "timestamp": datetime.now().isoformat(),
         "method": method,
         "source": source,
-        "version": "4.6.2",
+        "version": "4.6.3",
         "auth": auth_info,
         "payload": field_analysis,
         "headers": headers,

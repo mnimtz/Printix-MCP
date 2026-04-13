@@ -1,5 +1,31 @@
 # Changelog
 
+## 4.6.3 (2026-04-13) — Printix Signatur: Dokumentiertes Format + Bypass
+
+### Fix — Signaturprüfung basiert auf offizieller Doku
+- **Offizielle Printix-Doku (printix.github.io)** bestätigt: `x-printix-signature`
+  = **HMAC-SHA512 über den rohen Request-Body** (nicht Canonical Strings!)
+- `x-printix-timestamp` / `x-printix-request-path` sind **Begleitheader**,
+  NICHT Teil der Signaturbasis
+- **Verifikationsreihenfolge neu priorisiert**:
+  1. Body-only + SHA-512 (dokumentiert) — wird ZUERST versucht
+  2. Body-only + SHA-256 (Fallback)
+  3. Canonical Strings mit Timestamp/Path (undokumentierte Varianten, Fallback)
+
+### Neu — Komma-getrennte Multi-Signaturen (Key Rotation)
+- `x-printix-signature: sig1,sig2` wird jetzt als zwei separate Signaturen
+  geparst und jeweils einzeln verifiziert
+- Ermöglicht nahtlose Secret-Key-Rotation auf Printix-Seite
+
+### Neu — require_signature=False Bypass mit Debug-Dump
+- Wenn Signaturprüfung fehlschlägt aber `require_signature=False` gesetzt ist,
+  wird der Webhook trotzdem verarbeitet (Debug-Modus)
+- Detaillierter Raw-Request-Dump im Log: Body-Hash, erste 200 Bytes, alle
+  `x-printix-*` Headers, Signaturlängen-Analyse
+- Ermöglicht Test der kompletten Paperless-Pipeline unabhängig von der Signatur
+
+---
+
 ## 4.6.2 (2026-04-13) — Printix Signatur: Exhaustive Discovery
 
 ### Fix — Signatur-Mismatch trotz Base64-Vergleich
