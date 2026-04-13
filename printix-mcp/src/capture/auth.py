@@ -1,5 +1,5 @@
 """
-Capture Authentication — Multi-Method Verification (v4.6.5)
+Capture Authentication — Multi-Method Verification (v4.6.6)
 ===========================================================
 Supports the Printix/Tungsten Capture Connector authentication model:
 
@@ -318,7 +318,7 @@ def _diagnostic_log(
     detected_algo = _detect_algo_from_sig(sig_value)
     body_hash = hashlib.sha256(body_bytes).hexdigest()
 
-    logger.info("┏━━━ SIGNATURE DIAGNOSTIC (v4.6.5) ━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logger.info("┏━━━ SIGNATURE DIAGNOSTIC (v4.6.6) ━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info("┃ received_sig  = %s", sig_clean)
     logger.info("┃ sig_len       = %d chars → detected algo: %s", len(sig_clean), detected_algo)
     logger.info("┃ timestamp     = %s", timestamp or "(none)")
