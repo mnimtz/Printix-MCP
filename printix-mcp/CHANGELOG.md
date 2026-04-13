@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.6.6 (2026-04-13) — Fix: Plugin-Registry im Capture-Server
+
+### Fix — Plugin 'paperless_ngx' nicht gefunden im Standalone-Capture-Server
+- **Ursache**: `capture.plugin_paperless` wurde nur in `capture_routes.py` (Web-UI)
+  importiert, nicht im `webhook_handler.py`. Ohne diesen Import läuft der
+  `@register_plugin`-Decorator nicht → Plugin-Registry leer → HTTP 500.
+- **Fix**: `import capture.plugin_paperless` direkt in `webhook_handler.py` vor
+  dem `create_plugin_instance()`-Aufruf. Damit ist das Plugin unabhängig vom
+  Aufrufpfad (Capture-Server, MCP-Server, Web-UI) immer registriert.
+
+---
+
 ## 4.6.5 (2026-04-13) — Erweiterte Body-Integritätsprüfung + Neue Canonical Formate
 
 ### Neu — Raw-Body-Analyse im Diagnose-Log
