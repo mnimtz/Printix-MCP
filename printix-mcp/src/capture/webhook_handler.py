@@ -1,12 +1,12 @@
 """
-Capture Webhook Handler — Printix/Tungsten Connector Model (v4.5.2)
+Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.0)
 ===================================================================
 Kanonischer Handler fuer Printix Capture Webhooks. Wird aufgerufen von:
   - capture_server.py  (Capture Port, source="capture")
   - server.py          (MCP Port,     source="mcp")
   - capture_routes.py  (Web-UI Port,  source="web")
 
-Connector-Modell (v4.5.2):
+Connector-Modell (v4.6.0):
   - Profil-Identifikation ueber URL: /capture/webhook/{profile_id}
   - Auth: HMAC-SHA256/512 (multi-secret) + Connector Token (multi-token)
   - Event-Typen: FileDeliveryJobReady, DocumentCaptured, ScanComplete, etc.
@@ -226,7 +226,7 @@ async def handle_webhook(
     source: str = "unknown",
 ) -> tuple[int, dict[str, Any]]:
     """
-    Kanonischer Capture-Webhook-Handler (v4.5.2).
+    Kanonischer Capture-Webhook-Handler (v4.6.0).
 
     Processing steps:
       1. Profile lookup
@@ -258,7 +258,7 @@ async def handle_webhook(
             "status": "ok",
             "profile_id": profile_id,
             "endpoint": f"/capture/webhook/{profile_id}",
-            "version": "4.5.2",
+            "version": "4.6.0",
         }
 
     # ── Nur POST akzeptieren ────────────────────────────────────────────────
@@ -405,7 +405,7 @@ def _handle_debug(
     source: str,
 ) -> tuple[int, dict[str, Any]]:
     """
-    Enhanced Debug-Endpoint (v4.5.2):
+    Enhanced Debug-Endpoint (v4.6.0):
     - Shows detected auth method
     - Shows parsed event type and fields
     - Shows which required fields are present/missing
@@ -425,7 +425,12 @@ def _handle_debug(
                                  "authorization", "connector-token")):
             auth_info["headers_found"].append(k)
 
-    if headers.get("authorization", "").lower().startswith("bearer "):
+    if headers.get("x-printix-signature"):
+        auth_info["method"] = "printix-native (x-printix-signature)"
+        auth_info["timestamp"] = headers.get("x-printix-timestamp", "")
+        auth_info["request_path"] = headers.get("x-printix-request-path", "")
+        auth_info["request_id"] = headers.get("x-printix-request-id", "")
+    elif headers.get("authorization", "").lower().startswith("bearer "):
         auth_info["method"] = "connector-token (Bearer)"
     elif headers.get("x-connector-token"):
         auth_info["method"] = "connector-token (x-connector-token)"
@@ -484,7 +489,7 @@ def _handle_debug(
         "timestamp": datetime.now().isoformat(),
         "method": method,
         "source": source,
-        "version": "4.5.2",
+        "version": "4.6.0",
         "auth": auth_info,
         "payload": field_analysis,
         "headers": headers,

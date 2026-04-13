@@ -1,21 +1,33 @@
 """
-Capture Authentication — Multi-Method Verification (v4.5.2)
+Capture Authentication — Multi-Method Verification (v4.6.0)
 ===========================================================
 Supports the Printix/Tungsten Capture Connector authentication model:
 
-1. HMAC Signature (x-printix-signature-256 / x-printix-signature-512)
-   — Multiple secrets per profile for key rotation without downtime
-2. Connector Token (Authorization: Bearer <token> / x-connector-token)
+1. Printix Native Signature (x-printix-signature)
+   — The REAL header Printix sends, paired with x-printix-timestamp
+     and x-printix-request-path. Signature is computed over a canonical
+     string: "{timestamp}.{request_path}.{body}" or just the body.
+2. HMAC Signature (x-printix-signature-256 / x-printix-signature-512)
+   — Body-only HMAC, multiple secrets for key rotation
+3. Hub Signature (x-hub-signature-256)
+   — GitHub-style webhook signature
+4. Connector Token (Authorization: Bearer <token> / x-connector-token)
    — Multiple tokens per profile for rotation
-3. require_signature flag per profile
+5. require_signature flag per profile
    — Enforces that at least one auth method must succeed
 
-Headers checked:
-  x-printix-signature-256    — HMAC-SHA256
-  x-printix-signature-512    — HMAC-SHA512
-  x-hub-signature-256        — Generic webhook signature (GitHub-style)
-  authorization              — Bearer token
-  x-connector-token          — Alternative connector token header
+Headers checked (in priority order):
+  x-printix-signature          — Printix native (SHA256, canonical string)
+  x-printix-signature-256      — HMAC-SHA256 (body only)
+  x-printix-signature-512      — HMAC-SHA512 (body only)
+  x-hub-signature-256          — Generic webhook signature (GitHub-style)
+  authorization                — Bearer token
+  x-connector-token            — Alternative connector token header
+
+Companion headers (informational, used in canonical string):
+  x-printix-timestamp          — Unix timestamp or ISO datetime
+  x-printix-request-path       — Original request path
+  x-printix-request-id         — Request correlation ID
 """
 
 import hashlib
@@ -30,7 +42,7 @@ logger = logging.getLogger("printix.capture.auth")
 class AuthResult:
     """Result of capture request authentication."""
     success: bool
-    method: str = ""        # "hmac-sha256", "hmac-sha512", "connector-token", "none", "skipped"
+    method: str = ""        # "printix-native", "hmac-sha256", "hmac-sha512", "connector-token", "none", "skipped"
     detail: str = ""
     secret_index: int = -1  # Which secret/token matched (0-based), -1 if none
 
@@ -64,6 +76,51 @@ def _try_hmac(body_bytes: bytes, sig_value: str, secrets: list[str], algo) -> tu
     return False, -1
 
 
+def _try_printix_native(
+    body_bytes: bytes,
+    sig_value: str,
+    secrets: list[str],
+    timestamp: str,
+    request_path: str,
+) -> tuple[bool, int, str]:
+    """
+    Try Printix native signature verification.
+
+    Printix computes the signature over a canonical string. We try multiple
+    candidate formats since the exact Printix implementation is not publicly
+    documented. Candidates (all HMAC-SHA256):
+
+      1. "{timestamp}.{request_path}.{body}"  — full canonical string
+      2. "{timestamp}.{body}"                 — without path
+      3. body only                            — simplest variant
+
+    Returns (matched, secret_index, canonical_format_used).
+    """
+    sig_clean = _strip_prefix(sig_value).lower()
+
+    # Build candidate signing payloads in priority order
+    candidates: list[tuple[bytes, str]] = []
+
+    if timestamp and request_path:
+        canonical = f"{timestamp}.{request_path}.".encode("utf-8") + body_bytes
+        candidates.append((canonical, f"{{timestamp}}.{{path}}.{{body}} (ts={timestamp}, path={request_path})"))
+
+    if timestamp:
+        canonical = f"{timestamp}.".encode("utf-8") + body_bytes
+        candidates.append((canonical, f"{{timestamp}}.{{body}} (ts={timestamp})"))
+
+    # Always try body-only as fallback
+    candidates.append((body_bytes, "{body} (body only)"))
+
+    for payload, fmt_desc in candidates:
+        for i, secret in enumerate(secrets):
+            expected = _hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+            if _hmac.compare_digest(sig_clean, expected.lower()):
+                return True, i, fmt_desc
+
+    return False, -1, ""
+
+
 def verify_capture_auth(
     body_bytes: bytes,
     headers: dict[str, str],
@@ -72,10 +129,12 @@ def verify_capture_auth(
     """
     Verify incoming Capture webhook request against profile auth settings.
 
-    Supports:
-      1. HMAC-SHA256/SHA512 with multiple secrets (newline-separated in profile)
-      2. Connector tokens via Authorization: Bearer / x-connector-token header
-      3. require_signature enforcement per profile
+    Supports (in priority order):
+      1. x-printix-signature (Printix native — canonical string with timestamp/path)
+      2. x-printix-signature-256 / x-hub-signature-256 (HMAC-SHA256, body only)
+      3. x-printix-signature-512 (HMAC-SHA512, body only)
+      4. Connector tokens via Authorization: Bearer / x-connector-token header
+      5. require_signature enforcement per profile
 
     Args:
         body_bytes: Raw request body
@@ -92,20 +151,60 @@ def verify_capture_auth(
     has_secrets = bool(secrets)
     has_tokens = bool(tokens)
 
+    # Log all auth-related headers for diagnostics
+    auth_headers = {k: v for k, v in headers.items()
+                    if any(x in k for x in ("signature", "hmac", "printix",
+                                            "authorization", "connector-token"))}
+    if auth_headers:
+        logger.info("Auth: Relevant headers: %s",
+                    {k: v[:40] + "..." if len(v) > 40 else v for k, v in auth_headers.items()})
+
     logger.debug("Auth config: secrets=%d, tokens=%d, require_signature=%s",
                  len(secrets), len(tokens), require_sig)
 
-    # ── 1. Try HMAC Signature ───────────────────────────────────────────────
+    # ── 1. Try HMAC/Signature methods ──────────────────────────────────────
     if has_secrets:
-        sig_headers = {k: v for k, v in headers.items()
-                       if "signature" in k or "hmac" in k or "printix" in k
-                       or k == "x-hub-signature-256"}
+        # ── 1a. Printix Native: x-printix-signature ────────────────────────
+        sig_native = headers.get("x-printix-signature", "")
+        if sig_native:
+            timestamp = headers.get("x-printix-timestamp", "")
+            request_path = headers.get("x-printix-request-path", "")
+            request_id = headers.get("x-printix-request-id", "")
 
-        if sig_headers:
-            logger.info("Auth: Signature headers found: %s",
-                        {k: v[:20] + "..." for k, v in sig_headers.items()})
+            logger.info("Auth: Printix native signature detected "
+                        "(timestamp=%s, path=%s, request_id=%s)",
+                        timestamp or "(none)", request_path or "(none)",
+                        request_id or "(none)")
 
-        # Try x-printix-signature-256 and x-hub-signature-256
+            matched, idx, fmt = _try_printix_native(
+                body_bytes, sig_native, secrets, timestamp, request_path
+            )
+            if matched:
+                detail = (f"Printix native signature verified "
+                          f"(secret #{idx + 1}/{len(secrets)}, format={fmt})")
+                logger.info("Auth: %s", detail)
+                return AuthResult(True, "printix-native", detail, idx)
+
+            logger.warning("Auth: Printix native signature mismatch "
+                           "(tried %d secrets x 3 canonical formats)", len(secrets))
+            # Log expected vs received for first secret (debug aid)
+            if secrets:
+                for payload_desc, payload in [
+                    ("ts.path.body", f"{timestamp}.{request_path}.".encode() + body_bytes),
+                    ("ts.body", f"{timestamp}.".encode() + body_bytes),
+                    ("body", body_bytes),
+                ]:
+                    exp = _hmac.new(secrets[0].encode(), payload, hashlib.sha256).hexdigest()
+                    logger.debug("Auth debug: format=%s expected=%s... got=%s...",
+                                 payload_desc, exp[:16], _strip_prefix(sig_native).lower()[:16])
+
+            return AuthResult(False, "printix-native",
+                              f"Printix native signature mismatch "
+                              f"(tried {len(secrets)} secrets, "
+                              f"timestamp={timestamp or '(none)'}, "
+                              f"path={request_path or '(none)'})")
+
+        # ── 1b. x-printix-signature-256 / x-hub-signature-256 ─────────────
         sig_256 = headers.get("x-printix-signature-256", "") or headers.get("x-hub-signature-256", "")
         if sig_256:
             matched, idx = _try_hmac(body_bytes, sig_256, secrets, hashlib.sha256)
@@ -117,7 +216,7 @@ def verify_capture_auth(
             return AuthResult(False, "hmac-sha256",
                               f"HMAC-SHA256 signature mismatch (tried {len(secrets)} secrets)")
 
-        # Try x-printix-signature-512
+        # ── 1c. x-printix-signature-512 ───────────────────────────────────
         sig_512 = headers.get("x-printix-signature-512", "")
         if sig_512:
             matched, idx = _try_hmac(body_bytes, sig_512, secrets, hashlib.sha512)
@@ -132,9 +231,12 @@ def verify_capture_auth(
         # No signature header found — fall through to token check or compat mode
         if not has_tokens:
             if require_sig:
-                logger.warning("Auth: No signature header and require_signature=True")
+                logger.warning("Auth: No signature header found and require_signature=True. "
+                               "Expected one of: x-printix-signature, x-printix-signature-256, "
+                               "x-printix-signature-512, x-hub-signature-256")
                 return AuthResult(False, "none",
-                                  "No signature header in request (require_signature is enabled)")
+                                  "No signature header in request (require_signature is enabled). "
+                                  "Expected: x-printix-signature or x-printix-signature-256")
             logger.warning("Auth: No signature header — allowing (Printix compatibility mode)")
             return AuthResult(True, "skipped",
                               "No signature header but require_signature=False (compatibility mode)")
