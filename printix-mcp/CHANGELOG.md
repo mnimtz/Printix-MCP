@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.5.1 (2026-04-13) — Fleet Fix + HA Schema Fix
+
+### Fix — config.yaml Schema-Validierung (KRITISCH)
+- `capture_public_url` Schema von `url?` auf `str?` geaendert — HA-Validator
+  lehnte leere Strings ab, was Add-on-Updates blockierte:
+  `"expected a URL. Got {'capture_public_url': '', ...}"`
+
+### Fix — /fleet Internal Server Error
+- **Crash behoben**: `_load_fleet_data()` als shared async Funktion extrahiert,
+  wird von `/fleet` (HTML) und `/fleet/data` (JSON) gemeinsam genutzt
+- **Error Rate**: Berechnung aus SQL `tracking_data` (failed vs. total jobs, 90 Tage)
+- **API/SQL Merge**: Primaer ueber `printer_id`, Fallback ueber `printer_name`
+- **Template robust**: `| default(0)` fuer `error_rate`, `total_jobs`, `total_pages`
+  — kein Crash mehr wenn Felder fehlen
+- **KPI-Logik**: `active_today` zaehlt `status=="active"`, `inactive_7d` zaehlt
+  `status=="critical"`, `avg_utilization` basiert auf `active_days/90`
+- **Alerts**: Inactive-Drucker + High Error Rate (>10%) als Warnungen
+- **`/fleet/data` Endpunkt**: Liefert echte Fleet-Daten als JSON fuer Auto-Refresh
+- **Fehlerbehandlung**: try/except um gesamte Fleet-Logik, Fallback auf leere Daten
+
+---
+
 ## 4.5.0 (2026-04-13) — Capture-Server Entkopplung
 
 ### Feature — Separater Capture-Server (optional)
