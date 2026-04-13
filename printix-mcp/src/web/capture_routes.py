@@ -40,7 +40,7 @@ def register_capture_routes(
 
     # ── Import plugins (triggers @register_plugin) ──────────────────────────
     from capture.base_plugin import get_all_plugins, create_plugin_instance
-    import capture.plugin_paperless  # noqa: F401 — registers PaperlessNgxPlugin
+    import capture.plugins  # noqa: F401 — auto-discovers all plugins via pkgutil
 
     # ── Helper: get tenant for current user ─────────────────────────────────
     def _get_tenant(user: dict) -> Optional[dict]:
