@@ -1,5 +1,5 @@
 """
-Printix Capture Server — Standalone Webhook Endpoint (v4.5.0)
+Printix Capture Server — Standalone Webhook Endpoint (v4.5.2)
 =============================================================
 Optionaler dedizierter Server nur fuer Capture Webhooks.
 Laeuft auf einem eigenen Port (capture_port), getrennt vom MCP-Server.
@@ -128,7 +128,7 @@ if __name__ == "__main__":
     app = create_capture_app()
 
     logger.info("╔══════════════════════════════════════════════════════════════╗")
-    logger.info("║        PRINTIX CAPTURE SERVER v4.5.0 — STANDALONE           ║")
+    logger.info("║        PRINTIX CAPTURE SERVER v4.5.2 — STANDALONE           ║")
     logger.info("╠══════════════════════════════════════════════════════════════╣")
     logger.info("║  Webhook:  %s/capture/webhook/<profile_id>", base)
     logger.info("║  Debug:    %s/capture/debug", base)

@@ -105,19 +105,30 @@
     <div class="cap-form-card">
       <div class="cap-section-title">{{ _('cap_section_security') }}</div>
       <div class="cap-field-grid">
-        <div class="form-group">
-          <label for="secret_key">{{ _('cap_field_secret') }}</label>
-          <input type="password" id="secret_key" name="secret_key"
-                 value="{{ profile.secret_key if profile else '' }}"
-                 placeholder="{{ _('cap_field_secret_hint') }}">
-          <div class="cap-hint">{{ _('cap_field_secret_desc') }}</div>
+        <div class="form-group cap-field-full">
+          <label for="secret_key">HMAC Secret Keys</label>
+          <textarea id="secret_key" name="secret_key" rows="3"
+                    placeholder="One secret per line (for key rotation)"
+                    style="font-family:monospace;font-size:.88em;">{{ profile.secret_key if profile else '' }}</textarea>
+          <div class="cap-hint">HMAC-SHA256/SHA512 secrets for signature verification. One key per line — all are tried during verification, enabling rotation without downtime.</div>
         </div>
-        <div class="form-group">
-          <label for="connector_token">{{ _('cap_field_token') }}</label>
-          <input type="password" id="connector_token" name="connector_token"
-                 value="{{ profile.connector_token if profile else '' }}"
-                 placeholder="{{ _('cap_field_token_hint') }}">
-          <div class="cap-hint">{{ _('cap_field_token_desc') }}</div>
+        <div class="form-group cap-field-full">
+          <label for="connector_token">Connector Tokens</label>
+          <textarea id="connector_token" name="connector_token" rows="3"
+                    placeholder="One token per line (for token rotation)"
+                    style="font-family:monospace;font-size:.88em;">{{ profile.connector_token if profile else '' }}</textarea>
+          <div class="cap-hint">Bearer tokens sent via <code>Authorization: Bearer &lt;token&gt;</code> or <code>x-connector-token</code> header. One token per line for rotation.</div>
+        </div>
+        <div class="form-group cap-field-full" style="margin-top:4px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" name="require_signature" value="1"
+                   {% if profile and profile.require_signature %}checked{% endif %}
+                   style="width:18px;height:18px;">
+            <span>Require Authentication</span>
+          </label>
+          <div class="cap-hint" style="margin-left:26px;">
+            When enabled, every webhook request <strong>must</strong> include a valid HMAC signature or connector token. Without this, requests without credentials are accepted in Printix compatibility mode.
+          </div>
         </div>
       </div>
 
@@ -131,6 +142,29 @@
         <div class="cap-hint">{{ _('cap_webhook_hint') }}</div>
       </div>
       {% endif %}
+    </div>
+
+    <!-- Metadata Settings -->
+    <div class="cap-form-card">
+      <div class="cap-section-title">Capture Metadata</div>
+      <div class="cap-field-grid">
+        <div class="form-group">
+          <label for="metadata_format">Metadata Format</label>
+          <select id="metadata_format" name="metadata_format" style="padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:.9em;">
+            <option value="flat" {% if not profile or (profile.metadata_format|default('flat')) == 'flat' %}selected{% endif %}>Flat (key-value)</option>
+            <option value="structured" {% if profile and profile.metadata_format == 'structured' %}selected{% endif %}>Structured (system + index fields)</option>
+            <option value="passthrough" {% if profile and profile.metadata_format == 'passthrough' %}selected{% endif %}>Passthrough (raw body to plugin)</option>
+          </select>
+          <div class="cap-hint">How metadata from the Capture payload is processed before passing to the plugin.</div>
+        </div>
+        <div class="form-group">
+          <label for="index_fields_json">Index Field Definitions</label>
+          <textarea id="index_fields_json" name="index_fields_json" rows="4"
+                    placeholder='[{"name": "department", "type": "string"}, {"name": "cost_center", "type": "string"}]'
+                    style="font-family:monospace;font-size:.82em;">{{ profile.index_fields_json if profile else '[]' }}</textarea>
+          <div class="cap-hint">JSON array of expected index fields. Defines which custom metadata fields this profile processes (used for validation and logging).</div>
+        </div>
+      </div>
     </div>
 
     <!-- Actions -->

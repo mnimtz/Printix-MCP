@@ -205,6 +205,9 @@ def register_capture_routes(
         plugin_type = form.get("plugin_type", "paperless_ngx")
         secret_key = form.get("secret_key", "").strip()
         connector_token = form.get("connector_token", "").strip()
+        require_signature = form.get("require_signature") == "1"
+        metadata_format = form.get("metadata_format", "flat").strip()
+        index_fields_json = form.get("index_fields_json", "[]").strip() or "[]"
 
         plugin_instance = create_plugin_instance(plugin_type)
         if not plugin_instance:
@@ -246,6 +249,9 @@ def register_capture_routes(
             secret_key=secret_key,
             connector_token=connector_token,
             config_json=config_json,
+            require_signature=require_signature,
+            metadata_format=metadata_format,
+            index_fields_json=index_fields_json,
         )
 
         if profile:
@@ -323,6 +329,9 @@ def register_capture_routes(
         name = form.get("name", "").strip()
         secret_key = form.get("secret_key", "").strip()
         connector_token = form.get("connector_token", "").strip()
+        require_signature = form.get("require_signature") == "1"
+        metadata_format = form.get("metadata_format", "flat").strip()
+        index_fields_json = form.get("index_fields_json", "[]").strip() or "[]"
 
         plugin_instance = create_plugin_instance(profile["plugin_type"])
         if not plugin_instance:
@@ -342,6 +351,9 @@ def register_capture_routes(
             secret_key=secret_key if secret_key else None,
             connector_token=connector_token if connector_token else None,
             config_json=config_json,
+            require_signature=require_signature,
+            metadata_format=metadata_format,
+            index_fields_json=index_fields_json,
         )
 
         from db import add_tenant_log

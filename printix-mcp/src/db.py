@@ -245,6 +245,14 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_capture_profiles_tenant
                 ON capture_profiles (tenant_id);
         """)
+        # v4.5.2: Capture Connector Model — erweiterte Profilfelder
+        existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(capture_profiles)").fetchall()}
+        if "require_signature" not in existing_cols:
+            conn.execute("ALTER TABLE capture_profiles ADD COLUMN require_signature INTEGER NOT NULL DEFAULT 0")
+        if "metadata_format" not in existing_cols:
+            conn.execute("ALTER TABLE capture_profiles ADD COLUMN metadata_format TEXT NOT NULL DEFAULT 'flat'")
+        if "index_fields_json" not in existing_cols:
+            conn.execute("ALTER TABLE capture_profiles ADD COLUMN index_fields_json TEXT NOT NULL DEFAULT '[]'")
 
     logger.info("DB initialisiert: %s", DB_PATH)
 
@@ -1210,6 +1218,9 @@ def create_capture_profile(
     connector_token: str = "",
     config_json: str = "{}",
     is_active: bool = True,
+    require_signature: bool = False,
+    metadata_format: str = "flat",
+    index_fields_json: str = "[]",
 ) -> dict:
     """Erstellt ein neues Capture-Profil für einen Tenant."""
     pid = str(uuid.uuid4())
@@ -1218,13 +1229,17 @@ def create_capture_profile(
         conn.execute("""
             INSERT INTO capture_profiles
                 (id, tenant_id, name, plugin_type, secret_key, connector_token,
-                 config_json, is_active, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+                 config_json, is_active, created_at, updated_at,
+                 require_signature, metadata_format, index_fields_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             pid, tenant_id, name.strip(), plugin_type,
             _enc(secret_key), _enc(connector_token),
             _enc(config_json), 1 if is_active else 0,
             now, now,
+            1 if require_signature else 0,
+            metadata_format or "flat",
+            index_fields_json or "[]",
         ))
     return get_capture_profile(pid)
 
@@ -1239,16 +1254,19 @@ def get_capture_profile(profile_id: str) -> Optional[dict]:
         return None
     d = dict(row)
     return {
-        "id":              d["id"],
-        "tenant_id":       d["tenant_id"],
-        "name":            d["name"],
-        "plugin_type":     d["plugin_type"],
-        "secret_key":      _dec(d.get("secret_key", "")),
-        "connector_token": _dec(d.get("connector_token", "")),
-        "config_json":     _dec(d.get("config_json", "{}")),
-        "is_active":       bool(d["is_active"]),
-        "created_at":      d["created_at"],
-        "updated_at":      d["updated_at"],
+        "id":                d["id"],
+        "tenant_id":         d["tenant_id"],
+        "name":              d["name"],
+        "plugin_type":       d["plugin_type"],
+        "secret_key":        _dec(d.get("secret_key", "")),
+        "connector_token":   _dec(d.get("connector_token", "")),
+        "config_json":       _dec(d.get("config_json", "{}")),
+        "is_active":         bool(d["is_active"]),
+        "require_signature": bool(d.get("require_signature", 0)),
+        "metadata_format":   d.get("metadata_format", "flat"),
+        "index_fields_json": d.get("index_fields_json", "[]"),
+        "created_at":        d["created_at"],
+        "updated_at":        d["updated_at"],
     }
 
 
@@ -1263,16 +1281,19 @@ def get_capture_profiles_by_tenant(tenant_id: str) -> list[dict]:
     for row in rows:
         d = dict(row)
         results.append({
-            "id":              d["id"],
-            "tenant_id":       d["tenant_id"],
-            "name":            d["name"],
-            "plugin_type":     d["plugin_type"],
-            "secret_key":      _dec(d.get("secret_key", "")),
-            "connector_token": _dec(d.get("connector_token", "")),
-            "config_json":     _dec(d.get("config_json", "{}")),
-            "is_active":       bool(d["is_active"]),
-            "created_at":      d["created_at"],
-            "updated_at":      d["updated_at"],
+            "id":                d["id"],
+            "tenant_id":         d["tenant_id"],
+            "name":              d["name"],
+            "plugin_type":       d["plugin_type"],
+            "secret_key":        _dec(d.get("secret_key", "")),
+            "connector_token":   _dec(d.get("connector_token", "")),
+            "config_json":       _dec(d.get("config_json", "{}")),
+            "is_active":         bool(d["is_active"]),
+            "require_signature": bool(d.get("require_signature", 0)),
+            "metadata_format":   d.get("metadata_format", "flat"),
+            "index_fields_json": d.get("index_fields_json", "[]"),
+            "created_at":        d["created_at"],
+            "updated_at":        d["updated_at"],
         })
     return results
 
@@ -1285,6 +1306,9 @@ def update_capture_profile(
     connector_token: Optional[str] = None,
     config_json: Optional[str] = None,
     is_active: Optional[bool] = None,
+    require_signature: Optional[bool] = None,
+    metadata_format: Optional[str] = None,
+    index_fields_json: Optional[str] = None,
 ) -> Optional[dict]:
     """Aktualisiert ein Capture-Profil (nur gesetzte Felder)."""
     parts, params = [], []
@@ -1300,6 +1324,12 @@ def update_capture_profile(
         parts.append("config_json=?"); params.append(_enc(config_json))
     if is_active is not None:
         parts.append("is_active=?"); params.append(1 if is_active else 0)
+    if require_signature is not None:
+        parts.append("require_signature=?"); params.append(1 if require_signature else 0)
+    if metadata_format is not None:
+        parts.append("metadata_format=?"); params.append(metadata_format)
+    if index_fields_json is not None:
+        parts.append("index_fields_json=?"); params.append(index_fields_json)
     if not parts:
         return get_capture_profile(profile_id)
     parts.append("updated_at=?"); params.append(_now())
@@ -1321,12 +1351,13 @@ def delete_capture_profile(profile_id: str) -> bool:
 def get_capture_profile_for_webhook(profile_id: str) -> Optional[dict]:
     """
     Schneller Lookup für den Webhook-Handler — gibt nur die nötigen Felder
-    zurück (Secret, Token, Plugin-Config). Kein Tenant-Join nötig.
+    zurück (Secret, Token, Plugin-Config, Auth-Settings). Kein Tenant-Join nötig.
     """
     with _conn() as conn:
         row = conn.execute(
             "SELECT id, tenant_id, name, plugin_type, secret_key, connector_token, "
-            "config_json, is_active FROM capture_profiles WHERE id = ?",
+            "config_json, is_active, require_signature, metadata_format, index_fields_json "
+            "FROM capture_profiles WHERE id = ?",
             (profile_id,),
         ).fetchone()
     if not row:
@@ -1335,13 +1366,16 @@ def get_capture_profile_for_webhook(profile_id: str) -> Optional[dict]:
     if not d["is_active"]:
         return None
     return {
-        "id":              d["id"],
-        "tenant_id":       d["tenant_id"],
-        "name":            d["name"],
-        "plugin_type":     d["plugin_type"],
-        "secret_key":      _dec(d.get("secret_key", "")),
-        "connector_token": _dec(d.get("connector_token", "")),
-        "config_json":     _dec(d.get("config_json", "{}")),
+        "id":                d["id"],
+        "tenant_id":         d["tenant_id"],
+        "name":              d["name"],
+        "plugin_type":       d["plugin_type"],
+        "secret_key":        _dec(d.get("secret_key", "")),
+        "connector_token":   _dec(d.get("connector_token", "")),
+        "config_json":       _dec(d.get("config_json", "{}")),
+        "require_signature": bool(d.get("require_signature", 0)),
+        "metadata_format":   d.get("metadata_format", "flat"),
+        "index_fields_json": d.get("index_fields_json", "[]"),
     }
 
 
