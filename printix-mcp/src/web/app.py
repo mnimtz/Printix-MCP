@@ -2179,10 +2179,6 @@ def create_app(session_secret: str) -> FastAPI:
                 if isinstance(raw, list):
                     for ws in raw:
                         workstations.append(ws)
-                # v4.6.11: Log API response structure for debugging
-                if workstations:
-                    logger.info("Workstation API keys: %s", list(workstations[0].keys()))
-                    logger.info("Workstation sample: %s", {k: v for k, v in workstations[0].items() if k != '_links'})
             elif not tenant:
                 error = "no_tenant"
             else:
@@ -2190,10 +2186,11 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception as e:
             logger.error("tenant_workstations error: %s", e)
             error = str(e)
+        active_count = sum(1 for ws in workstations if ws.get("active"))
         return templates.TemplateResponse("tenant_workstations.html", {
             "request": request, "user": user,
             "workstations": workstations, "search": search, "error": error,
-            "active_tab": "workstations", **tc,
+            "active_tab": "workstations", "active_count": active_count, **tc,
         })
 
     # ─── Printix Tenant: Users/Cards (create must be before {user_id}) ──────────
