@@ -86,7 +86,9 @@
     {% elif error %}
     <div class="alert alert-error">❌ {{ error }}</div>
     {% elif users %}
-    <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">{{ users|length }} user(s)</p>
+    <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">
+      {{ total_count }} user(s){% if total_pages > 1 %} — Seite {{ page + 1 }} / {{ total_pages }}{% endif %}
+    </p>
     <div style="overflow-x:auto;">
       <table>
         <thead>
@@ -101,7 +103,7 @@
           {% for u in users %}
           {% set display = u.get('displayName') or u.get('fullName') or u.get('name') or '?' %}
           {% set email   = u.get('email', '–') %}
-          {% set cards   = u.get('cards', []) %}
+          {% set card_count = u.get('_card_count', 0) %}
           {% set role    = u.get('role', '') %}
           {% set uid     = u.get('id', '') %}
           <tr class="clickable" onclick="location.href='/tenant/users/{{ uid }}'">
@@ -113,7 +115,6 @@
             </td>
             <td style="color:#6b7280;font-size:.88em;">{{ email }}</td>
             <td>
-              {% set card_count = cards | length %}
               <span class="card-count {% if card_count == 0 %}zero{% endif %}">
                 🃏 {{ card_count }}
               </span>
@@ -130,6 +131,30 @@
         </tbody>
       </table>
     </div>
+
+    {% if total_pages > 1 %}
+    <div style="display:flex;justify-content:center;gap:6px;margin-top:16px;align-items:center;">
+      {% if page > 0 %}
+        <a href="/tenant/users?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}"
+           class="btn btn-secondary" style="padding:6px 14px;font-size:.85em;">← Zurück</a>
+      {% endif %}
+      {% for p in range(total_pages) %}
+        {% if p == page %}
+          <span style="display:inline-block;padding:6px 12px;font-size:.85em;font-weight:700;background:#2563eb;color:#fff;border-radius:6px;">{{ p + 1 }}</span>
+        {% elif (p - page)|abs <= 2 or p == 0 or p == total_pages - 1 %}
+          <a href="/tenant/users?page={{ p }}{% if search %}&search={{ search }}{% endif %}"
+             style="display:inline-block;padding:6px 12px;font-size:.85em;color:#2563eb;text-decoration:none;border:1px solid #d1d5db;border-radius:6px;">{{ p + 1 }}</a>
+        {% elif (p - page)|abs == 3 %}
+          <span style="color:#9ca3af;font-size:.85em;">…</span>
+        {% endif %}
+      {% endfor %}
+      {% if page < total_pages - 1 %}
+        <a href="/tenant/users?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}"
+           class="btn btn-secondary" style="padding:6px 14px;font-size:.85em;">Weiter →</a>
+      {% endif %}
+    </div>
+    {% endif %}
+
     {% else %}
     <div class="alert alert-info">No users found.</div>
     {% endif %}

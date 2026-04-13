@@ -68,6 +68,16 @@
     <div class="alert alert-error">❌ {{ error }}</div>
     {% elif workstations %}
     <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">{{ workstations|length }} workstation(s)</p>
+
+    {# v4.6.11: Debug — zeigt die tatsaechlichen API-Felder des ersten Workstation-Objekts #}
+    {% if workstations and workstations[0] %}
+    <details style="margin-bottom:12px;">
+      <summary style="font-size:.75em;color:#9ca3af;cursor:pointer;">API Debug — Felder anzeigen</summary>
+      <pre style="font-size:.72em;color:#6b7280;background:#f8fafc;padding:8px;border-radius:6px;overflow-x:auto;max-height:200px;">{% for k, v in workstations[0].items() if k != '_links' %}{{ k }}: {{ v }}
+{% endfor %}</pre>
+    </details>
+    {% endif %}
+
     <div style="overflow-x:auto;">
       <table>
         <thead>
@@ -81,27 +91,32 @@
         </thead>
         <tbody>
           {% for ws in workstations %}
-          {% set status = (ws.get('status') or ws.get('connectionStatus') or '') | string | upper %}
+          {# Flexibel: probiere alle bekannten Feld-Varianten fuer Status #}
+          {% set status = (ws.get('status') or ws.get('connectionStatus') or ws.get('state')
+                          or ws.get('online') or ws.get('connected') or '') | string | upper %}
           <tr>
             <td style="width:80px;">
-              {% if 'ONLINE' in status or 'ACTIVE' in status or 'CONNECTED' in status %}
+              {% if status in ('TRUE', '1') or 'ONLINE' in status or 'ACTIVE' in status or 'CONNECTED' in status %}
                 <span class="status-dot dot-green"></span><span style="font-size:.82em;color:#166534;">Online</span>
               {% elif 'WARNING' in status %}
                 <span class="status-dot dot-orange"></span><span style="font-size:.82em;color:#92400e;">Warn</span>
-              {% elif 'OFFLINE' in status or 'INACTIVE' in status or 'DISCONNECTED' in status %}
+              {% elif status in ('FALSE', '0') or 'OFFLINE' in status or 'INACTIVE' in status or 'DISCONNECTED' in status %}
                 <span class="status-dot dot-red"></span><span style="font-size:.82em;color:#991b1b;">Offline</span>
               {% else %}
                 <span class="status-dot dot-gray"></span><span style="font-size:.82em;color:#9ca3af;">{{ status or '–' }}</span>
               {% endif %}
             </td>
             <td>
-              <span style="font-weight:600;">{{ ws.get('name') or ws.get('hostname') or '–' }}</span>
-              {% if ws.get('hostname') and ws.get('name') and ws.get('hostname') != ws.get('name') %}
-                <br><span class="ws-detail">{{ ws.get('hostname') }}</span>
+              {% set ws_name = ws.get('name') or ws.get('hostname') or ws.get('computerName') or '–' %}
+              <span style="font-weight:600;">{{ ws_name }}</span>
+              {% set hostname = ws.get('hostname') or ws.get('computerName') or '' %}
+              {% if hostname and hostname != ws_name %}
+                <br><span class="ws-detail">{{ hostname }}</span>
               {% endif %}
             </td>
             <td>
-              {% set os_name = ws.get('osName') or ws.get('os') or ws.get('osType') or '' %}
+              {% set os_name = ws.get('osName') or ws.get('os') or ws.get('osType')
+                              or ws.get('operatingSystem') or '' %}
               {% set os_ver = ws.get('osVersion') or '' %}
               {% if os_name %}
                 <span class="os-chip">{{ os_name }}{% if os_ver %} {{ os_ver }}{% endif %}</span>
@@ -110,16 +125,20 @@
               {% endif %}
             </td>
             <td style="color:#6b7280;font-size:.88em;">
-              {{ ws.get('siteName') or ws.get('site', {}).get('name', '') if ws.get('site') is mapping else ws.get('site', '') or '–' }}
+              {% if ws.get('site') is mapping %}
+                {{ ws.get('site', {}).get('name', '–') }}
+              {% else %}
+                {{ ws.get('siteName') or ws.get('site') or '–' }}
+              {% endif %}
             </td>
             <td style="font-size:.82em;color:#6b7280;">
-              {% set ip = ws.get('ipAddress') or ws.get('ip') or '' %}
-              {% set user = ws.get('lastUser') or ws.get('userName') or '' %}
-              {% set version = ws.get('clientVersion') or ws.get('version') or '' %}
+              {% set ip = ws.get('ipAddress') or ws.get('ip') or ws.get('lastIpAddress') or '' %}
+              {% set ws_user = ws.get('lastUser') or ws.get('userName') or ws.get('lastUserName') or '' %}
+              {% set version = ws.get('clientVersion') or ws.get('version') or ws.get('printixClientVersion') or '' %}
               {% if ip %}IP: {{ ip }}{% endif %}
-              {% if user %}{% if ip %}<br>{% endif %}User: {{ user }}{% endif %}
-              {% if version %}{% if ip or user %}<br>{% endif %}v{{ version }}{% endif %}
-              {% if not ip and not user and not version %}–{% endif %}
+              {% if ws_user %}{% if ip %}<br>{% endif %}User: {{ ws_user }}{% endif %}
+              {% if version %}{% if ip or ws_user %}<br>{% endif %}v{{ version }}{% endif %}
+              {% if not ip and not ws_user and not version %}–{% endif %}
             </td>
           </tr>
           {% endfor %}
