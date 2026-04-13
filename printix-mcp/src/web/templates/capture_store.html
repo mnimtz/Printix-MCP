@@ -139,9 +139,20 @@
       <p style="color: #78350f; font-size: .88em; margin: 4px 0 0;">
         Die angezeigte Webhook-URL ist ein Fallback und vermutlich <strong>falsch</strong>.
         Bitte unter <a href="/admin/settings" style="color: #92400e; text-decoration: underline;">Admin-Einstellungen</a>
-        die <code>public_url</code> auf die <strong>MCP-Server-URL</strong> setzen
-        (z.B. <code>https://mcp.example.com</code>).
-        Die Capture Webhooks laufen auf dem MCP-Port, nicht auf dem Web-UI-Port.
+        eine <code>capture_public_url</code> oder <code>public_url</code> setzen
+        (z.B. <code>https://capture.printix.cloud</code>).
+      </p>
+    </div>
+  </div>
+  {% elif capture_separate %}
+  <!-- Info: Capture runs on separate endpoint -->
+  <div style="background: #ecfdf5; border: 1px solid #10b981; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: flex-start; gap: 12px;">
+    <span style="font-size: 1.4em;">&#x2705;</span>
+    <div>
+      <strong style="color: #065f46;">Capture-Server separat konfiguriert</strong>
+      <p style="color: #047857; font-size: .88em; margin: 4px 0 0;">
+        Webhooks laufen auf einem <strong>eigenen Endpunkt</strong>, getrennt vom MCP-Server.
+        Basis-URL: <code>{{ webhook_base }}</code>
       </p>
     </div>
   </div>

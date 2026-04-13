@@ -1,0 +1,138 @@
+"""
+Printix Capture Server — Standalone Webhook Endpoint (v4.5.0)
+=============================================================
+Optionaler dedizierter Server nur fuer Capture Webhooks.
+Laeuft auf einem eigenen Port (capture_port), getrennt vom MCP-Server.
+
+Wird von run.sh gestartet wenn capture_port > 0 konfiguriert ist.
+
+Endpunkte:
+  POST /capture/webhook/{profile_id}  -> Printix Capture Webhook
+  GET  /capture/webhook/{profile_id}  -> Health-Check
+  ALL  /capture/debug                 -> Debug-Endpoint
+  ALL  /capture/debug/{path}          -> Debug mit Subpath
+  GET  /health                        -> Server Health-Check
+"""
+
+import os
+import sys
+import json
+import logging
+
+# Logging einrichten
+logging.basicConfig(
+    level=os.environ.get("MCP_LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,
+    force=True,
+)
+
+logger = logging.getLogger("printix.capture.server")
+
+# sys.path so anpassen dass /app Module gefunden werden
+app_dir = os.path.dirname(os.path.abspath(__file__))
+if app_dir not in sys.path:
+    sys.path.insert(0, app_dir)
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+
+def create_capture_app() -> FastAPI:
+    """Erstellt die FastAPI-App fuer den Capture-Server."""
+    app = FastAPI(
+        title="Printix Capture Server",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+
+    # ── Health-Check ─────────────────────────────────────────────────────────
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok", "service": "capture"}
+
+    # ── Capture Webhook ──────────────────────────────────────────────────────
+
+    @app.api_route("/capture/webhook/{profile_id}", methods=["GET", "POST"])
+    async def capture_webhook(request: Request, profile_id: str):
+        from capture.webhook_handler import handle_webhook
+
+        method = request.method
+        headers = {k: v for k, v in request.headers.items()}
+        body_bytes = await request.body()
+
+        logger.info("▶ CAPTURE REQUEST [capture-server]: %s /capture/webhook/%s",
+                     method, profile_id[:8])
+
+        try:
+            status, data = await handle_webhook(
+                profile_id=profile_id,
+                method=method,
+                headers=headers,
+                body_bytes=body_bytes,
+                source="capture",
+            )
+        except Exception as e:
+            logger.error("Capture handler error: %s", e, exc_info=True)
+            status, data = 500, {"error": str(e)}
+
+        return JSONResponse(content=data, status_code=status)
+
+    # ── Debug Endpoint ───────────────────────────────────────────────────────
+
+    @app.api_route("/capture/debug", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    @app.api_route("/capture/debug/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    async def capture_debug(request: Request, path: str = ""):
+        from capture.webhook_handler import handle_webhook
+
+        method = request.method
+        headers = {k: v for k, v in request.headers.items()}
+        body_bytes = await request.body()
+
+        logger.info("▶ CAPTURE DEBUG [capture-server]: %s /capture/debug/%s",
+                     method, path)
+
+        debug_profile_id = "00000000-0000-0000-0000-000000000000"
+        try:
+            status, data = await handle_webhook(
+                profile_id=debug_profile_id,
+                method=method,
+                headers=headers,
+                body_bytes=body_bytes,
+                source="capture",
+            )
+        except Exception as e:
+            logger.error("Capture debug error: %s", e, exc_info=True)
+            status, data = 500, {"error": str(e)}
+
+        return JSONResponse(content=data, status_code=status)
+
+    return app
+
+
+# ── Entry Point ─���────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import uvicorn
+
+    host = os.environ.get("CAPTURE_HOST", "0.0.0.0")
+    port = int(os.environ.get("CAPTURE_PORT", "8775"))
+    log_level = os.environ.get("MCP_LOG_LEVEL", "info").lower()
+
+    capture_public_url = os.environ.get("CAPTURE_PUBLIC_URL", "").rstrip("/")
+    base = capture_public_url or f"http://{host}:{port}"
+
+    app = create_capture_app()
+
+    logger.info("╔══════════════════════════════════════════════════════════════╗")
+    logger.info("║        PRINTIX CAPTURE SERVER v4.5.0 — STANDALONE           ║")
+    logger.info("╠══════════════════════════════════════════════════════════════╣")
+    logger.info("║  Webhook:  %s/capture/webhook/<profile_id>", base)
+    logger.info("║  Debug:    %s/capture/debug", base)
+    logger.info("║  Health:   %s/health", base)
+    logger.info("╚══════════════════════════════════════════════════════════════╝")
+
+    uvicorn.run(app, host=host, port=port, log_level=log_level)

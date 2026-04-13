@@ -1735,6 +1735,12 @@ def create_app(session_secret: str) -> FastAPI:
             public_url = get_setting("public_url", "")
         except Exception:
             public_url = os.environ.get("MCP_PUBLIC_URL", "")
+        # v4.5.0: Capture-spezifische URL
+        try:
+            from db import get_setting as _gs
+            capture_public_url = _gs("capture_public_url", "")
+        except Exception:
+            capture_public_url = os.environ.get("CAPTURE_PUBLIC_URL", "")
         # Entra-Konfiguration
         try:
             from db import get_setting as gs
@@ -1759,6 +1765,7 @@ def create_app(session_secret: str) -> FastAPI:
         return {
             "request": request, "user": user,
             "public_url": public_url,
+            "capture_public_url": capture_public_url,
             "entra": entra_cfg,
             "entra_redirect_uri": saved_redirect,
             "auto_setup_success": auto_setup_success,
@@ -1778,6 +1785,7 @@ def create_app(session_secret: str) -> FastAPI:
     async def admin_settings_post(
         request:              Request,
         public_url:           str = Form(default=""),
+        capture_public_url:   str = Form(default=""),
         entra_enabled:        str = Form(default=""),
         entra_tenant_id:      str = Form(default=""),
         entra_client_id:      str = Form(default=""),
@@ -1790,9 +1798,11 @@ def create_app(session_secret: str) -> FastAPI:
             return RedirectResponse("/login", status_code=302)
 
         url = public_url.strip().rstrip("/")
+        capture_url = capture_public_url.strip().rstrip("/")
         try:
             from db import set_setting, _enc, audit
             set_setting("public_url", url)
+            set_setting("capture_public_url", capture_url)
 
             # Entra-Settings speichern
             set_setting("entra_enabled", "1" if entra_enabled else "0")
@@ -1807,6 +1817,8 @@ def create_app(session_secret: str) -> FastAPI:
                 set_setting("entra_redirect_uri", entra_redirect_uri.strip().rstrip("/"))
 
             changes = [f"public_url={url}"]
+            if capture_url:
+                changes.append(f"capture_public_url={capture_url}")
             if entra_enabled:
                 changes.append("entra=aktiviert")
             audit(user["id"], "admin_settings", ", ".join(changes))

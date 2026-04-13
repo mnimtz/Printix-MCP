@@ -1,5 +1,74 @@
 # Changelog
 
+## 4.5.0 (2026-04-13) — Capture-Server Entkopplung
+
+### Feature — Separater Capture-Server (optional)
+- **Neuer eigenstaendiger Capture-Server** (`capture_server.py`): FastAPI/Uvicorn-App
+  nur fuer Capture Webhooks, laeuft auf eigenem Port getrennt vom MCP-Server
+- **Neue Konfigurationsoptionen** in `config.yaml`:
+  - `capture_port` (Standard: 0 = deaktiviert) — eigener Port fuer Capture-Webhooks
+  - `capture_public_url` — eigene oeffentliche URL (z.B. `https://capture.printix.cloud`)
+- **Drei-Server-Architektur** (optional): Web-UI (8080) + MCP (8765) + Capture (8775)
+- **Rueckwaertskompatibel**: Wenn `capture_port=0`, laufen Webhooks wie bisher ueber MCP-Port
+
+### Feature — Capture-URL in Web-UI konfigurierbar
+- **Admin-Einstellungen**: Neues Feld `Capture Webhook URL` zum Konfigurieren
+  einer separaten Capture-Domain
+- **Capture Store**: Zeigt Info-Banner wenn Capture separat konfiguriert ist
+- **URL-Prioritaet**: `capture_public_url` > `public_url` > Request-Fallback
+- Webhook-URLs in der UI werden automatisch aus der richtigen Basis-URL generiert
+
+### Feature — Verbessertes Logging fuer Capture
+- Eigener Log-Marker `[capture-server]` fuer Requests auf dem Capture-Port
+- MCP-Server loggt `[mcp-compat]` wenn Capture-Requests trotz separatem Server
+  noch ueber den MCP-Port kommen
+- Eigene Startup-Banner fuer den Capture-Server
+
+### Architektur
+- `capture/webhook_handler.py` bleibt der kanonische Handler — wird jetzt von
+  drei Quellen aufgerufen: `capture_server.py`, `server.py`, `web/capture_routes.py`
+- Kein duplizierter Code — alle Pfade nutzen denselben Handler
+- `run.sh` startet den Capture-Server als Hintergrund-Prozess wenn `capture_port > 0`
+
+---
+
+## 4.4.15 (2026-04-13) — Demo-Merge Qualitaetsfixes
+
+### Fix — Key-based Merge statt Blind-Append
+- **printer_history**: Merge auf `(period, printer_name)` Key — verhindert Duplikate
+  wenn SQL- und Demo-Daten denselben Drucker/Zeitraum betreffen
+- **queue_stats**: Merge auf `(paper_size, color, duplex)` Key — korrekte Aggregation
+  statt doppelter Zeilen fuer identische Kombinationen
+- **service_desk**: Merge auf `(group_key, status)` Key — keine doppelten Fehlertypen
+
+### Fix — Trend: Distinct User/Printer-Zaehlung
+- `query_trend` holt jetzt per separater SQL-Abfrage die tatsaechlichen distinct
+  `tenant_user_id` und `printer_id` Sets und bildet die Union mit Demo-IDs —
+  kein additives Zaehlen mehr bei `active_users` / `active_printers`
+
+### Fix — Anomalien: Vollstaendige Neuberechnung auf kombinierten Daten
+- `query_anomalies` fuehrt jetzt eine separate SQL-Abfrage fuer ALLE Tageswerte
+  durch (nicht nur Anomalie-Tage), merged diese mit Demo-Tageswerten, und
+  berechnet Durchschnitt, Standardabweichung und z-Scores komplett neu auf
+  den kombinierten Daten
+
+### Fix — Sensitive Documents: demo.jobs_scan entfernt
+- `query_sensitive_documents` referenziert nicht mehr `demo.jobs_scan` als
+  SQL-Fallback (existiert nicht in Azure SQL seit v4.4.0)
+- SQL-Scan-Branch wird deaktiviert wenn View nicht vorhanden — Demo-Scan-Daten
+  kommen per Python-Merge aus lokaler SQLite
+
+### Fix — Workstation-Reports: Klare Demo-Modus-Meldung
+- `query_workstation_overview` und `query_workstation_detail` zeigen eine klare
+  Meldung wenn nur Demo-Daten aktiv und keine dbo.workstations-Tabelle vorhanden
+
+### Feature — Demo-Generator: Realistische Fehlerquoten
+- 3% aller Demo-Jobs erhalten jetzt einen Fehlerstatus:
+  PRINT_FAILED, PRINT_CANCELLED, PRINTER_OFFLINE, PAPER_JAM, TONER_EMPTY
+- Ermoeglicht endlich nicht-leere `service_desk`-Reports mit Demo-Daten
+
+---
+
 ## 4.4.14 (2026-04-12) — Demo-Daten Merge fuer ALLE Reports
 
 ### Feature — Demo-Merge-Layer auf alle Report-Typen erweitert
