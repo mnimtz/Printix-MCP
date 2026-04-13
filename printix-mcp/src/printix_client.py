@@ -144,8 +144,12 @@ class PrintixClient:
         if not resp.ok:
             try:
                 err = resp.json()
-                msg = err.get("description", resp.text)
-                err_id = err.get("errorId", "")
+                # v4.6.8: Printix uses errorText/message, not description
+                msg = (err.get("errorText")
+                       or err.get("message")
+                       or err.get("description")
+                       or resp.text)
+                err_id = err.get("printix-errorId") or err.get("errorId") or ""
             except Exception:
                 msg = resp.text
                 err_id = ""

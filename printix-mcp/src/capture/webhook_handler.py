@@ -1,25 +1,31 @@
 """
-Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.7)
+Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.8)
 ===================================================================
 Kanonischer Handler fuer Printix Capture Webhooks. Wird aufgerufen von:
   - capture_server.py  (Capture Port, source="capture")
   - server.py          (MCP Port,     source="mcp")
   - capture_routes.py  (Web-UI Port,  source="web")
 
-Connector-Modell (v4.6.7):
+Connector-Modell (v4.6.8):
   - Profil-Identifikation ueber URL: /capture/webhook/{profile_id}
   - Auth: HMAC-SHA256/512 (multi-secret) + Connector Token (multi-token)
   - Event-Typen: FileDeliveryJobReady, DocumentCaptured, ScanComplete, etc.
-  - Metadaten: System-Metadaten + Custom Index Fields
+  - Metadaten: System-Metadaten + Custom Index Fields + metadataUrl Fetch
   - Payload: documentUrl direkt im Webhook-Body (Push-Modell)
   - Printix-kompatible Antwort: HTTP 200 + errorMessage
 """
 
+import base64
+import hashlib
+import hmac as _hmac
 import json
 import logging
+import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 logger = logging.getLogger("printix.capture")
 
@@ -59,6 +65,82 @@ def _log_raw_request_for_sig_debug(source: str, headers: dict, body_bytes: bytes
     logger.info("[%s] [sig-debug] timestamp=%s path=%s request_id=%s",
                 source, ts, path, rid)
     logger.info("━━━ END SIGNATURE DEBUG DUMP ━━━")
+
+
+async def _fetch_printix_metadata(
+    metadata_url: str,
+    secret_key: str,
+    source: str,
+) -> dict[str, Any]:
+    """
+    v4.6.8: Fetch enriched metadata from Printix metadataUrl.
+
+    Sends a signed GET request using the Printix Capture Connector HMAC scheme:
+      StringToSign = "{RequestId}.{Timestamp}.get.{path}."
+      (empty body for GET → trailing dot)
+
+    Returns the metadata dict, or empty dict on failure.
+    """
+    if not metadata_url or not secret_key:
+        return {}
+
+    import aiohttp
+
+    try:
+        parsed = urlparse(metadata_url)
+        request_path = parsed.path
+        if parsed.query:
+            request_path += f"?{parsed.query}"
+
+        request_id = str(uuid.uuid4())
+        timestamp = str(int(time.time()))
+        method = "get"
+
+        # StringToSign: same 5-component format, body is empty for GET
+        string_to_sign = f"{request_id}.{timestamp}.{method}.{request_path}."
+        key_bytes = base64.b64decode(secret_key)
+        sig = _hmac.new(key_bytes, string_to_sign.encode("utf-8"), hashlib.sha256).digest()
+        signature = base64.b64encode(sig).decode("utf-8")
+
+        headers = {
+            "X-Printix-Request-Id": request_id,
+            "X-Printix-Timestamp": timestamp,
+            "X-Printix-Signature": signature,
+            "Accept": "application/json",
+        }
+
+        logger.info("[%s] [step:metadata] Fetching metadata from: %s", source, metadata_url[:80])
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(metadata_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    logger.info("[%s] [step:metadata] OK — %d fields: %s",
+                                source, len(data) if isinstance(data, dict) else 0,
+                                list(data.keys()) if isinstance(data, dict) else type(data).__name__)
+
+                    # Handle both "object" format and "nameValuePairs" format
+                    if isinstance(data, dict):
+                        return data
+                    elif isinstance(data, list):
+                        # nameValuePairs format: [{"name": "...", "value": "..."}, ...]
+                        result: dict[str, Any] = {}
+                        for item in data:
+                            if isinstance(item, dict) and "name" in item:
+                                result[item["name"]] = item.get("value", "")
+                        logger.info("[%s] [step:metadata] Converted nameValuePairs → %d fields",
+                                    source, len(result))
+                        return result
+                    return {}
+                else:
+                    body = await resp.text()
+                    logger.warning("[%s] [step:metadata] HTTP %d — %s",
+                                   source, resp.status, body[:200])
+                    return {}
+
+    except Exception as e:
+        logger.warning("[%s] [step:metadata] Fetch failed: %s", source, e)
+        return {}
 
 
 # ── Known Capture Event Types ────────────────────────────────────────────────
@@ -387,6 +469,26 @@ async def handle_webhook(
     logger.info("[%s] [step:validate] OK%s",
                 source, f" (warnings: {len(warnings)})" if warnings else "")
 
+    # ── Step 5b: Printix-Metadaten von metadataUrl laden (v4.6.8) ──────────
+    printix_metadata: dict[str, Any] = {}
+    metadata_url = body.get("metadataUrl") or body.get("MetadataUrl") or ""
+    metadata_names = body.get("metadataNames") or body.get("MetadataNames") or []
+    secrets = profile.get("secret_key", "").strip().split("\n")
+    first_secret = secrets[0].strip() if secrets else ""
+
+    if metadata_url and first_secret:
+        printix_metadata = await _fetch_printix_metadata(
+            metadata_url, first_secret, source,
+        )
+    elif metadata_url:
+        logger.info("[%s] [step:metadata] metadataUrl present but no secret key — skipping fetch",
+                    source)
+    else:
+        logger.debug("[%s] [step:metadata] No metadataUrl in payload", source)
+
+    if metadata_names:
+        logger.info("[%s] [step:metadata] metadataNames=%s", source, metadata_names)
+
     # ── Step 6: Plugin laden und Dokument verarbeiten ───────────────────────
     from capture.base_plugin import create_plugin_instance
     import capture.plugin_paperless  # noqa: F401 — registers PaperlessNgxPlugin
@@ -400,10 +502,30 @@ async def handle_webhook(
 
     logger.info("[%s] [step:plugin] OK — %s (%s)", source, plugin.plugin_name, plugin_type)
 
-    # Build combined metadata for plugin (backward compatible interface)
-    # index_fields first, then system_metadata as supplementary
-    plugin_metadata: dict[str, Any] = dict(event.index_fields)
+    # Build combined metadata for plugin (v4.6.8: enriched with Printix metadata)
+    # Priority: Printix metadata > index_fields > system_metadata > event context
+    plugin_metadata: dict[str, Any] = {}
+    # 1. System metadata (lowest priority)
     plugin_metadata.update(event.system_metadata)
+    # 2. Index fields from webhook body
+    plugin_metadata.update(event.index_fields)
+    # 3. Printix metadata from metadataUrl (highest priority)
+    if printix_metadata:
+        plugin_metadata["_printix_metadata"] = printix_metadata
+        # Flatten known fields into top level for easy access
+        for k, v in printix_metadata.items():
+            if k not in plugin_metadata:
+                plugin_metadata[k] = v
+    # 4. Add request context for fallback date/user info
+    plugin_metadata["_event_type"] = event.event_type
+    plugin_metadata["_filename"] = event.filename
+    plugin_metadata["_user_name"] = event.user_name
+    plugin_metadata["_device_name"] = event.device_name
+    plugin_metadata["_scan_timestamp"] = headers.get("x-printix-timestamp", "")
+    plugin_metadata["_job_id"] = body.get("jobId") or body.get("JobId") or ""
+    plugin_metadata["_scan_id"] = body.get("scanId") or body.get("ScanId") or ""
+    plugin_metadata["_callback_url"] = body.get("callbackUrl") or ""
+    plugin_metadata["_metadata_names"] = metadata_names
 
     try:
         ok, msg = await plugin.process_document(
