@@ -1882,6 +1882,9 @@ def query_workstation_overview(
     """
     Workstation-Statistik. Erfordert dbo.workstations (optional in Printix BI Schema).
     Gibt leere Liste zurück wenn Tabelle nicht vorhanden.
+
+    v4.6.10: Dynamische Spalten-Prüfung — dbo.jobs hat nicht immer workstation_id.
+    Wenn die Spalte fehlt, werden Workstations ohne Job-Statistiken aufgelistet.
     """
     tenant_id = get_tenant_id()
     from .sql_client import query_fetchone
@@ -1892,7 +1895,6 @@ def query_workstation_overview(
             "WHERE TABLE_SCHEMA IN ('dbo','reporting') AND TABLE_NAME IN ('workstations','v_workstations')"
         )
         if not (tbl_check or {}).get("cnt"):
-            # v4.4.15: Klare Meldung wenn nur Demo-Daten aktiv
             if _has_active_demo():
                 return [{"info": "Workstation-Daten sind in Demo-Daten nicht enthalten. "
                          "Dieser Report erfordert eine Azure SQL Datenbank mit dbo.workstations-Tabelle."}]
@@ -1903,32 +1905,61 @@ def query_workstation_overview(
                      "Dieser Report erfordert eine Azure SQL Datenbank mit dbo.workstations-Tabelle."}]
         return [{"info": "workstations-Tabelle nicht in diesem Schema vorhanden"}]
 
-    where_extra = ""
-    params_extra: list = []
-    if site_id:
-        where_extra += " AND p.network_id = ?"
-        params_extra.append(site_id)
+    # v4.6.10: Prüfe ob dbo.jobs eine workstation_id Spalte hat
+    has_ws_fk = False
+    try:
+        col_check = query_fetchone(
+            "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'jobs' AND COLUMN_NAME = 'workstation_id'"
+        )
+        has_ws_fk = bool((col_check or {}).get("cnt"))
+    except Exception:
+        pass
 
-    sql = f"""
-        SELECT
-            w.id                                                                AS workstation_id,
-            w.name                                                              AS workstation_name,
-            w.os_type,
-            n.name                                                              AS site_name,
-            COUNT(DISTINCT j.id)                                                AS total_jobs,
-            SUM(j.page_count)                                                   AS total_pages
-        FROM {_V('workstations')} w
-        LEFT JOIN {_V('jobs')} j      ON j.workstation_id = w.id AND j.tenant_id = w.tenant_id
-                                     AND j.submit_time >= ?
-                                     AND j.submit_time < DATEADD(day, 1, CAST(? AS DATE))
-        LEFT JOIN {_V('printers')} p  ON p.id = j.printer_id AND p.tenant_id = w.tenant_id
-        LEFT JOIN {_V('networks')} n  ON n.id = p.network_id AND n.tenant_id = w.tenant_id
-        WHERE w.tenant_id = ?
-          {where_extra}
-        GROUP BY w.id, w.name, w.os_type, n.name
-        ORDER BY total_pages DESC
-    """
-    params = (_fmt_date(start_date), _fmt_date(end_date), tenant_id) + tuple(params_extra)
+    if has_ws_fk:
+        # Schema hat workstation_id FK in jobs → volle Statistik möglich
+        where_extra = ""
+        params_extra: list = []
+        if site_id:
+            where_extra += " AND p.network_id = ?"
+            params_extra.append(site_id)
+
+        sql = f"""
+            SELECT
+                w.id                                                                AS workstation_id,
+                w.name                                                              AS workstation_name,
+                w.os_type,
+                n.name                                                              AS site_name,
+                COUNT(DISTINCT j.id)                                                AS total_jobs,
+                SUM(j.page_count)                                                   AS total_pages
+            FROM {_V('workstations')} w
+            LEFT JOIN {_V('jobs')} j      ON j.workstation_id = w.id AND j.tenant_id = w.tenant_id
+                                         AND j.submit_time >= ?
+                                         AND j.submit_time < DATEADD(day, 1, CAST(? AS DATE))
+            LEFT JOIN {_V('printers')} p  ON p.id = j.printer_id AND p.tenant_id = w.tenant_id
+            LEFT JOIN {_V('networks')} n  ON n.id = p.network_id AND n.tenant_id = w.tenant_id
+            WHERE w.tenant_id = ?
+              {where_extra}
+            GROUP BY w.id, w.name, w.os_type, n.name
+            ORDER BY total_pages DESC
+        """
+        params = (_fmt_date(start_date), _fmt_date(end_date), tenant_id) + tuple(params_extra)
+    else:
+        # v4.6.10: Kein workstation_id FK → nur Workstation-Stammdaten auflisten
+        logger.info("dbo.jobs has no workstation_id column — listing workstations without job stats")
+        sql = f"""
+            SELECT
+                w.id                                                                AS workstation_id,
+                w.name                                                              AS workstation_name,
+                w.os_type,
+                0                                                                   AS total_jobs,
+                0                                                                   AS total_pages
+            FROM {_V('workstations')} w
+            WHERE w.tenant_id = ?
+            ORDER BY w.name
+        """
+        params = (tenant_id,)
+
     try:
         return query_fetchall(sql, params)
     except Exception as exc:
@@ -1940,13 +1971,20 @@ def query_workstation_overview(
 def query_workstation_detail(
     start_date: str,
     end_date: str,
-    workstation_id: str,
+    workstation_id: str = "",
     group_by: str = "month",
 ) -> list[dict[str, Any]]:
     """
     Druckverlauf einer einzelnen Workstation über Zeit.
     Gibt leere Liste zurück wenn workstations-Tabelle nicht vorhanden.
+
+    v4.6.10: workstation_id ist jetzt optional (Default "").
+    Gibt Hinweis wenn nicht gesetzt oder wenn dbo.jobs kein workstation_id hat.
     """
+    if not workstation_id:
+        return [{"info": "Bitte eine Workstation-ID angeben. "
+                 "Diese finden Sie im Report 'Workstation-Übersicht'."}]
+
     tenant_id = get_tenant_id()
     from .sql_client import query_fetchone
 
@@ -1965,6 +2003,19 @@ def query_workstation_detail(
             return [{"info": "Workstation-Daten sind in Demo-Daten nicht enthalten. "
                      "Dieser Report erfordert eine Azure SQL Datenbank mit dbo.workstations-Tabelle."}]
         return [{"info": "workstations-Tabelle nicht in diesem Schema vorhanden"}]
+
+    # v4.6.10: Prüfe ob dbo.jobs eine workstation_id Spalte hat
+    try:
+        col_check = query_fetchone(
+            "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'jobs' AND COLUMN_NAME = 'workstation_id'"
+        )
+        if not (col_check or {}).get("cnt"):
+            return [{"info": "Workstation-Detail nicht verfügbar — dbo.jobs enthält keine "
+                     "workstation_id Spalte in diesem Schema. "
+                     "Bitte nutzen Sie den Report 'Workstation-Übersicht' für Stammdaten."}]
+    except Exception:
+        pass
 
     group_expr = {
         "day":   "CAST(j.submit_time AS DATE)",
