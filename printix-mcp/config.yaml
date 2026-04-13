@@ -1,13 +1,13 @@
 # Home Assistant Add-on: Printix MCP Server
 # https://github.com/mnimtz/Printix-MCP
 name: Printix MCP Server
-version: "4.6.21"
+version: "4.6.20"
 slug: printix-mcp
 description: >-
   Multi-Tenant MCP Server für die Printix Cloud Print API.
   Konfiguration über Web-Oberfläche (Port 8080) — jeder Benutzer verwaltet
-  seine eigenen Printix-Zugangsdaten. AI-Assistenten verbinden sich über den
-  MCP-Endpunkt (Port 8765).
+  seine eigenen Printix-Zugangsdaten. AI-Assistenten (claude.ai, ChatGPT)
+  verbinden sich über den MCP-Endpunkt (Port 8765).
 url: "https://github.com/mnimtz/Printix-MCP"
 arch:
   - amd64
@@ -19,6 +19,8 @@ boot: auto
 init: false
 homeassistant_api: false
 hassio_api: false
+
+# Ports: MCP-Server + Web-Verwaltungsoberfläche + Capture (optional)
 ports:
   8765/tcp: 8765
   8080/tcp: 8080
@@ -27,13 +29,37 @@ ports_description:
   8765/tcp: "MCP Endpoint (SSE für ChatGPT + Streamable HTTP für claude.ai)"
   8080/tcp: "Web-Verwaltungsoberfläche (Registrierung + Admin)"
   8775/tcp: "Capture Webhook Endpoint (optional, separat von MCP)"
+
+# Minimale Konfiguration — alle Zugangsdaten werden über die Web-UI verwaltet
 options:
+  # MCP-Server Port (Standard: 8765)
   mcp_port: 8765
+
+  # Web-Verwaltungsoberfläche Port (Standard: 8080)
   web_port: 8080
+
+  # Öffentliche URL des MCP-Servers (z.B. via Cloudflare Tunnel)
+  # Wird in der Web-UI und im Log als Verbindungsinfo angezeigt
   public_url: ""
+
+  # Separater Capture-Server auf Port 8775 (true = aktiv, false = deaktiviert)
+  # Der Container-Port ist IMMER 8775 (fest in config.yaml/ports definiert).
+  # Den Host-Port konfiguriert man in HA unter Add-on > Netzwerk.
+  # Capture-Webhooks funktionieren auch ohne separaten Server ueber den MCP-Port (8765).
   capture_enabled: false
+
+  # Capture Webhook: optionale eigene öffentliche URL (z.B. https://capture.printix.cloud)
+  # Wenn leer, wird die MCP public_url für Webhook-URLs verwendet
   capture_public_url: ""
+
+  # Log Level
   log_level: "info"
+
+  # Entra ID Auto-Setup: Device Code Flow (ab v4.3.0)
+  # Keine Bootstrap-App mehr noetig — Admin klickt "Automatisch einrichten",
+  # gibt einen Code bei Microsoft ein, und die SSO-App wird via Graph API erstellt.
+
+# Schema-Validierung
 schema:
   mcp_port: int
   web_port: int
@@ -41,8 +67,11 @@ schema:
   capture_enabled: bool
   capture_public_url: "str?"
   log_level: "list(debug|info|warning|error|critical)"
+
+# Datenpersistenz: SQLite-Datenbank + Secrets bleiben über Updates erhalten
 map:
   - config:rw
+
 # Kein 'image:' hier = HA baut lokal aus dem Dockerfile (für lokales Testen)
 # Für Production mit GitHub Actions:
 # image: "ghcr.io/{arch}-addon-printix-mcp"
