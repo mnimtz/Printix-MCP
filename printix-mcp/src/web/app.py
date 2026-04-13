@@ -2101,26 +2101,47 @@ def create_app(session_secret: str) -> FastAPI:
         })
 
     @app.get("/tenant/users", response_class=HTMLResponse)
-    async def tenant_users(request: Request, search: str = ""):
+    async def tenant_users(request: Request, search: str = "", page: int = 0):
         user = require_login(request)
         if user is None: return RedirectResponse("/login", status_code=302)
         tc = t_ctx(request)
-        users = []
+        PAGE_SIZE = 10
+        all_users = []
         error = None
+        total_count = 0
         try:
             from db import get_tenant_full_by_user_id
             tenant = get_tenant_full_by_user_id(user["id"])
             if tenant and (tenant.get("card_client_id") or tenant.get("shared_client_id")):
                 client = _make_printix_client(tenant)
-                regular = client.list_users(role="USER", query=search or None, page_size=100)
-                guests  = client.list_users(role="GUEST_USER", query=search or None, page_size=100)
+                regular = client.list_users(role="USER", query=search or None, page_size=200)
+                guests  = client.list_users(role="GUEST_USER", query=search or None, page_size=200)
                 seen = set()
                 for u in (regular.get("users", regular.get("content", []))
                          + guests.get("users", guests.get("content", []))):
                     uid = u.get("id", "")
                     if uid not in seen:
                         seen.add(uid)
-                        users.append(u)
+                        all_users.append(u)
+                total_count = len(all_users)
+
+                # v4.6.11: Paginierung — nur aktuelle Seite anzeigen
+                page = max(0, page)
+                start = page * PAGE_SIZE
+                page_users = all_users[start:start + PAGE_SIZE]
+
+                # v4.6.11: Karten-Anzahl nur fuer sichtbare User laden
+                for u in page_users:
+                    uid = u.get("id", "")
+                    if uid:
+                        try:
+                            cards_data = client.list_user_cards(uid)
+                            raw_cards = cards_data.get("cards", cards_data.get("content", []))
+                            u["_card_count"] = len(raw_cards) if isinstance(raw_cards, list) else 0
+                        except Exception:
+                            u["_card_count"] = 0
+
+                all_users = page_users
             elif not tenant:
                 error = "no_tenant"
             else:
@@ -2128,10 +2149,15 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception as e:
             logger.error("tenant_users error: %s", e)
             error = str(e)
+
+        total_pages = max(1, (total_count + PAGE_SIZE - 1) // PAGE_SIZE)
         return templates.TemplateResponse("tenant_users.html", {
             "request": request, "user": user,
-            "users": users, "search": search, "error": error,
-            "active_tab": "users", **tc,
+            "users": all_users, "search": search, "error": error,
+            "active_tab": "users",
+            "page": page, "total_pages": total_pages, "total_count": total_count,
+            "page_size": PAGE_SIZE,
+            **tc,
         })
 
     # ─── Printix Tenant: Workstations ─────────────────────────────────────────
@@ -2153,6 +2179,10 @@ def create_app(session_secret: str) -> FastAPI:
                 if isinstance(raw, list):
                     for ws in raw:
                         workstations.append(ws)
+                # v4.6.11: Log API response structure for debugging
+                if workstations:
+                    logger.info("Workstation API keys: %s", list(workstations[0].keys()))
+                    logger.info("Workstation sample: %s", {k: v for k, v in workstations[0].items() if k != '_links'})
             elif not tenant:
                 error = "no_tenant"
             else:
