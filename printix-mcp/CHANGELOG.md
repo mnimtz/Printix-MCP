@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.6.10 (2026-04-13) — Fix: Workstation Reports + Plugin-Architektur
+
+### Fix — Workstation Reports: dynamische Schema-Erkennung
+- **workstation_overview**: `dbo.jobs` hat in vielen Printix-Schemas keine `workstation_id`
+  Spalte. Neue dynamische Prüfung via `INFORMATION_SCHEMA.COLUMNS`:
+  - Wenn `workstation_id` vorhanden → volle Statistik mit Job-Daten
+  - Wenn nicht → Workstation-Stammdaten ohne Job-Statistiken
+- **workstation_detail**: `workstation_id` ist jetzt optional (Default `""`).
+  Gibt klare Hinweise wenn ID fehlt oder Schema keine Verknüpfung unterstützt.
+
+### Neu — Plugin-Architektur: `capture/plugins/` Unterordner
+- Jedes Capture-Ziel-Plugin in eigener Datei unter `capture/plugins/`
+- `pkgutil` Auto-Discovery — neue Plugins werden automatisch erkannt
+- `plugin_paperless.py` → `plugins/paperless.py` (saubere Trennung)
+
 ## 4.6.9 (2026-04-13) — Fix: Workstation Report SQL-Fehler + metadataUrl + Error-Parsing
 
 ### Fix — Workstation Report: `Invalid column name 'network_id'`
