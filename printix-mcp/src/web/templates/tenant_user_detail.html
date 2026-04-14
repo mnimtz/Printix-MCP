@@ -118,7 +118,7 @@
       <span style="font-size:1.2em;">🃏</span>
       <div class="card-stack">
         <div class="card-id js-card-display" data-card-id="{{ cid }}" data-card-secret="{{ raw_secret }}">{{ cid }}</div>
-        <div class="card-meta js-card-meta">Stored card id: {{ cid }}</div>
+        <div class="card-meta js-card-meta">Stored card ID: {{ cid }}</div>
       </div>
       <form method="post" action="/tenant/users/{{ printix_user_id }}/delete-card"
             onsubmit="return confirm('{{ _('user_confirm_del_card') }}')">
@@ -426,15 +426,15 @@
       const decoded = decBase64(secret);
       if (decoded) {
         el.textContent = decoded;
-        if (meta) meta.textContent = 'Decoded from stored Base64 secret · Card ID: ' + cid;
+        if (meta) meta.textContent = 'Stored card ID: ' + cid;
         return;
       }
       el.textContent = secret;
-      if (meta) meta.textContent = 'Stored card value (raw) · Card ID: ' + cid;
+      if (meta) meta.textContent = 'Stored card ID: ' + cid;
       return;
     }
-    el.textContent = cid;
-    if (meta) meta.textContent = 'Stored card id: ' + cid;
+    el.textContent = 'Stored card value not available';
+    if (meta) meta.textContent = 'Stored card ID: ' + cid;
   });
 
   compute();
