@@ -49,6 +49,7 @@ from typing import Optional
 from fastapi import FastAPI, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 logger = logging.getLogger("printix.web")
@@ -60,6 +61,7 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 def create_app(session_secret: str) -> FastAPI:
     app = FastAPI(title="Printix MCP Admin", docs_url=None, redoc_url=None)
     app.add_middleware(SessionMiddleware, secret_key=session_secret, max_age=3600 * 8)
+    app.mount("/assets", StaticFiles(directory=str(Path(__file__).parent / "assets")), name="assets")
 
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
