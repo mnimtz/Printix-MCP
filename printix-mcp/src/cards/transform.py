@@ -1,241 +1,117 @@
 import base64
-import json
 import re
-from typing import Any, Optional
 
-SEP_RE = re.compile(r"[\s:\-]")
-HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
-
-
-def is_base64(value: str) -> bool:
-    if not value or len(value) < 4 or len(value) % 4 != 0:
-        return False
+def _safe_b64_text(s: str) -> str:
     try:
-        return base64.b64encode(base64.b64decode(value)).decode() == value
+        return base64.b64encode((s or "").encode("utf-8")).decode("ascii")
     except Exception:
-        return False
+        return ""
 
-
-def b64_text(value: str) -> str:
-    return base64.b64encode((value or '').encode('utf-8')).decode('ascii')
-
-
-def try_b64_decode(value: str) -> str:
-    if not is_base64(value):
-        return ''
+def _hex_to_decimal(hex_value: str) -> str:
     try:
-        dec = base64.b64decode(value).decode('utf-8')
+        return str(int(hex_value, 16)) if hex_value else ""
     except Exception:
-        return ''
-    if not dec:
-        return ''
-    printable = sum(1 for c in dec if 32 <= ord(c) <= 126 or c in '\r\n\t')
-    if printable / max(len(dec), 1) < 0.9:
-        return ''
-    return dec
+        return ""
 
+def _decimal_to_hex(dec_value: str, pad_even: bool = True) -> str:
+    try:
+        if not dec_value:
+            return ""
+        hex_value = format(int(dec_value), "x").upper()
+        if pad_even and len(hex_value) % 2:
+            hex_value = "0" + hex_value
+        return hex_value
+    except Exception:
+        return ""
 
-def _normalize_for_display(value: str) -> str:
-    return (value or '').strip()
+def _reverse_hex_bytes(hex_value: str) -> str:
+    if not hex_value or len(hex_value) % 2:
+        return ""
+    parts = [hex_value[i:i+2] for i in range(0, len(hex_value), 2)]
+    return "".join(reversed(parts))
 
+def transform_card_value(
+    raw_value: str,
+    strip_separators: bool = True,
+    trim_prefix: str = "",
+    trim_suffix: str = "",
+    leading_zero_mode: str = "keep",
+    input_mode: str = "auto",
+    submit_mode: str = "raw",
+    pad_even_hex: bool = True,
+    lowercase: bool = False,
+):
+    raw = (raw_value or "").strip()
+    normalized = raw
 
-def apply_profile_rules(raw: str, rules: dict[str, Any] | None = None) -> dict[str, Any]:
-    rules = rules or {}
-    value = (raw or '').strip()
-    original = value
-    prefix = rules.get('trim_prefix', '') or ''
-    suffix = rules.get('trim_suffix', '') or ''
-    if prefix and value.startswith(prefix):
-        value = value[len(prefix):]
-    if suffix and value.endswith(suffix):
-        value = value[:-len(suffix)]
-    if rules.get('strip_separators', True):
-        value = SEP_RE.sub('', value)
-    extra_chars = rules.get('strip_extra_chars', '') or ''
-    if extra_chars:
-        for ch in extra_chars:
-            value = value.replace(ch, '')
-    if rules.get('to_lower'):
-        value = value.lower()
-    if rules.get('to_upper'):
-        value = value.upper()
-    leading = rules.get('leading_zero_mode', 'keep')
-    if leading == 'strip':
-        value = value.lstrip('0') or '0'
-    elif leading == 'force_one':
-        value = '0' + (value.lstrip('0') or '0')
+    if trim_prefix and normalized.startswith(trim_prefix):
+        normalized = normalized[len(trim_prefix):]
+    if trim_suffix and normalized.endswith(trim_suffix):
+        normalized = normalized[:-len(trim_suffix)]
 
-    mode = rules.get('input_mode', 'auto')
-    detected_mode = mode
-    if mode == 'auto':
-        if value.isdigit():
-            detected_mode = 'decimal'
-        elif HEX_RE.match(value or ''):
-            detected_mode = 'hex'
+    if strip_separators:
+        normalized = re.sub(r"[\s:\-]", "", normalized)
+
+    if lowercase:
+        normalized = normalized.lower()
+
+    if leading_zero_mode == "strip":
+        normalized = normalized.lstrip("0") or "0"
+    elif leading_zero_mode == "force_one":
+        normalized = "0" + (normalized.lstrip("0") or "0")
+
+    mode = input_mode
+    if mode == "auto":
+        if re.fullmatch(r"\d+", normalized or ""):
+            mode = "decimal"
+        elif re.fullmatch(r"[0-9A-Fa-f]+", normalized or ""):
+            mode = "hex"
         else:
-            detected_mode = 'text'
+            mode = "text"
 
-    hex_value = ''
-    decimal_value = ''
-    if detected_mode == 'decimal' and value.isdigit():
-        decimal_value = value
-        hex_value = format(int(value), 'x').upper()
-        if rules.get('pad_even_hex', True) and len(hex_value) % 2:
-            hex_value = '0' + hex_value
-    elif detected_mode == 'hex' and HEX_RE.match(value or ''):
-        hex_value = value.upper()
-        if rules.get('pad_even_hex', True) and len(hex_value) % 2:
-            hex_value = '0' + hex_value
-        try:
-            decimal_value = str(int(hex_value, 16)) if hex_value else ''
-        except Exception:
-            decimal_value = ''
+    hex_value = ""
+    decimal_value = ""
+    if mode == "hex":
+        hex_value = normalized.upper()
+        if pad_even_hex and hex_value and len(hex_value) % 2:
+            hex_value = "0" + hex_value
+        decimal_value = _hex_to_decimal(hex_value)
+    elif mode == "decimal":
+        decimal_value = normalized
+        hex_value = _decimal_to_hex(decimal_value, pad_even_hex)
+    else:
+        if re.fullmatch(r"[0-9A-Fa-f]+", normalized or ""):
+            hex_value = normalized.upper()
+            if pad_even_hex and hex_value and len(hex_value) % 2:
+                hex_value = "0" + hex_value
+            decimal_value = _hex_to_decimal(hex_value)
 
-    reversed_hex = ''
-    reversed_decimal = ''
-    if hex_value and len(hex_value) % 2 == 0:
-        reversed_hex = ''.join(reversed([hex_value[i:i+2] for i in range(0, len(hex_value), 2)]))
-        try:
-            reversed_decimal = str(int(reversed_hex, 16)) if reversed_hex else ''
-        except Exception:
-            reversed_decimal = ''
+    hex_reversed = _reverse_hex_bytes(hex_value)
+    decimal_reversed = _hex_to_decimal(hex_reversed)
+    base64_text = _safe_b64_text(raw)
 
-    submit_mode = rules.get('submit_mode', 'raw')
-    final_value = original
-    if submit_mode == 'normalized':
-        final_value = value
-    elif submit_mode == 'hex':
-        final_value = hex_value or value
-    elif submit_mode == 'hex_reversed':
-        final_value = reversed_hex or value
-    elif submit_mode == 'decimal':
-        final_value = decimal_value or value
-    elif submit_mode == 'decimal_reversed':
-        final_value = reversed_decimal or value
-    elif submit_mode == 'base64_text':
-        final_value = b64_text(original)
-    elif submit_mode == 'double_base64':
-        final_value = b64_text(b64_text(original))
+    final_value = raw
+    if submit_mode == "normalized":
+        final_value = normalized
+    elif submit_mode == "hex":
+        final_value = hex_value
+    elif submit_mode == "hex_reversed":
+        final_value = hex_reversed
+    elif submit_mode == "decimal":
+        final_value = decimal_value
+    elif submit_mode == "decimal_reversed":
+        final_value = decimal_reversed
+    elif submit_mode == "base64_text":
+        final_value = base64_text
 
-    base64_value = b64_text(original) if original else ''
     return {
-        'raw_value': original,
-        'normalized_value': value,
-        'detected_mode': detected_mode,
-        'hex_value': hex_value,
-        'hex_reversed': reversed_hex,
-        'decimal_value': decimal_value,
-        'decimal_reversed': reversed_decimal,
-        'base64_value': base64_value,
-        'final_value': final_value,
-        'rules': rules,
-    }
-
-
-def generate_lookup_candidates(value: str) -> list[str]:
-    raw = (value or '').strip()
-    if not raw:
-        return []
-    out: list[str] = []
-
-    def add(v: Optional[str]):
-        if v and v not in out:
-            out.append(v)
-
-    add(raw)
-    normalized = SEP_RE.sub('', raw)
-    add(normalized)
-    stripped = normalized.lstrip('0') or '0'
-    add(stripped)
-    add('0' + stripped)
-    decoded = try_b64_decode(raw)
-    add(decoded)
-    if decoded:
-        dnorm = SEP_RE.sub('', decoded)
-        add(dnorm)
-        add(dnorm.lstrip('0') or '0')
-        add('0' + (dnorm.lstrip('0') or '0'))
-    for item in list(out):
-        add(b64_text(item))
-    return out
-
-
-def decode_card_value_for_display(card: dict[str, Any]) -> tuple[str, str, str]:
-    cid = card.get('card_id') or card.get('id', '')
-    raw = card.get('secret') or card.get('cardNumber') or card.get('number') or ''
-    decoded = try_b64_decode(raw)
-    if decoded:
-        return decoded, raw, 'decoded_from_printix_secret'
-    if raw:
-        return raw, raw, 'raw_printix_secret'
-    return '', '', 'id_only'
-
-
-def _build_meta(preview: dict[str, Any], *, import_status: str = '', raw_secret: str = '', card: dict[str, Any] | None = None, user_data: dict[str, Any] | None = None) -> dict[str, Any]:
-    meta = dict(preview or {})
-    if import_status:
-        meta['import_status'] = import_status
-    if raw_secret:
-        meta['raw_secret'] = raw_secret
-    if card is not None:
-        meta['card'] = card
-    if user_data:
-        meta['user_display_name'] = user_data.get('name') or user_data.get('displayName') or user_data.get('fullName') or ''
-        meta['user_email'] = user_data.get('email') or ''
-    return meta
-
-
-def build_mapping_record(tenant_id: str, printix_user_id: str, printix_card_id: str, raw_value: str, profile_id: str = '', source: str = 'manual', rules: dict[str, Any] | None = None, notes: str = '', user_data: dict[str, Any] | None = None) -> dict[str, Any]:
-    preview = apply_profile_rules(raw_value, rules)
-    candidates = generate_lookup_candidates(preview['final_value'] or preview['raw_value'])
-    return {
-        'tenant_id': tenant_id,
-        'printix_user_id': printix_user_id,
-        'printix_card_id': printix_card_id,
-        'profile_id': profile_id,
-        'raw_value': preview['raw_value'],
-        'display_value': _normalize_for_display(preview['raw_value']),
-        'normalized_value': preview['normalized_value'],
-        'hex_value': preview['hex_value'],
-        'decimal_value': preview['decimal_value'],
-        'base64_value': preview['base64_value'],
-        'final_secret_value': preview['final_value'],
-        'lookup_candidates_json': json.dumps(candidates, ensure_ascii=False),
-        'source': source,
-        'notes': notes,
-        'meta_json': json.dumps(_build_meta(preview, user_data=user_data), ensure_ascii=False),
-    }
-
-
-def transform_preview(raw_value: str, rules: dict[str, Any] | None = None) -> dict[str, Any]:
-    preview = apply_profile_rules(raw_value, rules)
-    preview['lookup_candidates'] = generate_lookup_candidates(preview['final_value'] or preview['raw_value'])
-    return preview
-
-
-def build_import_mapping_record(tenant_id: str, printix_user_id: str, printix_card_id: str, card: dict[str, Any], user_data: dict[str, Any] | None = None) -> dict[str, Any]:
-    display_value, raw_secret, display_source = decode_card_value_for_display(card)
-    if display_value:
-        notes = 'Imported from Printix API' if display_source != 'decoded_from_printix_secret' else 'Imported from Printix API (Base64 decoded)'
-        mapping = build_mapping_record(tenant_id, printix_user_id, printix_card_id, display_value, source=display_source, notes=notes, user_data=user_data)
-        meta = json.loads(mapping.get('meta_json', '{}') or '{}')
-        meta.update({'raw_secret': raw_secret, 'import_status': 'decoded' if display_source == 'decoded_from_printix_secret' else 'raw'})
-        mapping['meta_json'] = json.dumps(meta, ensure_ascii=False)
-        return mapping
-    return {
-        'tenant_id': tenant_id,
-        'printix_user_id': printix_user_id,
-        'printix_card_id': printix_card_id,
-        'profile_id': '',
-        'raw_value': '',
-        'display_value': '',
-        'normalized_value': '',
-        'hex_value': '',
-        'decimal_value': '',
-        'base64_value': raw_secret or '',
-        'final_secret_value': raw_secret or '',
-        'lookup_candidates_json': json.dumps([printix_card_id], ensure_ascii=False),
-        'source': 'id_only_import',
-        'notes': 'Original card value not supplied by Printix; imported as card ID only.',
-        'meta_json': json.dumps(_build_meta({}, import_status='id_only', raw_secret=raw_secret, card=card, user_data=user_data), ensure_ascii=False),
+        "raw": raw,
+        "normalized": normalized,
+        "hex": hex_value,
+        "hex_reversed": hex_reversed,
+        "decimal": decimal_value,
+        "decimal_reversed": decimal_reversed,
+        "base64_text": base64_text,
+        "final_submit_value": final_value,
+        "input_mode_resolved": mode,
     }

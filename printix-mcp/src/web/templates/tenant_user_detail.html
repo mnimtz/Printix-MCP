@@ -68,8 +68,6 @@
     <div class="flash-ok">🔑 {{ _('user_code_generated') }}: <strong>{{ request.query_params.get('idcode', '?') }}</strong></div>
     {% elif flash == "created" %}
     <div class="flash-ok">✅ {{ _('user_card_added_ok') }}</div>
-    {% elif flash == "card_remembered" %}
-    <div class="flash-ok">✅ Lokaler Kartenwert gespeichert</div>
     {% elif flash == "error" %}
     <div class="flash-err">❌ {{ request.query_params.get('errmsg', 'Error') }}</div>
     {% endif %}
@@ -116,57 +114,29 @@
     {% for c in cards %}
     {% set cid = c.get('card_id') or c.get('id', '') %}
     {% set raw_secret = c.get('secret') or c.get('cardNumber') or c.get('number') or '' %}
-    {% set current_display = c.get("display_value", "Original card value not stored locally") %}
-    {% set needs_local_value = (not c.get("display_value")) or ("Original card value not stored locally" in current_display) %}
-    <div class="card-row" style="display:block;">
-      <div style="display:flex; align-items:flex-start; gap:10px;">
-        <span style="font-size:1.2em;">🃏</span>
-        <div class="card-stack">
-          <div class="card-id js-card-display" data-card-id="{{ cid }}" data-card-secret="{{ raw_secret }}">{{ current_display }}</div>
-          <div class="card-meta js-card-meta">Stored card ID: {{ cid }}</div>
-          <div class="card-meta">Source: {{ c.display_source or "unknown" }} · <a href="/cards?q={{ cid }}&edit_card_id={{ cid }}">in Karten &amp; Codes öffnen</a></div>
-        </div>
-        <form method="post" action="/tenant/users/{{ printix_user_id }}/delete-card"
-              onsubmit="return confirm('{{ _('user_confirm_del_card') }}')">
-          <input type="hidden" name="card_id" value="{{ cid }}">
-          <button type="submit" class="btn-danger-sm">🗑</button>
-        </form>
+    <div class="card-row">
+      <span style="font-size:1.2em;">🃏</span>
+      <div class="card-stack">
+        <div class="card-id js-card-display" data-card-id="{{ cid }}" data-card-secret="{{ raw_secret }}">{{ c.get("display_value") or "Original card value not stored locally" }}</div>
+        <div class="card-meta js-card-meta">Stored card ID: {{ cid }}</div>
       </div>
-      <details style="margin-top:10px;">
-        <summary style="cursor:pointer; color:#1e3a8a; font-size:.85em;">{% if needs_local_value %}Originalwert lokal speichern{% else %}Lokalen Kartenwert bearbeiten{% endif %}</summary>
-        <form method="post" action="/tenant/users/{{ printix_user_id }}/remember-card" style="margin-top:10px; display:grid; gap:8px;">
-          <input type="hidden" name="card_id" value="{{ cid }}">
-          <div class="transform-field">
-            <label>Profil</label>
-            <select name="profile_id">
-              <option value="">— kein Profil —</option>
-              {% for p in card_profiles %}
-              <option value="{{ p.id }}">{{ p.name }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="transform-field">
-            <label>Originalwert / sichtbarer Kartenwert</label>
-            <input type="text" name="raw_value" value="{% if not needs_local_value and current_display != 'Original card value not stored locally' %}{{ current_display }}{% endif %}" required>
-          </div>
-          <div class="transform-field">
-            <label>Notiz</label>
-            <input type="text" name="notes" placeholder="z. B. Reader, Import, manuell korrigiert">
-          </div>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button type="submit" class="btn btn-secondary">💾 Lokal speichern</button>
-            <a href="/cards?q={{ cid }}&edit_card_id={{ cid }}" class="btn btn-secondary">🃏 In Karten &amp; Codes öffnen</a>
-          </div>
-        </form>
-      </details>
+      <form method="post" action="/tenant/users/{{ printix_user_id }}/delete-card"
+            onsubmit="return confirm('{{ _('user_confirm_del_card') }}')">
+        <input type="hidden" name="card_id" value="{{ cid }}">
+        <button type="submit" class="btn-danger-sm">🗑</button>
+      </form>
+
+<div style="margin-top:8px;">
+  <form method="post" action="/tenant/users/{{ printix_user_id }}/save-local-card-value" style="display:flex; gap:8px; flex-wrap:wrap;">
+    <input type="hidden" name="card_id" value="{{ cid }}">
+    <input type="text" name="local_value" placeholder="Originalwert lokal speichern" style="flex:1 1 240px;">
+    <button type="submit" class="btn btn-secondary btn-sm">💾 Lokal speichern</button>
+  </form>
+</div>
     </div>
     {% else %}
     <p style="color:#9ca3af;font-size:.88em;font-style:italic;">No cards registered.</p>
     {% endfor %}
-
-    <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
-      <a href="/cards?q={{ printix_user_id }}" class="btn btn-secondary">🔎 Karten &amp; Codes öffnen</a>
-    </div>
 
     <div class="action-box" style="margin-top:14px;">
       <h4>➕ {{ _('user_detail_add_card') }}</h4>
@@ -454,6 +424,25 @@
       ev.preventDefault();
       alert('Please enter a card value first.');
     }
+  });
+
+  document.querySelectorAll('.js-card-display').forEach(function (el) {
+    const secret = el.dataset.cardSecret || '';
+    const cid = el.dataset.cardId || '';
+    const meta = el.parentElement.querySelector('.js-card-meta');
+    if (secret) {
+      const decoded = decBase64(secret);
+      if (decoded) {
+        el.textContent = decoded;
+        if (meta) meta.textContent = 'Stored card ID: ' + cid;
+        return;
+      }
+      el.textContent = secret;
+      if (meta) meta.textContent = 'Stored card ID: ' + cid;
+      return;
+    }
+    el.textContent = 'Stored card value not available';
+    if (meta) meta.textContent = 'Stored card ID: ' + cid;
   });
 
   compute();

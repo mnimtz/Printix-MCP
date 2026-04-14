@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Karten & Codes — Printix MCP{% endblock %}
+{% block extra_head %}
+<style>
+.cards-grid { display:grid; grid-template-columns: 1.35fr .95fr; gap:20px; }
+.cards-card { background:#fff; border-radius:12px; padding:18px 20px; box-shadow:0 4px 16px rgba(0,0,0,.06); }
+.cards-sub { color:#6b7280; font-size:.86em; margin:4px 0 16px; }
+.cards-grid-mini { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+.cards-list { display:flex; flex-direction:column; gap:10px; }
+.profile-item,.mapping-item { border:1px solid #e5e7eb; border-radius:10px; padding:10px 12px; background:#fafafa; }
+.profile-meta,.mapping-meta { font-size:.82em; color:#6b7280; margin-top:3px; }
+.preview-table { width:100%; border-collapse: collapse; margin:10px 0 14px; font-size:.88em; }
+.preview-table td { border-top:1px solid #e5e7eb; padding:7px 8px; }
+.preview-table td:first-child { width:180px; color:#6b7280; text-transform:uppercase; font-size:.76em; letter-spacing:.04em; }
+.actions-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+.inline-form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+.inline-form input { flex:1 1 140px; min-width:0; }
+.badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:.72em; font-weight:700; background:#e0ecff; color:#1e40af; }
+@media (max-width: 960px) { .cards-grid { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container" style="max-width:1200px;">
+  <h2 class="section-title">🃏 Karten & Codes</h2>
+  <div class="section-sub">Eigenes Tool für Kartenwerte, Suche, lokale Zuordnung und Reader-/Transformationsprofile.</div>
+
+  {% if flash %}
+  <div class="alert alert-success">{{ flash }}</div>
+  {% endif %}
+  {% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+
+  <div class="cards-grid">
+    <div class="cards-card">
+      <h3 style="margin-bottom:4px;">Card Lab</h3>
+      <div class="cards-sub">Hier kannst du Kartenwerte eingeben, transformieren, prüfen und optional als lokales Mapping speichern.</div>
+
+      <form method="post" action="/cards/preview" id="cardLabForm">
+        <div class="form-group">
+          <label for="profile_name">Profil</label>
+          <select id="profile_name" name="profile_name">
+            <option value="">Manuell / kein Profil</option>
+            {% for p in profiles %}
+            <option value="{{ p.name }}" {% if selected_profile == p.name %}selected{% endif %}>{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="raw_value">Rohwert / sichtbarer Kartenwert</label>
+          <textarea id="raw_value" name="raw_value" rows="3" placeholder="z. B. 123456, 00123456, 04:A4:BB:CC oder MTIzNDU2">{{ form.raw_value or '' }}</textarea>
+        </div>
+
+        <div class="cards-grid-mini">
+          <div class="form-group">
+            <label for="input_mode">Input-Interpretation</label>
+            <select id="input_mode" name="input_mode">
+              {% for v in ['auto','text','hex','decimal'] %}
+              <option value="{{ v }}" {% if form.input_mode == v %}selected{% endif %}>{{ v|capitalize }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="submit_mode">Wert für Printix / final</label>
+            <select id="submit_mode" name="submit_mode">
+              {% for v in ['raw','normalized','hex','hex_reversed','decimal','decimal_reversed','base64_text'] %}
+              <option value="{{ v }}" {% if form.submit_mode == v %}selected{% endif %}>{{ v }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="trim_prefix">Prefix entfernen</label>
+            <input id="trim_prefix" name="trim_prefix" type="text" value="{{ form.trim_prefix or '' }}" placeholder="z. B. 0x oder CARD-">
+          </div>
+          <div class="form-group">
+            <label for="trim_suffix">Suffix entfernen</label>
+            <input id="trim_suffix" name="trim_suffix" type="text" value="{{ form.trim_suffix or '' }}" placeholder="z. B. x oder ;">
+          </div>
+          <div class="form-group">
+            <label for="leading_zero_mode">Führende Nullen</label>
+            <select id="leading_zero_mode" name="leading_zero_mode">
+              {% for v in ['keep','strip','force_one'] %}
+              <option value="{{ v }}" {% if form.leading_zero_mode == v %}selected{% endif %}>{{ v }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="pad_even_hex">HEX-Normalisierung</label>
+            <select id="pad_even_hex" name="pad_even_hex">
+              <option value="yes" {% if form.pad_even_hex != 'no' %}selected{% endif %}>Pad to even HEX length</option>
+              <option value="no" {% if form.pad_even_hex == 'no' %}selected{% endif %}>Do not pad</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label><input type="checkbox" name="strip_separators" value="1" {% if form.strip_separators != '0' %}checked{% endif %}> Leerzeichen, ':' und '-' entfernen</label>
+        </div>
+
+        <div class="actions-row">
+          <button type="submit" class="btn btn-primary">🔍 Vorschau berechnen</button>
+        </div>
+      </form>
+
+      <table class="preview-table">
+        <tr><td>Normalized</td><td>{{ preview.normalized or '–' }}</td></tr>
+        <tr><td>Hex bytes</td><td>{{ preview.hex or '–' }}</td></tr>
+        <tr><td>Hex reversed bytes</td><td>{{ preview.hex_reversed or '–' }}</td></tr>
+        <tr><td>Decimal</td><td>{{ preview.decimal or '–' }}</td></tr>
+        <tr><td>Decimal reversed bytes</td><td>{{ preview.decimal_reversed or '–' }}</td></tr>
+        <tr><td>Base64(text)</td><td>{{ preview.base64_text or '–' }}</td></tr>
+        <tr><td>Final submit value</td><td><strong>{{ preview.final_submit_value or '–' }}</strong></td></tr>
+      </table>
+
+      <div class="cards-card" style="padding:14px; background:#f8fafc;">
+        <h4 style="margin-bottom:8px;">Optional: als lokales Mapping speichern</h4>
+        <form method="post" action="/cards/save">
+          <input type="hidden" name="raw_value" value="{{ preview.raw or form.raw_value or '' }}">
+          <input type="hidden" name="normalized_value" value="{{ preview.normalized or '' }}">
+          <input type="hidden" name="final_value" value="{{ preview.final_submit_value or '' }}">
+          <div class="cards-grid-mini">
+            <div class="form-group">
+              <label>Printix User ID</label>
+              <input type="text" name="printix_user_id" placeholder="UUID des Users">
+            </div>
+            <div class="form-group">
+              <label>Printix Card ID</label>
+              <input type="text" name="printix_card_id" placeholder="UUID der Karte">
+            </div>
+            <div class="form-group">
+              <label>Quelle</label>
+              <input type="text" name="source" value="cards_tool">
+            </div>
+            <div class="form-group">
+              <label>Notizen</label>
+              <input type="text" name="notes" placeholder="z. B. manuell ergänzt">
+            </div>
+          </div>
+          <div class="actions-row">
+            <button class="btn btn-success" type="submit">💾 Lokal speichern / aktualisieren</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="actions-row" style="margin-top:14px;">
+        <form method="post" action="/cards/import">
+          <button class="btn btn-secondary" type="submit">🔄 Aus Printix importieren</button>
+        </form>
+      </div>
+
+      <div style="margin-top:18px;">
+        <form method="get" action="/cards" class="inline-form">
+          <input type="text" name="q" value="{{ q or '' }}" placeholder="Suche nach Kartenwert, Base64, Card-ID …">
+          <button class="btn btn-primary btn-sm" type="submit">🔎 Suchen</button>
+        </form>
+      </div>
+
+      <div style="margin-top:16px;">
+        <h4 style="margin-bottom:8px;">Treffer ({{ mappings|length }})</h4>
+        <div class="cards-list">
+          {% for m in mappings %}
+          <div class="mapping-item">
+            <div><strong>{{ m.local_value or '–' }}</strong> {% if m.source %}<span class="badge">{{ m.source }}</span>{% endif %}</div>
+            <div class="mapping-meta">User ID: {{ m.printix_user_id or '–' }}<br>Card ID: {{ m.printix_card_id or '–' }}</div>
+            <div class="mapping-meta">Final value: {{ m.final_value or '–' }}</div>
+            <div class="inline-form">
+              <form method="post" action="/cards/delete" style="display:inline;">
+                <input type="hidden" name="mapping_id" value="{{ m.id }}">
+                <button class="btn btn-danger btn-sm" type="submit">🗑 Lokales Mapping löschen</button>
+              </form>
+            </div>
+          </div>
+          {% else %}
+          <div class="mapping-item">Keine lokalen Treffer.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="cards-card">
+      <h3 style="margin-bottom:4px;">Built-in-Profile</h3>
+      <div class="cards-sub">Sichtbare Hersteller-/Reader-Profile wie YSoft und generische Vorlagen.</div>
+      <div class="cards-list">
+        {% for p in profiles %}
+        <div class="profile-item">
+          <div><strong>{{ p.name }}</strong></div>
+          <div class="profile-meta">{{ p.vendor or 'Generic' }} · {{ p.reader_model or 'Any' }} · {{ p.mode or '–' }}</div>
+          <div style="font-size:.84em; margin-top:4px;">{{ p.description }}</div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div style="margin-top:18px;">
+        <h3 style="margin-bottom:4px;">Eigenes Profil speichern</h3>
+        <form method="post" action="/cards/profile">
+          <div class="form-group"><label>Name</label><input type="text" name="name" required></div>
+          <div class="form-group"><label>Vendor</label><input type="text" name="vendor"></div>
+          <div class="form-group"><label>Reader-Modell</label><input type="text" name="reader_model"></div>
+          <div class="form-group"><label>Mode</label><input type="text" name="mode"></div>
+          <div class="form-group"><label>Beschreibung</label><input type="text" name="description"></div>
+          <div class="form-group"><label>rules_json</label><textarea name="rules_json" rows="6">{"strip_separators": true, "input_mode": "text", "submit_mode": "base64_text"}</textarea></div>
+          <button class="btn btn-primary" type="submit">💾 Profil speichern</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

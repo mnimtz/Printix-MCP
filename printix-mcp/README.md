@@ -1,6 +1,6 @@
 # Printix MCP Server — Home Assistant Add-on
 
-**Version 4.6.20** · Multi-Tenant MCP Server for the Printix Cloud Print API
+**Version 5.3.0** · Multi-Tenant MCP Server for the Printix Cloud Print API
 
 A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix Cloud Print API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Manage printers, users, print jobs, and generate detailed reports — all through natural language in your AI chat.
 
@@ -34,6 +34,18 @@ The user detail page now includes a first advanced card-value helper for real-wo
 - **Leading-zero rules** (keep, remove, force one leading zero)
 - **HEX normalization** with optional even-length padding
 - **Selectable final submit value** — the admin decides which transformed value is actually sent to Printix
+
+### Karten & Codes — Card Lab (since v5.0.0)
+
+A dedicated tool for managing, transforming and locally mapping RFID/badge card values:
+
+- **Card Lab** — enter raw card values, apply transformation profiles, preview results and optionally save as local mapping
+- **Local Card Mappings** — store card ID → local value mappings per tenant, independent of Printix cloud state
+- **Transformation Profiles** — define reusable reader profiles (vendor, model, mode, rules) for HEX↔Decimal, byte-reversal, prefix/suffix stripping and more
+- **Built-in Profiles** — preconfigured profiles for common reader types (HID, FeliCa, Mifare, etc.)
+- **Search & Filter** — full-text search across all stored card mappings
+- **Sync Import** — import card data from Printix users into local mappings
+- **Accessible via** the "🃏 Karten & Codes" menu entry
 
 ### Reports & Automation (since v3.0.0)
 

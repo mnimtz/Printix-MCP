@@ -1,5 +1,5 @@
 """
-Printix MCP Server — Home Assistant Add-on v4.6.19 (Multi-Tenant)
+Printix MCP Server — Home Assistant Add-on v5.3.0 (Multi-Tenant)
 =================================================================
 Model Context Protocol server for the Printix Cloud Print API.
 

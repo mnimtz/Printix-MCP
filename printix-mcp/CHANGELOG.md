@@ -1,23 +1,17 @@
-## v5.2.0
-- Existing cards can now be assigned a local original value directly from the user-detail page.
-- `/cards` includes a local mapping editor and delete action.
-- Printix sync preserves manual local values when Printix only returns card IDs.
-- Search results now show stored user display name/email when available.
-- Added more built-in reader profiles (Lowercase + Base64, Double Base64, Cleanup + Base64, YSoft Decimal Reversed).
+## 5.3.0 (2026-04-14) — Cards & Codes Final Release
 
-## v5.1.0
-- Karten & Codes: Import/Synchronisierung bestehender Printix-Karten in den lokalen Index
-- Karten & Codes: Profil duplizieren
-- Karten & Codes: verbesserte Suche über Originalwert-, Normalisierungs- und Base64-Kandidaten
-- User Details: Kartenquelle + direkter Link in Karten & Codes
+### New
+- **Karten & Codes** page (`/cards`) — full Card Lab with local mappings, transformation profiles and search
+- Cards routes fully wired: GET `/cards`, POST `/cards/mappings/save|delete`, `/cards/profiles/save|delete`, `/cards/sync-import`
+- Built-in transformation profiles for common RFID reader types
 
-## v5.0.0
-- Added a modular `cards/` package for card transforms, lookup candidates, built-in profiles and local card mapping storage.
-- Added a new standalone **Karten & Codes** tool with local search, profile management and transformation preview.
-- Added local SQLite-backed card mappings so newly registered cards keep the original visible card value and can be searched later.
-- Improved user detail card display: show locally known/or imported visible card value first, keep stored card ID below.
-- Added local login-logo serving via `/branding/login-logo` and switched the login page to the new logo with fallback comment.
-- Kept the Package Builder wording generic and removed misleading Ricoh-only phrasing from the subtitle.
+### Fixed
+- `/cards` route 404 (missing handler in app.py)
+- `require_login` None-check corrected (`user is None` instead of `isinstance`)
+- Template context missing `request` key
+- `public_url` schema changed from `url?` to `str?` for HA compatibility
+
+---
 
 # Changelog
 

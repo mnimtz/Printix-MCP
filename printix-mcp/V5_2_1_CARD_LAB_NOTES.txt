@@ -1,0 +1,17 @@
+Printix MCP v5.2.1 – Card Lab follow-up
+
+Neu in diesem Stand:
+- /cards enthält wieder ein echtes Eingabe-/Transformationsfeld ("Card Lab")
+- Profile können direkt auf den Transformer angewendet werden
+- Vorschau für normalized / hex / decimal / base64 / final submit value
+- lokale Mappings können direkt aus dem Card Lab gespeichert werden
+- Treffer können zurück in das Card Lab geladen werden
+- vorhandene lokale Mappings lassen sich inline bearbeiten oder löschen
+
+Wichtiger Hinweis:
+Für das Speichern als lokales Mapping braucht das Tool weiterhin:
+- Printix User ID
+- Printix Card ID
+- Kartenwert
+
+Ohne diese Angaben dient das Card Lab als reines Analyse-/Transformationswerkzeug.

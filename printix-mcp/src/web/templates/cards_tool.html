@@ -1,232 +1,417 @@
 {% extends "base.html" %}
 {% block title %}Karten & Codes — Printix MCP{% endblock %}
-{% block extra_head %}
-<style>
-.cards-grid { display:grid; grid-template-columns: 1.15fr .85fr; gap:20px; }
-.cards-box { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; }
-.cards-box h3 { margin:0 0 12px; color:#1e3a5f; }
-.cards-sub { color:#6b7280; font-size:.9em; margin:-4px 0 14px; }
-.cards-table { width:100%; border-collapse:collapse; font-size:.9em; }
-.cards-table th,.cards-table td { padding:8px 10px; border-top:1px solid #e5e7eb; text-align:left; vertical-align:top; }
-.cards-table th { color:#6b7280; width:180px; }
-.cards-code { font-family:monospace; word-break:break-all; }
-.cards-list { width:100%; border-collapse:collapse; font-size:.88em; }
-.cards-list th,.cards-list td { padding:8px; border-top:1px solid #e5e7eb; text-align:left; vertical-align:top; }
-.cards-list th { color:#6b7280; }
-.form-row { margin-bottom:12px; }
-.form-row label { display:block; font-size:.84em; font-weight:700; color:#374151; margin-bottom:4px; }
-.form-row input,.form-row textarea,.form-row select { width:100%; box-sizing:border-box; border:1px solid #d1d5db; border-radius:8px; padding:8px 10px; font-size:.9em; }
-.form-row textarea { min-height:92px; resize:vertical; }
-.profile-card { border:1px solid #e5e7eb; border-radius:10px; padding:10px 12px; margin-bottom:10px; background:#f8fafc; }
-.profile-title { font-weight:700; color:#1f2937; }
-.profile-meta { font-size:.8em; color:#6b7280; margin-top:3px; }
-.badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:.75em; font-weight:700; background:#e0f2fe; color:#075985; margin-right:6px; }
-.badge.builtin { background:#ede9fe; color:#5b21b6; }
-.badge.idonly { background:#fee2e2; color:#991b1b; }
-.inline-actions { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
-@media (max-width: 960px) { .cards-grid { grid-template-columns:1fr; } }
-</style>
-{% endblock %}
 {% block content %}
-<div class="container">
+<div class="container" style="max-width:1180px;">
   <div class="card">
-    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
-      <div>
-        <div class="section-title">🃏 Karten &amp; Codes</div>
-        <div class="cards-sub">Eigenständiges Karten-Tool mit Profilen, Vorschau, lokaler Suche und manuell pflegbaren Originalwerten.</div>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <form method="post" action="/cards/sync"><button type="submit" class="btn btn-secondary">🔄 Aus Printix importieren</button></form>
-        <a href="/tenant/printers" class="btn btn-secondary">← {{ _('nav_tenant') }}</a>
-      </div>
-    </div>
-    {% if request.query_params.get('flash') == 'profile_saved' %}<div class="alert alert-success">✅ Profil gespeichert</div>{% endif %}
-    {% if request.query_params.get('flash') == 'profile_deleted' %}<div class="alert alert-success">✅ Profil gelöscht</div>{% endif %}
-    {% if request.query_params.get('flash') == 'profile_cloned' %}<div class="alert alert-success">✅ Profil dupliziert</div>{% endif %}
-    {% if request.query_params.get('flash') == 'sync_done' %}<div class="alert alert-success">✅ Karten aus Printix synchronisiert</div>{% endif %}
-    {% if request.query_params.get('flash') == 'mapping_saved' %}<div class="alert alert-success">✅ Lokaler Kartenwert gespeichert</div>{% endif %}
-    {% if request.query_params.get('flash') == 'mapping_deleted' %}<div class="alert alert-success">✅ Lokaler Kartenwert gelöscht</div>{% endif %}
-    {% if request.query_params.get('flash') == 'error' %}<div class="alert alert-error">❌ {{ request.query_params.get('errmsg', 'Fehler') }}</div>{% endif %}
-    {% if error %}<div class="alert alert-error">❌ {{ error }}</div>{% endif %}
-    {% if sync_summary %}<div class="alert alert-info">ℹ️ Sync: {{ sync_summary.users }} User, {{ sync_summary.cards }} Karten, {{ sync_summary.saved }} lokale Einträge, {{ sync_summary.decoded }} mit sichtbarem Wert, {{ sync_summary.id_only }} nur mit Card-ID.</div>{% endif %}
+    <h2 class="section-title">🃏 Karten & Codes</h2>
+    <p style="color:#6b7280; margin-top:-6px;">Eigenständiges Tool für Kartenwerte, Suche, lokale Zuordnung und Reader-/Transformationsprofile.</p>
 
-    <div class="cards-grid">
+    {% set flash = request.query_params.get('flash', '') %}
+    {% if flash == 'sync_ok' %}
+      <div class="alert alert-success">✅ Printix-Import abgeschlossen — mit sichtbarem Wert: {{ request.query_params.get('imported', '0') }}, nur Card-ID: {{ request.query_params.get('id_only', '0') }}</div>
+    {% elif flash == 'mapping_saved' %}
+      <div class="alert alert-success">✅ Lokales Karten-Mapping gespeichert oder aktualisiert.</div>
+    {% elif flash == 'mapping_deleted' %}
+      <div class="alert alert-success">✅ Lokales Karten-Mapping gelöscht.</div>
+    {% elif flash == 'mapping_error' %}
+      <div class="alert alert-error">❌ Für das Speichern werden mindestens Printix User ID, Card ID und ein Kartenwert benötigt.</div>
+    {% endif %}
+
+    <div style="display:grid; grid-template-columns: 1.25fr 1fr; gap:18px; align-items:start;">
       <div>
-        <div class="cards-box">
-          <h3>Transformieren & Vorschau</h3>
-          <form method="get" action="/cards">
-            <div class="form-row">
-              <label for="profile_id">Profil</label>
-              <select id="profile_id" name="profile_id">
+        <div class="card" style="padding:16px; background:#f8fafc;">
+          <h3 style="margin-top:0;">🧪 Card Lab</h3>
+          <p style="font-size:.85em; color:#6b7280; margin-top:-4px;">Hier kannst du Kartenwerte eingeben, transformieren, prüfen und optional als lokales Mapping speichern.</p>
+
+          <form method="post" action="/cards/mappings/save" id="card-lab-form">
+            <div class="form-group">
+              <label for="lab_profile_id">Profil</label>
+              <select id="lab_profile_id" name="profile_id">
+                <option value="">Manuell / kein Profil</option>
                 {% for p in profiles %}
-                <option value="{{ p.id }}" {% if selected_profile and p.id == selected_profile.id %}selected{% endif %}>{{ p.name }}{% if p.is_builtin %} (builtin){% endif %}</option>
+                  <option value="{{ p.id }}" data-rules="{{ (p.rules_json or '{}') | e }}">{{ p.name }} — {{ p.vendor }} / {{ p.reader_model }}</option>
                 {% endfor %}
               </select>
             </div>
-            <div class="form-row">
-              <label for="raw_value">Rohwert</label>
-              <textarea id="raw_value" name="raw_value" placeholder="Wert vom Kartenleser hier einfügen">{{ raw_value }}</textarea>
+
+            <div class="form-group">
+              <label for="lab_raw_value">Rohwert / sichtbarer Kartenwert</label>
+              <textarea id="lab_raw_value" name="raw_value" rows="3" placeholder="z. B. 123456, 00123456, 04:AA:BB:CC oder MTIzNDU2"></textarea>
             </div>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button type="submit" class="btn btn-primary">🔍 Vorschau berechnen</button>
-              <a href="/cards" class="btn btn-secondary">Zurücksetzen</a>
+
+            <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px;">
+              <div class="form-group">
+                <label for="lab_input_mode">Input-Interpretation</label>
+                <select id="lab_input_mode">
+                  <option value="auto">Auto detect</option>
+                  <option value="text">Plain text</option>
+                  <option value="hex">Hex bytes</option>
+                  <option value="decimal">Decimal number</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="lab_submit_mode">Wert für Printix / final</label>
+                <select id="lab_submit_mode">
+                  <option value="raw">Raw input</option>
+                  <option value="normalized">Normalized input</option>
+                  <option value="hex">HEX</option>
+                  <option value="hex_reversed">HEX reversed bytes</option>
+                  <option value="decimal">Decimal</option>
+                  <option value="decimal_reversed">Decimal reversed bytes</option>
+                  <option value="base64_text">Base64 of text</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="lab_trim_prefix">Prefix entfernen</label>
+                <input id="lab_trim_prefix" type="text" placeholder="z. B. 0x oder CARD-">
+              </div>
+              <div class="form-group">
+                <label for="lab_trim_suffix">Suffix entfernen</label>
+                <input id="lab_trim_suffix" type="text" placeholder="z. B. x oder ;">
+              </div>
+              <div class="form-group">
+                <label for="lab_leading_zero_mode">Führende Nullen</label>
+                <select id="lab_leading_zero_mode">
+                  <option value="keep">Keep</option>
+                  <option value="strip">Remove all leading 0</option>
+                  <option value="force_one">Force one leading 0</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="lab_pad_even_hex">HEX-Normalisierung</label>
+                <select id="lab_pad_even_hex">
+                  <option value="yes">Pad to even HEX length</option>
+                  <option value="no">Do not pad</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="margin-top:10px; display:flex; gap:12px; flex-wrap:wrap;">
+              <label style="display:flex; align-items:center; gap:6px; font-size:.9em;">
+                <input type="checkbox" id="lab_strip_separators" checked> Leerzeichen, : und - entfernen
+              </label>
+            </div>
+
+            <table style="width:100%; border-collapse:collapse; margin-top:14px; font-size:.88em;">
+              <tbody>
+                <tr><th style="text-align:left; width:210px; padding:8px 10px; border-top:1px solid #e5e7eb;">Normalized</th><td id="lab_preview_normalized" style="padding:8px 10px; border-top:1px solid #e5e7eb; font-family:monospace; word-break:break-all;">—</td></tr>
+                <tr><th style="text-align:left; padding:8px 10px; border-top:1px solid #e5e7eb;">HEX bytes</th><td id="lab_preview_hex" style="padding:8px 10px; border-top:1px solid #e5e7eb; font-family:monospace; word-break:break-all;">—</td></tr>
+                <tr><th style="text-align:left; padding:8px 10px; border-top:1px solid #e5e7eb;">HEX reversed bytes</th><td id="lab_preview_hex_reversed" style="padding:8px 10px; border-top:1px solid #e5e7eb; font-family:monospace; word-break:break-all;">—</td></tr>
+                <tr><th style="text-align:left; padding:8px 10px; border-top:1px solid #e5e7eb;">Decimal</th><td id="lab_preview_decimal" style="padding:8px 10px; border-top:1px solid #e5e7eb; font-family:monospace; word-break:break-all;">—</td></tr>
+                <tr><th style="text-align:left; padding:8px 10px; border-top:1px solid #e5e7eb;">Decimal reversed bytes</th><td id="lab_preview_decimal_reversed" style="padding:8px 10px; border-top:1px solid #e5e7eb; font-family:monospace; word-break:break-all;">—</td></tr>
+                <tr><th style="text-align:left; padding:8px 10px; border-top:1px solid #e5e7eb;">Base64(text)</th><td id="lab_preview_b64" style="padding:8px 10px; border-top:1px solid #e5e7eb; font-family:monospace; word-break:break-all;">—</td></tr>
+                <tr><th style="text-align:left; padding:8px 10px; border-top:1px solid #e5e7eb;">Final submit value</th><td id="lab_preview_submit" style="padding:8px 10px; border-top:1px solid #e5e7eb; font-family:monospace; word-break:break-all; font-weight:700;">—</td></tr>
+              </tbody>
+            </table>
+
+            <input type="hidden" name="final_value" id="lab_final_value">
+
+            <div style="margin-top:18px; padding:12px; border:1px solid #e5e7eb; border-radius:10px; background:#fff;">
+              <div style="font-weight:700; margin-bottom:8px;">Optional: als lokales Mapping speichern</div>
+              <div style="font-size:.83em; color:#6b7280; margin-bottom:10px;">Damit kannst du bestehende Karten lokal ergänzen oder neue Test-Zuordnungen anlegen. Dafür müssen Printix User ID und Card ID bekannt sein.</div>
+              <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px;">
+                <div class="form-group">
+                  <label for="lab_printix_user_id">Printix User ID</label>
+                  <input id="lab_printix_user_id" name="printix_user_id" type="text" placeholder="UUID des Users">
+                </div>
+                <div class="form-group">
+                  <label for="lab_printix_card_id">Printix Card ID</label>
+                  <input id="lab_printix_card_id" name="printix_card_id" type="text" placeholder="UUID der Karte">
+                </div>
+                <div class="form-group">
+                  <label for="lab_source">Quelle</label>
+                  <input id="lab_source" name="source" type="text" value="cards_tool">
+                </div>
+                <div class="form-group">
+                  <label for="lab_notes">Notizen</label>
+                  <input id="lab_notes" name="notes" type="text" placeholder="z. B. manuell ergänzt">
+                </div>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary" id="lab_use_preview_btn">Preview als Rohwert übernehmen</button>
+                <button type="submit" class="btn btn-primary">💾 Lokal speichern / aktualisieren</button>
+              </div>
             </div>
           </form>
-          {% if preview %}
-          <table class="cards-table" style="margin-top:16px;">
-            <tr><th>Normalized</th><td class="cards-code">{{ preview.normalized_value or '—' }}</td></tr>
-            <tr><th>HEX</th><td class="cards-code">{{ preview.hex_value or '—' }}</td></tr>
-            <tr><th>HEX reversed</th><td class="cards-code">{{ preview.hex_reversed or '—' }}</td></tr>
-            <tr><th>Decimal</th><td class="cards-code">{{ preview.decimal_value or '—' }}</td></tr>
-            <tr><th>Decimal reversed</th><td class="cards-code">{{ preview.decimal_reversed or '—' }}</td></tr>
-            <tr><th>Base64(text)</th><td class="cards-code">{{ preview.base64_value or '—' }}</td></tr>
-            <tr><th>Finaler Zielwert</th><td class="cards-code">{{ preview.final_value or '—' }}</td></tr>
-            <tr><th>Lookup-Kandidaten</th><td class="cards-code">{{ preview.lookup_candidates|join(', ') }}</td></tr>
-          </table>
+        </div>
+
+        <div class="card" style="padding:16px; background:#f8fafc; margin-top:16px;">
+          <form method="get" action="/cards" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <input type="text" name="q" value="{{ query }}" placeholder="Suche nach Kartenwert, Base64, Card-ID …" style="flex:1; min-width:260px;">
+            <button type="submit" class="btn btn-primary">🔎 Suchen</button>
+          </form>
+          <form method="post" action="/cards/sync-import" style="margin-top:10px;">
+            <button type="submit" class="btn btn-secondary">⤵️ Aus Printix importieren</button>
+          </form>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <h3 style="margin-top:0;">Treffer ({{ mappings|length }})</h3>
+          {% if mappings %}
+            <div style="display:flex; flex-direction:column; gap:10px;">
+            {% for m in mappings %}
+              <div style="border:1px solid #e5e7eb; border-radius:10px; padding:12px 14px;">
+                <div style="display:flex; justify-content:space-between; gap:10px; align-items:start;">
+                  <div>
+                    <div style="font-weight:700; color:#1e3a5f; word-break:break-all;">{{ m.display_value or m.raw_value or '—' }}</div>
+                    <div style="font-family:monospace; font-size:.82em; color:#6b7280; margin-top:6px; word-break:break-all;">Card ID: {{ m.printix_card_id }}</div>
+                    {% if m.printix_user_id %}<div style="font-size:.82em; color:#6b7280; margin-top:4px; word-break:break-all;">User ID: {{ m.printix_user_id }}</div>{% endif %}
+                    {% if m.base64_value %}<div style="font-size:.85em; color:#374151; margin-top:4px;">Base64: <span style="font-family:monospace;">{{ m.base64_value }}</span></div>{% endif %}
+                    <div style="font-size:.82em; color:#6b7280; margin-top:4px;">Quelle: {{ m.source or 'local' }}</div>
+                    {% if m.notes %}<div style="font-size:.82em; color:#92400e; margin-top:4px;">{{ m.notes }}</div>{% endif %}
+                  </div>
+                  <div style="display:flex; flex-direction:column; gap:8px;">
+                    {% if m.printix_user_id %}
+                      <a href="/tenant/users/{{ m.printix_user_id }}" class="btn btn-secondary" style="white-space:nowrap;">User öffnen</a>
+                    {% endif %}
+                    <button type="button" class="btn btn-secondary" onclick="fillFromMapping(this)"
+                            data-profile-id="{{ m.profile_id or '' }}"
+                            data-user-id="{{ m.printix_user_id or '' }}"
+                            data-card-id="{{ m.printix_card_id or '' }}"
+                            data-raw-value="{{ (m.raw_value or m.display_value or '') | e }}"
+                            data-notes="{{ (m.notes or '') | e }}"
+                            data-source="{{ (m.source or 'local') | e }}">↖ In Card Lab laden</button>
+                  </div>
+                </div>
+
+                <form method="post" action="/cards/mappings/save" style="margin-top:10px; display:grid; grid-template-columns: 2fr 1fr 1fr auto; gap:8px; align-items:end;">
+                  <input type="hidden" name="profile_id" value="{{ m.profile_id or '' }}">
+                  <input type="hidden" name="printix_user_id" value="{{ m.printix_user_id or '' }}">
+                  <input type="hidden" name="printix_card_id" value="{{ m.printix_card_id }}">
+                  <input type="hidden" name="source" value="{{ m.source or 'local' }}">
+                  <div class="form-group" style="margin:0;">
+                    <label>Lokaler Wert</label>
+                    <input type="text" name="raw_value" value="{{ m.raw_value or m.display_value or '' }}">
+                  </div>
+                  <div class="form-group" style="margin:0;">
+                    <label>Final value</label>
+                    <input type="text" name="final_value" value="{{ m.final_secret_value or '' }}">
+                  </div>
+                  <div class="form-group" style="margin:0;">
+                    <label>Notizen</label>
+                    <input type="text" name="notes" value="{{ m.notes or '' }}">
+                  </div>
+                  <button type="submit" class="btn btn-primary">Speichern</button>
+                </form>
+
+                <form method="post" action="/cards/mappings/{{ m.printix_card_id }}/delete" style="margin-top:8px;" onsubmit="return confirm('Lokales Karten-Mapping wirklich löschen?');">
+                  <button type="submit" class="btn" style="background:#ef4444; color:#fff; border:none;">🗑 Lokales Mapping löschen</button>
+                </form>
+              </div>
+            {% endfor %}
+            </div>
+          {% else %}
+            <p style="color:#9ca3af;">Noch keine lokalen Karten-Mappings vorhanden.</p>
           {% endif %}
         </div>
-
-        <div class="cards-box" style="margin-top:20px;">
-          <h3>Lokale Kartensuche</h3>
-          <form method="get" action="/cards" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-            <input type="hidden" name="profile_id" value="{{ selected_profile.id if selected_profile else '' }}">
-            <input type="text" name="q" value="{{ q }}" placeholder="Originalwert, HEX, Base64, Card-ID, User-ID oder E-Mail" style="flex:1;min-width:220px;">
-            <button type="submit" class="btn btn-primary">Suchen</button>
-          </form>
-          <table class="cards-list">
-            <thead><tr><th>Anzeige</th><th>User</th><th>Card ID</th><th>Quelle</th><th>Aktion</th></tr></thead>
-            <tbody>
-            {% for row in results %}
-              <tr>
-                <td>
-                  <div class="cards-code">{{ row.display_value or row.raw_value or '—' }}</div>
-                  <div class="cards-sub">{{ row.notes }}</div>
-                  {% if row.import_status == 'id_only' or row.source == 'id_only_import' %}
-                    <span class="badge idonly">ID only</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if row.user_display_name %}<div>{{ row.user_display_name }}</div>{% endif %}
-                  {% if row.user_email %}<div class="cards-sub">{{ row.user_email }}</div>{% endif %}
-                  <div class="cards-code">{{ row.printix_user_id }}</div>
-                </td>
-                <td class="cards-code">{{ row.printix_card_id }}</td>
-                <td>{{ row.source }}</td>
-                <td>
-                  <div class="inline-actions">
-                    <a href="/cards?q={{ row.printix_card_id }}&edit_card_id={{ row.printix_card_id }}" class="btn btn-secondary">✏️ Bearbeiten</a>
-                    <form method="post" action="/cards/mappings/{{ row.printix_card_id }}/delete" onsubmit="return confirm('Lokalen Kartenwert wirklich löschen?');">
-                      <button type="submit" class="btn btn-secondary">🗑 Löschen</button>
-                    </form>
-                  </div>
-                </td>
-              </tr>
-            {% else %}
-              <tr><td colspan="5" style="color:#9ca3af;">Noch keine lokalen Kartenzuordnungen vorhanden.</td></tr>
-            {% endfor %}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="cards-box" style="margin-top:20px;">
-          <h3>{% if edit_mapping %}Lokalen Kartenwert bearbeiten{% else %}Lokalen Kartenwert manuell pflegen{% endif %}</h3>
-          <div class="cards-sub">Nützlich für Altbestand, wenn Printix nur die Card-ID liefert. Hier wird der menschenlesbare Originalwert lokal verknüpft.</div>
-          <form method="post" action="/cards/mappings/save">
-            <div class="form-row"><label for="edit_printix_card_id">Stored card ID</label><input id="edit_printix_card_id" name="printix_card_id" value="{{ edit_mapping.printix_card_id if edit_mapping else q }}" required></div>
-            <div class="form-row"><label for="edit_printix_user_id">Printix User ID</label><input id="edit_printix_user_id" name="printix_user_id" value="{{ edit_mapping.printix_user_id if edit_mapping else '' }}" required></div>
-            <div class="form-row"><label for="edit_profile_id">Profil</label>
-              <select id="edit_profile_id" name="profile_id">
-                <option value="">— kein Profil —</option>
-                {% for p in profiles %}
-                <option value="{{ p.id }}" {% if edit_mapping and p.id == edit_mapping.profile_id %}selected{% endif %}>{{ p.name }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="form-row"><label for="edit_raw_value">Originalwert / sichtbarer Kartenwert</label><textarea id="edit_raw_value" name="raw_value" required>{{ edit_mapping.raw_value if edit_mapping else '' }}</textarea></div>
-            <div class="form-row"><label for="edit_notes">Notizen</label><input id="edit_notes" name="notes" value="{{ edit_mapping.notes if edit_mapping else '' }}" placeholder="z. B. Reader, Quelle oder Besonderheiten"></div>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button type="submit" class="btn btn-primary">💾 Lokalen Kartenwert speichern</button>
-              <a href="/cards" class="btn btn-secondary">Zurücksetzen</a>
-            </div>
-          </form>
-        </div>
       </div>
 
       <div>
-        <div class="cards-box">
-          <h3>Profile</h3>
-          <div class="cards-sub">Built-in-Profile sind schreibgeschützt. Eigene Tenant-Profile können ergänzt, kopiert und bearbeitet werden.</div>
-          {% for p in profiles %}
-          <div class="profile-card" data-profile-id="{{ p.id }}" data-profile-name="{{ p.name|e }}" data-profile-vendor="{{ p.vendor|e }}" data-profile-reader="{{ p.reader_model|e }}" data-profile-mode="{{ p.mode|e }}" data-profile-description="{{ p.description|e }}" data-profile-rules="{{ p.rules_json|e }}">
-            <div class="profile-title">{% if p.is_builtin %}<span class="badge builtin">builtin</span>{% else %}<span class="badge">tenant</span>{% endif %}{{ p.name }}</div>
-            <div class="profile-meta">{{ p.vendor }} · {{ p.reader_model }} · {{ p.mode }}</div>
-            <div class="profile-meta">{{ p.description }}</div>
-            {% if not p.is_builtin %}
-            <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
-              <button type="button" class="btn btn-secondary" onclick="loadProfileForEdit(this.closest('.profile-card'))">✏️ Bearbeiten</button>
-              <form method="post" action="/cards/profiles/{{ p.id }}/clone"><button type="submit" class="btn btn-secondary">📄 Duplizieren</button></form>
-              <form method="post" action="/cards/profiles/{{ p.id }}/delete" onsubmit="return confirm('Profil wirklich löschen?');">
-                <button type="submit" class="btn btn-secondary">🗑 Löschen</button>
-              </form>
-            </div>
-            {% endif %}
+        <div class="card">
+          <h3 style="margin-top:0;">Built-in-Profile</h3>
+          {% for p in profiles if p.is_builtin or p.get('is_builtin') %}
+          <div style="border-top:1px solid #e5e7eb; padding:10px 0;">
+            <div style="font-weight:700;">{{ p.name }}</div>
+            <div style="font-size:.84em; color:#6b7280;">{{ p.vendor }} · {{ p.reader_model }} · {{ p.mode }}</div>
+            <div style="font-size:.85em; color:#374151; margin-top:4px;">{{ p.description }}</div>
           </div>
           {% endfor %}
         </div>
 
-        <div class="cards-box" style="margin-top:20px;">
-          <h3>Neues / bearbeitetes Tenant-Profil speichern</h3>
+        <div class="card" style="margin-top:16px;">
+          <h3 style="margin-top:0;">Eigenes Profil speichern</h3>
           <form method="post" action="/cards/profiles/save">
-            <input type="hidden" name="profile_id" id="profile_id_edit">
-            <div class="form-row"><label for="profile_name">Name</label><input id="profile_name" name="name" required></div>
-            <div class="form-row"><label for="vendor">Vendor</label><input id="vendor" name="vendor"></div>
-            <div class="form-row"><label for="reader_model">Reader-Modell</label><input id="reader_model" name="reader_model"></div>
-            <div class="form-row"><label for="mode">Modus</label><input id="mode" name="mode"></div>
-            <div class="form-row"><label for="description">Beschreibung</label><input id="description" name="description"></div>
-            <div class="form-row"><label for="rules_json">rules_json</label><textarea id="rules_json" name="rules_json">{
-  "input_mode": "text",
-  "submit_mode": "base64_text",
-  "strip_separators": true,
-  "leading_zero_mode": "keep",
-  "pad_even_hex": true
-}</textarea></div>
-            <div class="form-row"><label><input type="checkbox" name="is_active" checked> Aktiv</label></div>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button type="submit" class="btn btn-primary">💾 Profil speichern</button>
-              <button type="button" class="btn btn-secondary" onclick="resetProfileForm()">Neu beginnen</button>
-            </div>
+            <div class="form-group"><label>Name</label><input type="text" name="name" required></div>
+            <div class="form-group"><label>Vendor</label><input type="text" name="vendor"></div>
+            <div class="form-group"><label>Reader-Modell</label><input type="text" name="reader_model"></div>
+            <div class="form-group"><label>Mode</label><input type="text" name="mode"></div>
+            <div class="form-group"><label>Beschreibung</label><input type="text" name="description"></div>
+            <div class="form-group"><label>rules_json</label><textarea name="rules_json" rows="6" placeholder='{"strip_separators":true,"mode":"base64_text"}'></textarea></div>
+            <button type="submit" class="btn btn-primary">💾 Profil speichern</button>
           </form>
+          {% for p in profiles if not (p.is_builtin or p.get('is_builtin')) %}
+            <div style="border-top:1px solid #e5e7eb; margin-top:12px; padding-top:12px;">
+              <div style="font-weight:700;">{{ p.name }}</div>
+              <div style="font-size:.84em; color:#6b7280;">{{ p.vendor }} · {{ p.reader_model }} · {{ p.mode }}</div>
+              <form method="post" action="/cards/profiles/{{ p.id }}/delete" style="margin-top:8px;">
+                <button type="submit" class="btn" style="background:#ef4444; color:#fff; border:none;">🗑 Profil löschen</button>
+              </form>
+            </div>
+          {% endfor %}
         </div>
       </div>
     </div>
   </div>
 </div>
-{% endblock %}
 
 <script>
-function loadProfileForEdit(card) {
-  document.getElementById('profile_id_edit').value = card.dataset.profileId || '';
-  document.getElementById('profile_name').value = card.dataset.profileName || '';
-  document.getElementById('vendor').value = card.dataset.profileVendor || '';
-  document.getElementById('reader_model').value = card.dataset.profileReader || '';
-  document.getElementById('mode').value = card.dataset.profileMode || '';
-  document.getElementById('description').value = card.dataset.profileDescription || '';
-  document.getElementById('rules_json').value = card.dataset.profileRules || '{}';
-  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-}
-function resetProfileForm() {
-  document.getElementById('profile_id_edit').value = '';
-  document.getElementById('profile_name').value = '';
-  document.getElementById('vendor').value = '';
-  document.getElementById('reader_model').value = '';
-  document.getElementById('mode').value = '';
-  document.getElementById('description').value = '';
-  document.getElementById('rules_json').value = '{
-  "input_mode": "text",
-  "submit_mode": "base64_text",
-  "strip_separators": true,
-  "leading_zero_mode": "keep",
-  "pad_even_hex": true
-}';
-}
+(function () {
+  const rawEl = document.getElementById('lab_raw_value');
+  if (!rawEl) return;
+  const profileEl = document.getElementById('lab_profile_id');
+  const inputModeEl = document.getElementById('lab_input_mode');
+  const submitModeEl = document.getElementById('lab_submit_mode');
+  const stripEl = document.getElementById('lab_strip_separators');
+  const trimPrefixEl = document.getElementById('lab_trim_prefix');
+  const trimSuffixEl = document.getElementById('lab_trim_suffix');
+  const leadingZeroModeEl = document.getElementById('lab_leading_zero_mode');
+  const padEvenHexEl = document.getElementById('lab_pad_even_hex');
+  const finalValueEl = document.getElementById('lab_final_value');
+
+  const out = {
+    normalized: document.getElementById('lab_preview_normalized'),
+    hex: document.getElementById('lab_preview_hex'),
+    hexRev: document.getElementById('lab_preview_hex_reversed'),
+    dec: document.getElementById('lab_preview_decimal'),
+    decRev: document.getElementById('lab_preview_decimal_reversed'),
+    b64: document.getElementById('lab_preview_b64'),
+    submit: document.getElementById('lab_preview_submit')
+  };
+
+  function encBase64(str) {
+    try { return btoa(unescape(encodeURIComponent(str))); } catch (e) { return ''; }
+  }
+  function isHexString(value) {
+    return !!value && /^[0-9a-fA-F]+$/.test(value) && value.length % 2 === 0;
+  }
+  function reverseHexBytes(hex) {
+    if (!isHexString(hex)) return '';
+    return (hex.match(/../g) || []).reverse().join('');
+  }
+  function hexToDecimalString(hex) {
+    if (!isHexString(hex)) return '';
+    try { return BigInt('0x' + hex).toString(10); } catch (e) { return ''; }
+  }
+  function decimalToHexString(dec) {
+    if (!/^\d+$/.test(dec || '')) return '';
+    try {
+      let hex = BigInt(dec).toString(16);
+      if (padEvenHexEl.value === 'yes' && hex.length % 2 !== 0) hex = '0' + hex;
+      return hex.toUpperCase();
+    } catch (e) { return ''; }
+  }
+  function applyPrefixSuffixRules(value) {
+    let v = (value || '').trim();
+    const prefix = trimPrefixEl.value || '';
+    const suffix = trimSuffixEl.value || '';
+    if (prefix && v.startsWith(prefix)) v = v.slice(prefix.length);
+    if (suffix && v.endsWith(suffix)) v = v.slice(0, -suffix.length);
+    return v;
+  }
+  function applyLeadingZeroRule(value) {
+    let v = value || '';
+    if (!v) return v;
+    if (leadingZeroModeEl.value === 'strip') {
+      v = v.replace(/^0+/, '');
+      return v || '0';
+    }
+    if (leadingZeroModeEl.value === 'force_one') {
+      v = v.replace(/^0+/, '');
+      return '0' + (v || '0');
+    }
+    return v;
+  }
+  function normalizeRaw(raw) {
+    let value = applyPrefixSuffixRules(raw || '');
+    value = value.trim();
+    if (!value) return '';
+    if (stripEl.checked) value = value.replace(/[\s:\-]/g, '');
+    value = applyLeadingZeroRule(value);
+    return value;
+  }
+  function detectMode(normalized, rawMode) {
+    if (rawMode !== 'auto') return rawMode;
+    if (/^\d+$/.test(normalized)) return 'decimal';
+    if (isHexString(normalized)) return 'hex';
+    return 'text';
+  }
+  function applyProfileRules() {
+    const opt = profileEl.options[profileEl.selectedIndex];
+    const rulesRaw = opt ? (opt.getAttribute('data-rules') || '{}') : '{}';
+    let rules = {};
+    try { rules = JSON.parse(rulesRaw); } catch (e) { rules = {}; }
+    stripEl.checked = !!rules.strip_separators;
+    if (rules.input_mode) inputModeEl.value = rules.input_mode;
+    else if (rules.mode === 'hex') inputModeEl.value = 'hex';
+    else inputModeEl.value = 'auto';
+    if (rules.mode) {
+      const map = { base64_text: 'base64_text', hex: 'hex', decimal: 'decimal', normalized: 'normalized' };
+      submitModeEl.value = map[rules.mode] || 'raw';
+    }
+    if (rules.leading_zero_mode) leadingZeroModeEl.value = rules.leading_zero_mode;
+  }
+  function compute() {
+    const raw = rawEl.value || '';
+    const normalized = normalizeRaw(raw);
+    const mode = detectMode(normalized, inputModeEl.value);
+    let hex = '', dec = '', b64 = '';
+    if (mode === 'hex') {
+      hex = normalized.toUpperCase();
+      if (padEvenHexEl.value === 'yes' && hex.length % 2 !== 0) hex = '0' + hex;
+      dec = hexToDecimalString(hex);
+      b64 = encBase64(raw.trim());
+    } else if (mode === 'decimal') {
+      dec = normalized;
+      hex = decimalToHexString(dec);
+      b64 = encBase64(raw.trim());
+    } else {
+      b64 = encBase64(raw.trim());
+      if (isHexString(normalized)) {
+        hex = normalized.toUpperCase();
+        dec = hexToDecimalString(hex);
+      }
+    }
+    const hexRev = reverseHexBytes(hex);
+    const decRev = hexToDecimalString(hexRev);
+    let finalValue = raw.trim();
+    if (submitModeEl.value === 'normalized') finalValue = normalized;
+    if (submitModeEl.value === 'hex') finalValue = hex;
+    if (submitModeEl.value === 'hex_reversed') finalValue = hexRev;
+    if (submitModeEl.value === 'decimal') finalValue = dec;
+    if (submitModeEl.value === 'decimal_reversed') finalValue = decRev;
+    if (submitModeEl.value === 'base64_text') finalValue = b64;
+
+    out.normalized.textContent = normalized || '—';
+    out.hex.textContent = hex || '—';
+    out.hexRev.textContent = hexRev || '—';
+    out.dec.textContent = dec || '—';
+    out.decRev.textContent = decRev || '—';
+    out.b64.textContent = b64 || '—';
+    out.submit.textContent = finalValue || '—';
+    finalValueEl.value = finalValue || '';
+  }
+  profileEl.addEventListener('change', function () { applyProfileRules(); compute(); });
+  rawEl.addEventListener('input', compute);
+  inputModeEl.addEventListener('change', compute);
+  submitModeEl.addEventListener('change', compute);
+  stripEl.addEventListener('change', compute);
+  trimPrefixEl.addEventListener('input', compute);
+  trimSuffixEl.addEventListener('input', compute);
+  leadingZeroModeEl.addEventListener('change', compute);
+  padEvenHexEl.addEventListener('change', compute);
+  document.getElementById('lab_use_preview_btn').addEventListener('click', function () {
+    rawEl.value = finalValueEl.value || rawEl.value;
+    compute();
+  });
+  document.getElementById('card-lab-form').addEventListener('submit', function () {
+    compute();
+  });
+
+  window.fillFromMapping = function (btn) {
+    rawEl.value = btn.dataset.rawValue || '';
+    document.getElementById('lab_printix_user_id').value = btn.dataset.userId || '';
+    document.getElementById('lab_printix_card_id').value = btn.dataset.cardId || '';
+    document.getElementById('lab_notes').value = btn.dataset.notes || '';
+    document.getElementById('lab_source').value = btn.dataset.source || 'local';
+    if (btn.dataset.profileId) profileEl.value = btn.dataset.profileId;
+    applyProfileRules();
+    compute();
+    rawEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    rawEl.focus();
+  };
+
+  applyProfileRules();
+  compute();
+})();
 </script>
+{% endblock %}

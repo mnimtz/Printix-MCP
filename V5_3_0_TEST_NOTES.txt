@@ -1,0 +1,22 @@
+Printix MCP v5.3.0 – Karten & Codes finaler Ausbau (Best-Effort)
+
+Enthalten:
+- Version 5.3.0 in printix-mcp-addon/printix-mcp/config.yaml
+- Neues Hauptregister „Karten & Codes“ in der Navigation
+- Neues eigenständiges Tool unter /cards mit:
+  - Card Lab / Eingabefeld
+  - sichtbaren Built-in-Profilen inkl. YSoft Decimal Reversed
+  - lokaler Suche
+  - lokalen Mappings
+  - Printix-Import
+  - Tenant-Profilen
+- Druckerflotte-Text bereinigt: kein „Ricoh-“ mehr im Fleet-Register
+- User-Detail:
+  - zeigt lokal gespeicherten Originalwert, wenn vorhanden
+  - Formular zum lokalen Nachpflegen eines Kartenwertes
+  - neue Karten werden lokal verknüpft
+  - Lösch-Cleanup für lokale Mappings
+
+Hinweis:
+Dieses Paket ist ein größerer Best-Effort-Stand auf Basis deines Original-ZIPs.
+Bitte lokal testen, neu bauen und bei Fehlern Logs / Screenshots schicken.

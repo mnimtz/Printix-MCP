@@ -1,0 +1,10 @@
+Version: 5.2.0
+
+Quick tests:
+1. Start add-on and verify login logo is shown.
+2. Open /cards and verify search/profile UI loads.
+3. Use "Aus Printix importieren" and verify mappings appear.
+4. Add a new card in a user detail page and verify the visible value is shown afterwards.
+5. Search for the same value in /cards.
+6. Delete the card and verify the local mapping disappears.
+7. Delete a guest user and verify related local mappings are cleaned up.

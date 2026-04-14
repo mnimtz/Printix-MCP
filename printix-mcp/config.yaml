@@ -1,7 +1,7 @@
 # Home Assistant Add-on: Printix MCP Server
 # https://github.com/mnimtz/Printix-MCP
 name: Printix MCP Server
-version: "5.2.0"
+version: "5.3.0"
 slug: printix-mcp
 description: >-
   Multi-Tenant MCP Server für die Printix Cloud Print API.
@@ -40,7 +40,7 @@ options:
 
   # Öffentliche URL des MCP-Servers (z.B. via Cloudflare Tunnel)
   # Wird in der Web-UI und im Log als Verbindungsinfo angezeigt
-  public_url: ""
+  public_url: "https://mcp.printix.cloud"
 
   # Separater Capture-Server auf Port 8775 (true = aktiv, false = deaktiviert)
   # Der Container-Port ist IMMER 8775 (fest in config.yaml/ports definiert).
@@ -63,7 +63,7 @@ options:
 schema:
   mcp_port: int
   web_port: int
-  public_url: "url?"
+  public_url: "str?"
   capture_enabled: bool
   capture_public_url: "str?"
   log_level: "list(debug|info|warning|error|critical)"
