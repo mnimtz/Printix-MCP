@@ -43,6 +43,7 @@ Routen:
 """
 
 import os
+import json
 import logging
 from typing import Optional
 
@@ -62,6 +63,8 @@ def create_app(session_secret: str) -> FastAPI:
     app.add_middleware(SessionMiddleware, secret_key=session_secret, max_age=3600 * 8)
 
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
+    from cards import CardMappingStore, build_mapping_record, decode_card_value_for_display, transform_preview
+
 
     # ── Package Builder (singleton, lebt für die Laufzeit der App) ────────────
     from package_builder import PackageBuilderCore as _PBC
@@ -98,6 +101,14 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception:
             ctx["feedback_new_count"] = 0
         return ctx
+
+    # ── Helpers ────────────────────────────────────────────────────────────────
+    @app.get("/branding/login-logo")
+    async def branding_login_logo():
+        logo_path = os.path.join(os.path.dirname(__file__), "assets", "login_logo_new.png")
+        if os.path.exists(logo_path):
+            return FileResponse(logo_path, media_type="image/png")
+        return RedirectResponse("/login", status_code=302)
 
     # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1214,6 +1225,86 @@ def create_app(session_secret: str) -> FastAPI:
             return JSONResponse({"error": str(e)[:200]}, status_code=500)
 
     # ── Package Builder — Clientless / Zero Trust ─────────────────────────────
+
+    @app.get("/cards", response_class=HTMLResponse)
+    async def cards_tool(request: Request, q: str = "", profile_id: str = "", raw_value: str = ""):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        error = None
+        tenant = None
+        profiles = []
+        results = []
+        preview = None
+        selected_profile = None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if not tenant:
+                error = "Tenant not found"
+            else:
+                store = CardMappingStore(tenant["id"])
+                profiles = store.list_profiles()
+                selected_profile = store.get_profile(profile_id) if profile_id else (profiles[0] if profiles else None)
+                results = store.search(q)
+                if raw_value:
+                    rules = json.loads((selected_profile or {}).get("rules_json", "{}") or "{}")
+                    preview = transform_preview(raw_value, rules)
+        except Exception as e:
+            logger.error("cards_tool error: %s", e)
+            error = str(e)
+        return templates.TemplateResponse("cards_tool.html", {
+            "request": request, "user": user, "tenant": tenant, "error": error,
+            "profiles": profiles, "results": results, "q": q, "raw_value": raw_value,
+            "preview": preview, "selected_profile": selected_profile, **tc
+        })
+
+    @app.post("/cards/preview")
+    async def cards_preview(request: Request, raw_value: str = Form(""), profile_id: str = Form("")):
+        user = require_login(request)
+        if user is None:
+            return JSONResponse({"ok": False, "error": "not logged in"}, status_code=401)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            store = CardMappingStore(tenant["id"])
+            profile = store.get_profile(profile_id) if profile_id else None
+            rules = json.loads((profile or {}).get("rules_json", "{}") or "{}")
+            return JSONResponse({"ok": True, "preview": transform_preview(raw_value, rules)})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @app.post("/cards/profiles/save")
+    async def cards_profile_save(request: Request, profile_id: str = Form(""), name: str = Form(...), vendor: str = Form(""), reader_model: str = Form(""), mode: str = Form(""), description: str = Form(""), rules_json: str = Form("{}"), is_active: Optional[str] = Form(None)):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            store = CardMappingStore(tenant["id"])
+            rules = json.loads(rules_json or "{}")
+            store.save_profile(profile_id=profile_id.strip(), name=name.strip(), vendor=vendor.strip(), reader_model=reader_model.strip(), mode=mode.strip(), description=description.strip(), rules=rules, is_active=bool(is_active))
+            return RedirectResponse("/cards?flash=profile_saved", status_code=302)
+        except Exception as e:
+            logger.error("cards_profile_save error: %s", e)
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(f"/cards?flash=error&errmsg={_qp(str(e)[:120])}", status_code=302)
+
+    @app.post("/cards/profiles/{profile_id}/delete")
+    async def cards_profile_delete(request: Request, profile_id: str):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            CardMappingStore(tenant["id"]).delete_profile(profile_id)
+            return RedirectResponse("/cards?flash=profile_deleted", status_code=302)
+        except Exception as e:
+            logger.error("cards_profile_delete error: %s", e)
+            return RedirectResponse("/cards?flash=error", status_code=302)
 
     @app.get("/fleet/package-builder", response_class=HTMLResponse)
     async def pkg_builder_page(request: Request):
@@ -2365,11 +2456,25 @@ def create_app(session_secret: str) -> FastAPI:
                 try:
                     cards_data = client.list_user_cards(printix_user_id)
                     raw_cards = cards_data.get("cards", cards_data.get("content", []))
-                    # Extract card ID from _links.self.href (no "id" field in API response)
                     cards = []
+                    store = CardMappingStore(tenant["id"])
                     for c in raw_cards:
                         href = (c.get("_links") or {}).get("self", {}).get("href", "")
                         c["card_id"] = href.split("/")[-1] if href else c.get("id", "")
+                        mapping = store.get_mapping(c["card_id"])
+                        if mapping:
+                            c["display_value"] = mapping.get("display_value") or mapping.get("raw_value") or ''
+                            c["display_source"] = mapping.get("source", "local")
+                        else:
+                            display_value, raw_secret, display_source = decode_card_value_for_display(c)
+                            c["display_value"] = display_value or "Original card value not stored locally"
+                            c["display_source"] = display_source
+                            if display_value and c["card_id"]:
+                                try:
+                                    mapping = build_mapping_record(tenant["id"], printix_user_id, c["card_id"], display_value, source="imported_from_printix")
+                                    store.save_mapping(mapping)
+                                except Exception:
+                                    pass
                         cards.append(c)
                 except Exception:
                     cards = []
@@ -2397,7 +2502,29 @@ def create_app(session_secret: str) -> FastAPI:
             from db import get_tenant_full_by_user_id
             tenant = get_tenant_full_by_user_id(user["id"])
             client = _make_printix_client(tenant)
+            before_data = client.list_user_cards(printix_user_id)
+            before_cards = before_data.get("cards", before_data.get("content", []))
+            before_ids = set()
+            for c in before_cards:
+                href = (c.get("_links") or {}).get("self", {}).get("href", "")
+                before_ids.add(href.split("/")[-1] if href else c.get("id", ""))
             client.register_card(printix_user_id, card_number.strip())
+            after_data = client.list_user_cards(printix_user_id)
+            after_cards = after_data.get("cards", after_data.get("content", []))
+            new_card_id = ''
+            for c in after_cards:
+                href = (c.get("_links") or {}).get("self", {}).get("href", "")
+                cid = href.split("/")[-1] if href else c.get("id", "")
+                if cid and cid not in before_ids:
+                    new_card_id = cid
+                    break
+            if not new_card_id and after_cards:
+                href = (after_cards[-1].get("_links") or {}).get("self", {}).get("href", "")
+                new_card_id = href.split("/")[-1] if href else after_cards[-1].get("id", "")
+            if new_card_id:
+                store = CardMappingStore(tenant["id"])
+                mapping = build_mapping_record(tenant["id"], printix_user_id, new_card_id, card_number.strip(), source="manual")
+                store.save_mapping(mapping)
             return RedirectResponse(
                 f"/tenant/users/{printix_user_id}?flash=card_added", status_code=302
             )
@@ -2422,8 +2549,8 @@ def create_app(session_secret: str) -> FastAPI:
             from db import get_tenant_full_by_user_id
             tenant = get_tenant_full_by_user_id(user["id"])
             client = _make_printix_client(tenant)
-            # Use user-scoped delete: DELETE /users/{uid}/cards/{card_id}
             client.delete_card(card_id, user_id=printix_user_id)
+            CardMappingStore(tenant["id"]).delete_mapping(card_id)
             return RedirectResponse(
                 f"/tenant/users/{printix_user_id}?flash=card_deleted", status_code=302
             )
@@ -2463,6 +2590,11 @@ def create_app(session_secret: str) -> FastAPI:
             tenant = get_tenant_full_by_user_id(user["id"])
             client = _make_printix_client(tenant)
             client.delete_user(printix_user_id)
+            try:
+                from db import delete_card_mappings_by_printix_user
+                delete_card_mappings_by_printix_user(tenant["id"], printix_user_id)
+            except Exception:
+                pass
             return RedirectResponse("/tenant/users?flash=deleted", status_code=302)
         except Exception as e:
             logger.error("tenant_user_delete error: %s", e)

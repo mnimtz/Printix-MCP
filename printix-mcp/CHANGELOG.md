@@ -1,3 +1,11 @@
+## v5.0.0
+- Added a modular `cards/` package for card transforms, lookup candidates, built-in profiles and local card mapping storage.
+- Added a new standalone **Karten & Codes** tool with local search, profile management and transformation preview.
+- Added local SQLite-backed card mappings so newly registered cards keep the original visible card value and can be searched later.
+- Improved user detail card display: show locally known/or imported visible card value first, keep stored card ID below.
+- Added local login-logo serving via `/branding/login-logo` and switched the login page to the new logo with fallback comment.
+- Kept the Package Builder wording generic and removed misleading Ricoh-only phrasing from the subtitle.
+
 # Changelog
 
 ## 4.6.19 (2026-04-13) — Fix Tenant URL Feld-Styling

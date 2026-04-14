@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Karten & Codes — Printix MCP{% endblock %}
+{% block extra_head %}
+<style>
+.cards-grid { display:grid; grid-template-columns: 1.1fr .9fr; gap:20px; }
+.cards-box { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; }
+.cards-box h3 { margin:0 0 12px; color:#1e3a5f; }
+.cards-sub { color:#6b7280; font-size:.9em; margin:-4px 0 14px; }
+.cards-table { width:100%; border-collapse:collapse; font-size:.9em; }
+.cards-table th,.cards-table td { padding:8px 10px; border-top:1px solid #e5e7eb; text-align:left; vertical-align:top; }
+.cards-table th { color:#6b7280; width:180px; }
+.cards-code { font-family:monospace; word-break:break-all; }
+.cards-list { width:100%; border-collapse:collapse; font-size:.88em; }
+.cards-list th,.cards-list td { padding:8px; border-top:1px solid #e5e7eb; text-align:left; vertical-align:top; }
+.cards-list th { color:#6b7280; }
+.form-row { margin-bottom:12px; }
+.form-row label { display:block; font-size:.84em; font-weight:700; color:#374151; margin-bottom:4px; }
+.form-row input,.form-row textarea,.form-row select { width:100%; box-sizing:border-box; border:1px solid #d1d5db; border-radius:8px; padding:8px 10px; font-size:.9em; }
+.form-row textarea { min-height:92px; resize:vertical; }
+.profile-card { border:1px solid #e5e7eb; border-radius:10px; padding:10px 12px; margin-bottom:10px; background:#f8fafc; }
+.profile-title { font-weight:700; color:#1f2937; }
+.profile-meta { font-size:.8em; color:#6b7280; margin-top:3px; }
+.badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:.75em; font-weight:700; background:#e0f2fe; color:#075985; margin-right:6px; }
+.badge.builtin { background:#ede9fe; color:#5b21b6; }
+@media (max-width: 960px) { .cards-grid { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+      <div>
+        <div class="section-title">🃏 Karten &amp; Codes</div>
+        <div class="cards-sub">Eigenständiges Karten-Tool mit Profilen, Vorschau und lokaler Suche nach Originalwerten.</div>
+      </div>
+      <div><a href="/tenant/printers" class="btn btn-secondary">← {{ _('nav_tenant') }}</a></div>
+    </div>
+    {% if request.query_params.get('flash') == 'profile_saved' %}<div class="alert alert-success">✅ Profil gespeichert</div>{% endif %}
+    {% if request.query_params.get('flash') == 'profile_deleted' %}<div class="alert alert-success">✅ Profil gelöscht</div>{% endif %}
+    {% if request.query_params.get('flash') == 'error' %}<div class="alert alert-error">❌ {{ request.query_params.get('errmsg', 'Fehler') }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">❌ {{ error }}</div>{% endif %}
+
+    <div class="cards-grid">
+      <div>
+        <div class="cards-box">
+          <h3>Transformieren & Vorschau</h3>
+          <form method="get" action="/cards">
+            <div class="form-row">
+              <label for="profile_id">Profil</label>
+              <select id="profile_id" name="profile_id">
+                {% for p in profiles %}
+                <option value="{{ p.id }}" {% if selected_profile and p.id == selected_profile.id %}selected{% endif %}>{{ p.name }}{% if p.is_builtin %} (builtin){% endif %}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-row">
+              <label for="raw_value">Rohwert</label>
+              <textarea id="raw_value" name="raw_value" placeholder="Wert vom Kartenleser hier einfügen">{{ raw_value }}</textarea>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="submit" class="btn btn-primary">🔍 Vorschau berechnen</button>
+              <a href="/cards" class="btn btn-secondary">Zurücksetzen</a>
+            </div>
+          </form>
+          {% if preview %}
+          <table class="cards-table" style="margin-top:16px;">
+            <tr><th>Normalized</th><td class="cards-code">{{ preview.normalized_value or '—' }}</td></tr>
+            <tr><th>HEX</th><td class="cards-code">{{ preview.hex_value or '—' }}</td></tr>
+            <tr><th>HEX reversed</th><td class="cards-code">{{ preview.hex_reversed or '—' }}</td></tr>
+            <tr><th>Decimal</th><td class="cards-code">{{ preview.decimal_value or '—' }}</td></tr>
+            <tr><th>Decimal reversed</th><td class="cards-code">{{ preview.decimal_reversed or '—' }}</td></tr>
+            <tr><th>Base64(text)</th><td class="cards-code">{{ preview.base64_value or '—' }}</td></tr>
+            <tr><th>Finaler Zielwert</th><td class="cards-code">{{ preview.final_value or '—' }}</td></tr>
+            <tr><th>Lookup-Kandidaten</th><td class="cards-code">{{ preview.lookup_candidates|join(', ') }}</td></tr>
+          </table>
+          {% endif %}
+        </div>
+
+        <div class="cards-box" style="margin-top:20px;">
+          <h3>Lokale Kartensuche</h3>
+          <form method="get" action="/cards" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <input type="hidden" name="profile_id" value="{{ selected_profile.id if selected_profile else '' }}">
+            <input type="text" name="q" value="{{ q }}" placeholder="Originalwert, HEX, Base64, Card-ID oder User-ID" style="flex:1;min-width:220px;">
+            <button type="submit" class="btn btn-primary">Suchen</button>
+          </form>
+          <table class="cards-list">
+            <thead><tr><th>Anzeige</th><th>Card ID</th><th>User</th><th>Quelle</th></tr></thead>
+            <tbody>
+            {% for row in results %}
+              <tr>
+                <td><div class="cards-code">{{ row.display_value or row.raw_value or '—' }}</div><div class="cards-sub">{{ row.notes }}</div></td>
+                <td class="cards-code">{{ row.printix_card_id }}</td>
+                <td class="cards-code">{{ row.printix_user_id }}</td>
+                <td>{{ row.source }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4" style="color:#9ca3af;">Noch keine lokalen Kartenzuordnungen vorhanden.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <div class="cards-box">
+          <h3>Profile</h3>
+          <div class="cards-sub">Built-in-Profile sind schreibgeschützt. Eigene Tenant-Profile können ergänzt und bearbeitet werden.</div>
+          {% for p in profiles %}
+          <div class="profile-card" data-profile-id="{{ p.id }}" data-profile-name="{{ p.name|e }}" data-profile-vendor="{{ p.vendor|e }}" data-profile-reader="{{ p.reader_model|e }}" data-profile-mode="{{ p.mode|e }}" data-profile-description="{{ p.description|e }}" data-profile-rules="{{ p.rules_json|e }}">
+            <div class="profile-title">{% if p.is_builtin %}<span class="badge builtin">builtin</span>{% else %}<span class="badge">tenant</span>{% endif %}{{ p.name }}</div>
+            <div class="profile-meta">{{ p.vendor }} · {{ p.reader_model }} · {{ p.mode }}</div>
+            <div class="profile-meta">{{ p.description }}</div>
+            {% if not p.is_builtin %}
+            <div style="display:flex; gap:8px; margin-top:8px;">
+              <button type="button" class="btn btn-secondary" onclick="loadProfileForEdit(this.closest('.profile-card'))">✏️ Bearbeiten</button>
+              <form method="post" action="/cards/profiles/{{ p.id }}/delete" onsubmit="return confirm('Profil wirklich löschen?');">
+                <button type="submit" class="btn btn-secondary">🗑 Löschen</button>
+              </form>
+            </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="cards-box" style="margin-top:20px;">
+          <h3>Neues / bearbeitetes Tenant-Profil speichern</h3>
+          <form method="post" action="/cards/profiles/save">
+            <input type="hidden" name="profile_id" id="profile_id_edit">
+            <div class="form-row"><label for="profile_name">Name</label><input id="profile_name" name="name" required></div>
+            <div class="form-row"><label for="vendor">Vendor</label><input id="vendor" name="vendor"></div>
+            <div class="form-row"><label for="reader_model">Reader-Modell</label><input id="reader_model" name="reader_model"></div>
+            <div class="form-row"><label for="mode">Modus</label><input id="mode" name="mode"></div>
+            <div class="form-row"><label for="description">Beschreibung</label><input id="description" name="description"></div>
+            <div class="form-row"><label for="rules_json">rules_json</label><textarea id="rules_json" name="rules_json">{
+  "input_mode": "text",
+  "submit_mode": "base64_text",
+  "strip_separators": true,
+  "leading_zero_mode": "keep",
+  "pad_even_hex": true
+}</textarea></div>
+            <div class="form-row"><label><input type="checkbox" name="is_active" checked> Aktiv</label></div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="submit" class="btn btn-primary">💾 Profil speichern</button>
+              <button type="button" class="btn btn-secondary" onclick="resetProfileForm()">Neu beginnen</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+<script>
+function loadProfileForEdit(card) {
+  document.getElementById('profile_id_edit').value = card.dataset.profileId || '';
+  document.getElementById('profile_name').value = card.dataset.profileName || '';
+  document.getElementById('vendor').value = card.dataset.profileVendor || '';
+  document.getElementById('reader_model').value = card.dataset.profileReader || '';
+  document.getElementById('mode').value = card.dataset.profileMode || '';
+  document.getElementById('description').value = card.dataset.profileDescription || '';
+  document.getElementById('rules_json').value = card.dataset.profileRules || '{}';
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+}
+function resetProfileForm() {
+  document.getElementById('profile_id_edit').value = '';
+  document.getElementById('profile_name').value = '';
+  document.getElementById('vendor').value = '';
+  document.getElementById('reader_model').value = '';
+  document.getElementById('mode').value = '';
+  document.getElementById('description').value = '';
+  document.getElementById('rules_json').value = '{\n  "input_mode": "text",\n  "submit_mode": "base64_text",\n  "strip_separators": true,\n  "leading_zero_mode": "keep",\n  "pad_even_hex": true\n}';
+}
+</script>

@@ -1,0 +1,26 @@
+Printix MCP v5.0.0 local test notes
+
+Included core work:
+- modular cards package under src/cards/
+- local SQLite card profile + mapping tables
+- standalone /cards tool
+- local mapping for newly added cards
+- improved user-detail display for cards
+- local login logo route (/branding/login-logo)
+- generic package-builder subtitle
+
+Recommended checks:
+1. Add-on shows version 5.0.0
+2. Login page shows new logo
+3. /cards opens and lists built-in profiles
+4. Create a tenant profile and save it
+5. Add a new card on a user detail page
+6. Reopen user detail: visible card value should show from local mapping
+7. Search card value in /cards
+8. Delete the card and verify the local mapping disappears
+9. Delete a guest user and verify related card mappings are removed
+
+Known limitation:
+- Old cards can only show a visible value when Printix returns a decodable secret.
+  If Printix only returns the card UUID, the UI will show:
+  "Original card value not stored locally"

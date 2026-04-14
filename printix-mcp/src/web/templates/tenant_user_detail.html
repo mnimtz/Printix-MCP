@@ -117,7 +117,7 @@
     <div class="card-row">
       <span style="font-size:1.2em;">🃏</span>
       <div class="card-stack">
-        <div class="card-id js-card-display" data-card-id="{{ cid }}" data-card-secret="{{ raw_secret }}">{{ cid }}</div>
+        <div class="card-id js-card-display" data-card-id="{{ cid }}" data-card-secret="{{ raw_secret }}">{{ c.get("display_value", "Original card value not stored locally") }}</div>
         <div class="card-meta js-card-meta">Stored card ID: {{ cid }}</div>
       </div>
       <form method="post" action="/tenant/users/{{ printix_user_id }}/delete-card"
@@ -129,6 +129,10 @@
     {% else %}
     <p style="color:#9ca3af;font-size:.88em;font-style:italic;">No cards registered.</p>
     {% endfor %}
+
+    <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+      <a href="/cards?q={{ printix_user_id }}" class="btn btn-secondary">🔎 Karten &amp; Codes öffnen</a>
+    </div>
 
     <div class="action-box" style="margin-top:14px;">
       <h4>➕ {{ _('user_detail_add_card') }}</h4>
@@ -416,25 +420,6 @@
       ev.preventDefault();
       alert('Please enter a card value first.');
     }
-  });
-
-  document.querySelectorAll('.js-card-display').forEach(function (el) {
-    const secret = el.dataset.cardSecret || '';
-    const cid = el.dataset.cardId || '';
-    const meta = el.parentElement.querySelector('.js-card-meta');
-    if (secret) {
-      const decoded = decBase64(secret);
-      if (decoded) {
-        el.textContent = decoded;
-        if (meta) meta.textContent = 'Stored card ID: ' + cid;
-        return;
-      }
-      el.textContent = secret;
-      if (meta) meta.textContent = 'Stored card ID: ' + cid;
-      return;
-    }
-    el.textContent = 'Stored card value not available';
-    if (meta) meta.textContent = 'Stored card ID: ' + cid;
   });
 
   compute();

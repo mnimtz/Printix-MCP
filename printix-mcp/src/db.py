@@ -228,6 +228,54 @@ def init_db() -> None:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feature_requests_status ON feature_requests (status, created_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feature_requests_user ON feature_requests (user_id, created_at DESC)")
+
+    # v5.0.0: Karten-Profile + lokale Kartenwert-Mappings / Suchindex
+    with _conn() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS card_profiles (
+                id           TEXT PRIMARY KEY,
+                tenant_id    TEXT NOT NULL REFERENCES tenants(id),
+                name         TEXT NOT NULL,
+                vendor       TEXT NOT NULL DEFAULT '',
+                reader_model TEXT NOT NULL DEFAULT '',
+                mode         TEXT NOT NULL DEFAULT '',
+                description  TEXT NOT NULL DEFAULT '',
+                is_builtin   INTEGER NOT NULL DEFAULT 0,
+                is_active    INTEGER NOT NULL DEFAULT 1,
+                rules_json   TEXT NOT NULL DEFAULT '{}',
+                created_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_card_profiles_tenant ON card_profiles (tenant_id, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS card_mappings (
+                id                    TEXT PRIMARY KEY,
+                tenant_id             TEXT NOT NULL REFERENCES tenants(id),
+                printix_user_id       TEXT NOT NULL DEFAULT '',
+                printix_card_id       TEXT NOT NULL,
+                profile_id            TEXT NOT NULL DEFAULT '',
+                raw_value             TEXT NOT NULL DEFAULT '',
+                display_value         TEXT NOT NULL DEFAULT '',
+                normalized_value      TEXT NOT NULL DEFAULT '',
+                hex_value             TEXT NOT NULL DEFAULT '',
+                decimal_value         TEXT NOT NULL DEFAULT '',
+                base64_value          TEXT NOT NULL DEFAULT '',
+                final_secret_value    TEXT NOT NULL DEFAULT '',
+                lookup_candidates_json TEXT NOT NULL DEFAULT '[]',
+                source                TEXT NOT NULL DEFAULT 'manual',
+                notes                 TEXT NOT NULL DEFAULT '',
+                meta_json             TEXT NOT NULL DEFAULT '{}',
+                created_at            TEXT NOT NULL,
+                updated_at            TEXT NOT NULL,
+                UNIQUE(tenant_id, printix_card_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_card_mappings_tenant_user ON card_mappings (tenant_id, printix_user_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_card_mappings_display ON card_mappings (tenant_id, display_value);
+            CREATE INDEX IF NOT EXISTS idx_card_mappings_normalized ON card_mappings (tenant_id, normalized_value);
+            CREATE INDEX IF NOT EXISTS idx_card_mappings_hex ON card_mappings (tenant_id, hex_value);
+            CREATE INDEX IF NOT EXISTS idx_card_mappings_decimal ON card_mappings (tenant_id, decimal_value);
+            CREATE INDEX IF NOT EXISTS idx_card_mappings_base64 ON card_mappings (tenant_id, base64_value);
+        """)
     # v4.4.0: Capture Profiles — pro Tenant konfigurierbare Capture-Ziele
     with _conn() as conn:
         conn.executescript("""
@@ -567,9 +615,15 @@ def reset_user_password(user_id: str, new_password: str) -> bool:
 def delete_user(user_id: str) -> bool:
     """
     Löscht einen Benutzer und seinen zugehörigen Tenant.
+    Bereinigt dabei auch tenant-lokale Kartenprofile und Karten-Mappings.
     Gibt False zurück wenn der Benutzer nicht existiert.
     """
     with _conn() as conn:
+        tenant_row = conn.execute("SELECT id FROM tenants WHERE user_id=?", (user_id,)).fetchone()
+        tenant_id = tenant_row["id"] if tenant_row else None
+        if tenant_id:
+            conn.execute("DELETE FROM card_mappings WHERE tenant_id=?", (tenant_id,))
+            conn.execute("DELETE FROM card_profiles WHERE tenant_id=?", (tenant_id,))
         conn.execute("DELETE FROM tenants WHERE user_id=?", (user_id,))
         cur = conn.execute("DELETE FROM users WHERE id=?", (user_id,))
     return cur.rowcount > 0
@@ -1395,6 +1449,120 @@ def add_capture_log(
         full_msg += f" | {details[:500]}"
     add_tenant_log(tenant_id, "INFO" if status == "ok" else "ERROR", "CAPTURE", full_msg)
 
+
+
+# ─── Kartenprofile & Karten-Mappings ─────────────────────────────────────────
+
+def create_card_profile(tenant_id: str, name: str, vendor: str = '', reader_model: str = '', mode: str = '', description: str = '', rules_json: str = '{}', is_active: bool = True) -> dict:
+    pid = str(uuid.uuid4())
+    now = _now()
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO card_profiles (id, tenant_id, name, vendor, reader_model, mode, description, is_builtin, is_active, rules_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (pid, tenant_id, name, vendor, reader_model, mode, description, 0, 1 if is_active else 0, rules_json, now, now),
+        )
+    return get_card_profile(pid, tenant_id=tenant_id)
+
+
+def update_card_profile(profile_id: str, tenant_id: str, name: Optional[str] = None, vendor: Optional[str] = None, reader_model: Optional[str] = None, mode: Optional[str] = None, description: Optional[str] = None, rules_json: Optional[str] = None, is_active: Optional[bool] = None) -> Optional[dict]:
+    parts, params = [], []
+    for col, val in (("name", name), ("vendor", vendor), ("reader_model", reader_model), ("mode", mode), ("description", description), ("rules_json", rules_json)):
+        if val is not None:
+            parts.append(f"{col}=?"); params.append(val)
+    if is_active is not None:
+        parts.append("is_active=?"); params.append(1 if is_active else 0)
+    if not parts:
+        return get_card_profile(profile_id, tenant_id=tenant_id)
+    parts.append("updated_at=?"); params.append(_now())
+    params.extend([profile_id, tenant_id])
+    with _conn() as conn:
+        conn.execute(f"UPDATE card_profiles SET {', '.join(parts)} WHERE id=? AND tenant_id=? AND is_builtin=0", params)
+    return get_card_profile(profile_id, tenant_id=tenant_id)
+
+
+def delete_card_profile(profile_id: str, tenant_id: str) -> bool:
+    with _conn() as conn:
+        cur = conn.execute("DELETE FROM card_profiles WHERE id=? AND tenant_id=? AND is_builtin=0", (profile_id, tenant_id))
+    return cur.rowcount > 0
+
+
+def get_card_profile(profile_id: str, tenant_id: str) -> Optional[dict]:
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM card_profiles WHERE id=? AND tenant_id=?", (profile_id, tenant_id)).fetchone()
+    return dict(row) if row else None
+
+
+def list_card_profiles(tenant_id: str) -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute("SELECT * FROM card_profiles WHERE tenant_id=? ORDER BY updated_at DESC, name COLLATE NOCASE", (tenant_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_card_mapping(tenant_id: str, printix_user_id: str, printix_card_id: str, profile_id: str = '', raw_value: str = '', display_value: str = '', normalized_value: str = '', hex_value: str = '', decimal_value: str = '', base64_value: str = '', final_secret_value: str = '', lookup_candidates_json: str = '[]', source: str = 'manual', notes: str = '', meta_json: str = '{}') -> dict:
+    now = _now()
+    existing = get_card_mapping_by_card_id(tenant_id, printix_card_id)
+    mid = existing['id'] if existing else str(uuid.uuid4())
+    created_at = existing.get('created_at', now) if existing else now
+    with _conn() as conn:
+        conn.execute(
+            """INSERT INTO card_mappings (id, tenant_id, printix_user_id, printix_card_id, profile_id, raw_value, display_value, normalized_value, hex_value, decimal_value, base64_value, final_secret_value, lookup_candidates_json, source, notes, meta_json, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(tenant_id, printix_card_id) DO UPDATE SET
+                 printix_user_id=excluded.printix_user_id,
+                 profile_id=excluded.profile_id,
+                 raw_value=excluded.raw_value,
+                 display_value=excluded.display_value,
+                 normalized_value=excluded.normalized_value,
+                 hex_value=excluded.hex_value,
+                 decimal_value=excluded.decimal_value,
+                 base64_value=excluded.base64_value,
+                 final_secret_value=excluded.final_secret_value,
+                 lookup_candidates_json=excluded.lookup_candidates_json,
+                 source=excluded.source,
+                 notes=excluded.notes,
+                 meta_json=excluded.meta_json,
+                 updated_at=excluded.updated_at
+            """,
+            (mid, tenant_id, printix_user_id, printix_card_id, profile_id, raw_value, display_value, normalized_value, hex_value, decimal_value, base64_value, final_secret_value, lookup_candidates_json, source, notes, meta_json, created_at, now),
+        )
+    return get_card_mapping_by_card_id(tenant_id, printix_card_id)
+
+
+def get_card_mapping_by_card_id(tenant_id: str, printix_card_id: str) -> Optional[dict]:
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM card_mappings WHERE tenant_id=? AND printix_card_id=?", (tenant_id, printix_card_id)).fetchone()
+    return dict(row) if row else None
+
+
+def list_card_mappings(tenant_id: str, query: str = '') -> list[dict]:
+    q = (query or '').strip()
+    with _conn() as conn:
+        if q:
+            like = f"%{q}%"
+            rows = conn.execute(
+                """SELECT * FROM card_mappings
+                   WHERE tenant_id=? AND (
+                     display_value LIKE ? OR normalized_value LIKE ? OR hex_value LIKE ? OR decimal_value LIKE ? OR base64_value LIKE ? OR printix_card_id LIKE ? OR printix_user_id LIKE ? OR notes LIKE ?
+                   )
+                   ORDER BY updated_at DESC
+                """,
+                (tenant_id, like, like, like, like, like, like, like, like),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM card_mappings WHERE tenant_id=? ORDER BY updated_at DESC LIMIT 200", (tenant_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_card_mapping(tenant_id: str, printix_card_id: str) -> bool:
+    with _conn() as conn:
+        cur = conn.execute("DELETE FROM card_mappings WHERE tenant_id=? AND printix_card_id=?", (tenant_id, printix_card_id))
+    return cur.rowcount > 0
+
+
+def delete_card_mappings_by_printix_user(tenant_id: str, printix_user_id: str) -> int:
+    with _conn() as conn:
+        cur = conn.execute("DELETE FROM card_mappings WHERE tenant_id=? AND printix_user_id=?", (tenant_id, printix_user_id))
+    return cur.rowcount
 
 # ─── Hilfsfunktionen ──────────────────────────────────────────────────────────
 

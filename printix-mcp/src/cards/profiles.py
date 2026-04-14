@@ -1,0 +1,81 @@
+import json
+from copy import deepcopy
+
+BUILTIN_PROFILES = [
+    {
+        'id': 'builtin_base64_text',
+        'tenant_id': '',
+        'name': 'Plain Base64',
+        'vendor': 'Generic',
+        'reader_model': 'Any',
+        'mode': 'Text',
+        'description': 'Base64 des eingegebenen Klartextwerts',
+        'is_builtin': True,
+        'is_active': True,
+        'rules_json': json.dumps({
+            'input_mode': 'text',
+            'submit_mode': 'base64_text',
+            'strip_separators': False,
+            'leading_zero_mode': 'keep',
+            'pad_even_hex': True,
+        }),
+    },
+    {
+        'id': 'builtin_cleanup_base64',
+        'tenant_id': '',
+        'name': 'Cleanup + Base64',
+        'vendor': 'Generic',
+        'reader_model': 'Keyboard',
+        'mode': 'Cleanup',
+        'description': 'Entfernt Leerzeichen, :, - und base64-kodiert anschließend',
+        'is_builtin': True,
+        'is_active': True,
+        'rules_json': json.dumps({
+            'input_mode': 'text',
+            'submit_mode': 'base64_text',
+            'strip_separators': True,
+            'leading_zero_mode': 'keep',
+            'pad_even_hex': True,
+        }),
+    },
+    {
+        'id': 'builtin_decimal_identity',
+        'tenant_id': '',
+        'name': 'Decimal Identity',
+        'vendor': 'Generic',
+        'reader_model': 'Decimal',
+        'mode': 'Decimal',
+        'description': 'Dezimalwert unverändert an Printix senden',
+        'is_builtin': True,
+        'is_active': True,
+        'rules_json': json.dumps({
+            'input_mode': 'decimal',
+            'submit_mode': 'decimal',
+            'strip_separators': True,
+            'leading_zero_mode': 'keep',
+            'pad_even_hex': True,
+        }),
+    },
+    {
+        'id': 'builtin_hex_reversed',
+        'tenant_id': '',
+        'name': 'HEX reversed bytes',
+        'vendor': 'YSoft / SafeQ',
+        'reader_model': 'Binary',
+        'mode': 'HEX',
+        'description': 'HEX-Bytes drehen und reversed HEX als Zielwert verwenden',
+        'is_builtin': True,
+        'is_active': True,
+        'rules_json': json.dumps({
+            'input_mode': 'hex',
+            'submit_mode': 'hex_reversed',
+            'strip_separators': True,
+            'leading_zero_mode': 'keep',
+            'pad_even_hex': True,
+        }),
+    },
+]
+
+
+def get_builtin_profiles() -> list[dict]:
+    return [deepcopy(p) for p in BUILTIN_PROFILES]
