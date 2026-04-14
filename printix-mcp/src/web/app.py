@@ -63,7 +63,7 @@ def create_app(session_secret: str) -> FastAPI:
     app.add_middleware(SessionMiddleware, secret_key=session_secret, max_age=3600 * 8)
 
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
-    from cards import CardMappingStore, build_mapping_record, decode_card_value_for_display, transform_preview
+    from cards import CardMappingStore, build_import_mapping_record, build_mapping_record, decode_card_value_for_display, transform_preview
 
 
     # ── Package Builder (singleton, lebt für die Laufzeit der App) ────────────
@@ -1227,40 +1227,56 @@ def create_app(session_secret: str) -> FastAPI:
     # ── Package Builder — Clientless / Zero Trust ─────────────────────────────
 
     @app.get("/cards", response_class=HTMLResponse)
-    async def cards_tool(request: Request, q: str = "", profile_id: str = "", raw_value: str = ""):
+    async def cards_tool(request: Request, q: str = "", raw_value: str = "", profile_id: str = "", edit_card_id: str = ""):
         user = require_login(request)
         if user is None:
             return RedirectResponse("/login", status_code=302)
         tc = t_ctx(request)
         error = None
-        tenant = None
         profiles = []
         results = []
         preview = None
         selected_profile = None
+        sync_summary = None
+        edit_mapping = None
         try:
             from db import get_tenant_full_by_user_id
             tenant = get_tenant_full_by_user_id(user["id"])
-            if not tenant:
-                error = "Tenant not found"
-            else:
-                store = CardMappingStore(tenant["id"])
-                profiles = store.list_profiles()
-                selected_profile = store.get_profile(profile_id) if profile_id else (profiles[0] if profiles else None)
-                results = store.search(q)
-                if raw_value:
-                    rules = json.loads((selected_profile or {}).get("rules_json", "{}") or "{}")
-                    preview = transform_preview(raw_value, rules)
+            store = CardMappingStore(tenant["id"])
+            profiles = store.list_profiles()
+            selected_profile = store.get_profile(profile_id) if profile_id else (profiles[0] if profiles else None)
+            results = store.search(q)
+            if raw_value:
+                rules = json.loads((selected_profile or {}).get("rules_json", "{}") or "{}")
+                preview = transform_preview(raw_value, rules)
+            if edit_card_id:
+                edit_mapping = store.get_mapping(edit_card_id)
+            for row in results:
+                try:
+                    meta = json.loads(row.get("meta_json", "{}") or "{}")
+                except Exception:
+                    meta = {}
+                row["user_display_name"] = meta.get("user_display_name", "")
+                row["user_email"] = meta.get("user_email", "")
+                row["import_status"] = meta.get("import_status", "")
+            sync_flash = request.query_params.get("sync") or ""
+            if sync_flash:
+                parts = sync_flash.split(":")
+                if len(parts) == 5:
+                    sync_summary = {"users": parts[0], "cards": parts[1], "saved": parts[2], "decoded": parts[3], "id_only": parts[4]}
         except Exception as e:
             logger.error("cards_tool error: %s", e)
             error = str(e)
         return templates.TemplateResponse("cards_tool.html", {
             "request": request, "user": user, "tenant": tenant, "error": error,
             "profiles": profiles, "results": results, "q": q, "raw_value": raw_value,
-            "preview": preview, "selected_profile": selected_profile, **tc
+            "preview": preview, "selected_profile": selected_profile, "sync_summary": sync_summary,
+            "edit_mapping": edit_mapping,
+            **tc
         })
 
     @app.post("/cards/preview")
+
     async def cards_preview(request: Request, raw_value: str = Form(""), profile_id: str = Form("")):
         user = require_login(request)
         if user is None:
@@ -1292,6 +1308,87 @@ def create_app(session_secret: str) -> FastAPI:
             from urllib.parse import quote_plus as _qp
             return RedirectResponse(f"/cards?flash=error&errmsg={_qp(str(e)[:120])}", status_code=302)
 
+    @app.post("/cards/profiles/{profile_id}/clone")
+    async def cards_profile_clone(request: Request, profile_id: str):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            CardMappingStore(tenant["id"]).clone_profile(profile_id)
+            return RedirectResponse("/cards?flash=profile_cloned", status_code=302)
+        except Exception as e:
+            logger.error("cards_profile_clone error: %s", e)
+            return RedirectResponse("/cards?flash=error&errmsg=Profile%20clone%20failed", status_code=302)
+
+    @app.post("/cards/sync")
+    async def cards_sync(request: Request):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            client = _make_printix_client(tenant)
+            store = CardMappingStore(tenant["id"])
+            users = []
+            for role in ("USER", "GUEST_USER"):
+                page = 0
+                while page < 20:
+                    data = client.list_users(role=role, page=page, page_size=200)
+                    chunk = data.get("users", data.get("content", []))
+                    if not chunk:
+                        break
+                    users.extend(chunk)
+                    if len(chunk) < 200:
+                        break
+                    page += 1
+            unique_users = {}
+            for u in users:
+                if u.get("id"):
+                    unique_users[u["id"]] = u
+            total_cards = saved = decoded = id_only = 0
+            for uid in unique_users.keys():
+                try:
+                    cards_data = client.list_user_cards(uid)
+                    raw_cards = cards_data.get("cards", cards_data.get("content", []))
+                except Exception:
+                    raw_cards = []
+                for c in raw_cards:
+                    href = (c.get("_links") or {}).get("self", {}).get("href", "")
+                    cid = href.split("/")[-1] if href else c.get("id", "")
+                    if not cid:
+                        continue
+                    total_cards += 1
+                    c["card_id"] = cid
+                    existing = store.get_mapping(cid)
+                    mapping = build_import_mapping_record(tenant["id"], uid, cid, c, user_data=unique_users.get(uid))
+                    if existing and (existing.get("display_value") or existing.get("raw_value")) and mapping.get("source") == "id_only_import":
+                        mapping["raw_value"] = existing.get("raw_value", "")
+                        mapping["display_value"] = existing.get("display_value", "")
+                        mapping["normalized_value"] = existing.get("normalized_value", "")
+                        mapping["hex_value"] = existing.get("hex_value", "")
+                        mapping["decimal_value"] = existing.get("decimal_value", "")
+                        mapping["base64_value"] = existing.get("base64_value", mapping.get("base64_value", ""))
+                        mapping["final_secret_value"] = existing.get("final_secret_value", mapping.get("final_secret_value", ""))
+                        mapping["lookup_candidates_json"] = existing.get("lookup_candidates_json", mapping.get("lookup_candidates_json", "[]"))
+                        mapping["profile_id"] = existing.get("profile_id", "")
+                        mapping["source"] = existing.get("source", "manual_local_value")
+                        mapping["notes"] = existing.get("notes", "") or "Local value preserved; Printix import returned card ID only."
+                        mapping["meta_json"] = existing.get("meta_json", mapping.get("meta_json", "{}"))
+                    if mapping.get("display_value"):
+                        decoded += 1
+                    if mapping.get("source") == "id_only_import":
+                        id_only += 1
+                    store.save_mapping(mapping)
+                    saved += 1
+            return RedirectResponse(f"/cards?flash=sync_done&sync={len(unique_users)}:{total_cards}:{saved}:{decoded}:{id_only}", status_code=302)
+        except Exception as e:
+            logger.error("cards_sync error: %s", e)
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(f"/cards?flash=error&errmsg={_qp(str(e)[:120])}", status_code=302)
+
     @app.post("/cards/profiles/{profile_id}/delete")
     async def cards_profile_delete(request: Request, profile_id: str):
         user = require_login(request)
@@ -1305,6 +1402,59 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception as e:
             logger.error("cards_profile_delete error: %s", e)
             return RedirectResponse("/cards?flash=error", status_code=302)
+
+    
+    @app.post("/cards/mappings/save")
+    async def cards_mapping_save(
+        request: Request,
+        printix_card_id: str = Form(...),
+        printix_user_id: str = Form(...),
+        raw_value: str = Form(""),
+        profile_id: str = Form(""),
+        notes: str = Form(""),
+    ):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            store = CardMappingStore(tenant["id"])
+            profile = store.get_profile(profile_id) if profile_id else None
+            rules = json.loads((profile or {}).get("rules_json", "{}") or "{}")
+            existing = store.get_mapping(printix_card_id) or {}
+            try:
+                existing_meta = json.loads(existing.get("meta_json", "{}") or "{}")
+            except Exception:
+                existing_meta = {}
+            user_data = {
+                "name": existing_meta.get("user_display_name", ""),
+                "email": existing_meta.get("user_email", ""),
+            }
+            mapping = build_mapping_record(
+                tenant["id"], printix_user_id.strip(), printix_card_id.strip(), raw_value.strip(),
+                profile_id=profile_id.strip(), source="manual_local_value", rules=rules, notes=notes.strip(), user_data=user_data
+            )
+            store.save_mapping(mapping)
+            return RedirectResponse(f"/cards?flash=mapping_saved&edit_card_id={printix_card_id}", status_code=302)
+        except Exception as e:
+            logger.error("cards_mapping_save error: %s", e)
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(f"/cards?flash=error&errmsg={_qp(str(e)[:120])}", status_code=302)
+
+    @app.post("/cards/mappings/{printix_card_id}/delete")
+    async def cards_mapping_delete(request: Request, printix_card_id: str):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            CardMappingStore(tenant["id"]).delete_mapping(printix_card_id)
+            return RedirectResponse("/cards?flash=mapping_deleted", status_code=302)
+        except Exception as e:
+            logger.error("cards_mapping_delete error: %s", e)
+            return RedirectResponse("/cards?flash=error&errmsg=Mapping%20delete%20failed", status_code=302)
 
     @app.get("/fleet/package-builder", response_class=HTMLResponse)
     async def pkg_builder_page(request: Request):
@@ -2469,9 +2619,9 @@ def create_app(session_secret: str) -> FastAPI:
                             display_value, raw_secret, display_source = decode_card_value_for_display(c)
                             c["display_value"] = display_value or "Original card value not stored locally"
                             c["display_source"] = display_source
-                            if display_value and c["card_id"]:
+                            if c["card_id"]:
                                 try:
-                                    mapping = build_mapping_record(tenant["id"], printix_user_id, c["card_id"], display_value, source="imported_from_printix")
+                                    mapping = build_import_mapping_record(tenant["id"], printix_user_id, c["card_id"], c)
                                     store.save_mapping(mapping)
                                 except Exception:
                                     pass
@@ -2486,6 +2636,7 @@ def create_app(session_secret: str) -> FastAPI:
             "px_user": px_user, "cards": cards,
             "printix_user_id": printix_user_id,
             "flash": flash, "error": error,
+            "card_profiles": (CardMappingStore(tenant["id"]).list_profiles() if tenant else []),
             **tc,
         })
 
@@ -2523,13 +2674,56 @@ def create_app(session_secret: str) -> FastAPI:
                 new_card_id = href.split("/")[-1] if href else after_cards[-1].get("id", "")
             if new_card_id:
                 store = CardMappingStore(tenant["id"])
-                mapping = build_mapping_record(tenant["id"], printix_user_id, new_card_id, card_number.strip(), source="manual")
+                try:
+                    px_user = client.get_user(printix_user_id)
+                except Exception:
+                    px_user = {}
+                mapping = build_mapping_record(tenant["id"], printix_user_id, new_card_id, card_number.strip(), source="manual", user_data=px_user)
                 store.save_mapping(mapping)
             return RedirectResponse(
                 f"/tenant/users/{printix_user_id}?flash=card_added", status_code=302
             )
         except Exception as e:
             logger.error("tenant_user_add_card error: %s", e)
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(
+                f"/tenant/users/{printix_user_id}?flash=error&errmsg={_qp(str(e)[:80])}",
+                status_code=302,
+            )
+
+
+    @app.post("/tenant/users/{printix_user_id}/remember-card")
+    async def tenant_user_remember_card(
+        request: Request,
+        printix_user_id: str,
+        card_id: str = Form(...),
+        raw_value: str = Form(""),
+        profile_id: str = Form(""),
+        notes: str = Form(""),
+    ):
+        user = require_login(request)
+        if user is None:
+            return JSONResponse({"ok": False, "error": "not logged in"}, status_code=401)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            client = _make_printix_client(tenant)
+            try:
+                px_user = client.get_user(printix_user_id)
+            except Exception:
+                px_user = {}
+            store = CardMappingStore(tenant["id"])
+            profile = store.get_profile(profile_id) if profile_id else None
+            rules = json.loads((profile or {}).get("rules_json", "{}") or "{}")
+            mapping = build_mapping_record(
+                tenant["id"], printix_user_id, card_id.strip(), raw_value.strip(),
+                profile_id=profile_id.strip(), source="manual_local_value", rules=rules,
+                notes=(notes.strip() or "Locally remembered original card value"), user_data=px_user
+            )
+            store.save_mapping(mapping)
+            return RedirectResponse(f"/tenant/users/{printix_user_id}?flash=card_remembered", status_code=302)
+        except Exception as e:
+            logger.error("tenant_user_remember_card error: %s", e)
             from urllib.parse import quote_plus as _qp
             return RedirectResponse(
                 f"/tenant/users/{printix_user_id}?flash=error&errmsg={_qp(str(e)[:80])}",

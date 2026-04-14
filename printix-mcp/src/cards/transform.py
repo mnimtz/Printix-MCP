@@ -35,6 +35,10 @@ def try_b64_decode(value: str) -> str:
     return dec
 
 
+def _normalize_for_display(value: str) -> str:
+    return (value or '').strip()
+
+
 def apply_profile_rules(raw: str, rules: dict[str, Any] | None = None) -> dict[str, Any]:
     rules = rules or {}
     value = (raw or '').strip()
@@ -47,6 +51,10 @@ def apply_profile_rules(raw: str, rules: dict[str, Any] | None = None) -> dict[s
         value = value[:-len(suffix)]
     if rules.get('strip_separators', True):
         value = SEP_RE.sub('', value)
+    extra_chars = rules.get('strip_extra_chars', '') or ''
+    if extra_chars:
+        for ch in extra_chars:
+            value = value.replace(ch, '')
     if rules.get('to_lower'):
         value = value.lower()
     if rules.get('to_upper'):
@@ -129,9 +137,11 @@ def generate_lookup_candidates(value: str) -> list[str]:
     if not raw:
         return []
     out: list[str] = []
+
     def add(v: Optional[str]):
         if v and v not in out:
             out.append(v)
+
     add(raw)
     normalized = SEP_RE.sub('', raw)
     add(normalized)
@@ -161,7 +171,21 @@ def decode_card_value_for_display(card: dict[str, Any]) -> tuple[str, str, str]:
     return '', '', 'id_only'
 
 
-def build_mapping_record(tenant_id: str, printix_user_id: str, printix_card_id: str, raw_value: str, profile_id: str = '', source: str = 'manual', rules: dict[str, Any] | None = None, notes: str = '') -> dict[str, Any]:
+def _build_meta(preview: dict[str, Any], *, import_status: str = '', raw_secret: str = '', card: dict[str, Any] | None = None, user_data: dict[str, Any] | None = None) -> dict[str, Any]:
+    meta = dict(preview or {})
+    if import_status:
+        meta['import_status'] = import_status
+    if raw_secret:
+        meta['raw_secret'] = raw_secret
+    if card is not None:
+        meta['card'] = card
+    if user_data:
+        meta['user_display_name'] = user_data.get('name') or user_data.get('displayName') or user_data.get('fullName') or ''
+        meta['user_email'] = user_data.get('email') or ''
+    return meta
+
+
+def build_mapping_record(tenant_id: str, printix_user_id: str, printix_card_id: str, raw_value: str, profile_id: str = '', source: str = 'manual', rules: dict[str, Any] | None = None, notes: str = '', user_data: dict[str, Any] | None = None) -> dict[str, Any]:
     preview = apply_profile_rules(raw_value, rules)
     candidates = generate_lookup_candidates(preview['final_value'] or preview['raw_value'])
     return {
@@ -170,7 +194,7 @@ def build_mapping_record(tenant_id: str, printix_user_id: str, printix_card_id: 
         'printix_card_id': printix_card_id,
         'profile_id': profile_id,
         'raw_value': preview['raw_value'],
-        'display_value': preview['raw_value'],
+        'display_value': _normalize_for_display(preview['raw_value']),
         'normalized_value': preview['normalized_value'],
         'hex_value': preview['hex_value'],
         'decimal_value': preview['decimal_value'],
@@ -179,7 +203,7 @@ def build_mapping_record(tenant_id: str, printix_user_id: str, printix_card_id: 
         'lookup_candidates_json': json.dumps(candidates, ensure_ascii=False),
         'source': source,
         'notes': notes,
-        'meta_json': json.dumps(preview, ensure_ascii=False),
+        'meta_json': json.dumps(_build_meta(preview, user_data=user_data), ensure_ascii=False),
     }
 
 
@@ -187,3 +211,31 @@ def transform_preview(raw_value: str, rules: dict[str, Any] | None = None) -> di
     preview = apply_profile_rules(raw_value, rules)
     preview['lookup_candidates'] = generate_lookup_candidates(preview['final_value'] or preview['raw_value'])
     return preview
+
+
+def build_import_mapping_record(tenant_id: str, printix_user_id: str, printix_card_id: str, card: dict[str, Any], user_data: dict[str, Any] | None = None) -> dict[str, Any]:
+    display_value, raw_secret, display_source = decode_card_value_for_display(card)
+    if display_value:
+        notes = 'Imported from Printix API' if display_source != 'decoded_from_printix_secret' else 'Imported from Printix API (Base64 decoded)'
+        mapping = build_mapping_record(tenant_id, printix_user_id, printix_card_id, display_value, source=display_source, notes=notes, user_data=user_data)
+        meta = json.loads(mapping.get('meta_json', '{}') or '{}')
+        meta.update({'raw_secret': raw_secret, 'import_status': 'decoded' if display_source == 'decoded_from_printix_secret' else 'raw'})
+        mapping['meta_json'] = json.dumps(meta, ensure_ascii=False)
+        return mapping
+    return {
+        'tenant_id': tenant_id,
+        'printix_user_id': printix_user_id,
+        'printix_card_id': printix_card_id,
+        'profile_id': '',
+        'raw_value': '',
+        'display_value': '',
+        'normalized_value': '',
+        'hex_value': '',
+        'decimal_value': '',
+        'base64_value': raw_secret or '',
+        'final_secret_value': raw_secret or '',
+        'lookup_candidates_json': json.dumps([printix_card_id], ensure_ascii=False),
+        'source': 'id_only_import',
+        'notes': 'Original card value not supplied by Printix; imported as card ID only.',
+        'meta_json': json.dumps(_build_meta({}, import_status='id_only', raw_secret=raw_secret, card=card, user_data=user_data), ensure_ascii=False),
+    }

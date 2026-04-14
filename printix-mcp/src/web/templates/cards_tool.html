@@ -2,7 +2,7 @@
 {% block title %}Karten & Codes — Printix MCP{% endblock %}
 {% block extra_head %}
 <style>
-.cards-grid { display:grid; grid-template-columns: 1.1fr .9fr; gap:20px; }
+.cards-grid { display:grid; grid-template-columns: 1.15fr .85fr; gap:20px; }
 .cards-box { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; }
 .cards-box h3 { margin:0 0 12px; color:#1e3a5f; }
 .cards-sub { color:#6b7280; font-size:.9em; margin:-4px 0 14px; }
@@ -22,6 +22,8 @@
 .profile-meta { font-size:.8em; color:#6b7280; margin-top:3px; }
 .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:.75em; font-weight:700; background:#e0f2fe; color:#075985; margin-right:6px; }
 .badge.builtin { background:#ede9fe; color:#5b21b6; }
+.badge.idonly { background:#fee2e2; color:#991b1b; }
+.inline-actions { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
 @media (max-width: 960px) { .cards-grid { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
@@ -31,14 +33,22 @@
     <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
       <div>
         <div class="section-title">🃏 Karten &amp; Codes</div>
-        <div class="cards-sub">Eigenständiges Karten-Tool mit Profilen, Vorschau und lokaler Suche nach Originalwerten.</div>
+        <div class="cards-sub">Eigenständiges Karten-Tool mit Profilen, Vorschau, lokaler Suche und manuell pflegbaren Originalwerten.</div>
       </div>
-      <div><a href="/tenant/printers" class="btn btn-secondary">← {{ _('nav_tenant') }}</a></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <form method="post" action="/cards/sync"><button type="submit" class="btn btn-secondary">🔄 Aus Printix importieren</button></form>
+        <a href="/tenant/printers" class="btn btn-secondary">← {{ _('nav_tenant') }}</a>
+      </div>
     </div>
     {% if request.query_params.get('flash') == 'profile_saved' %}<div class="alert alert-success">✅ Profil gespeichert</div>{% endif %}
     {% if request.query_params.get('flash') == 'profile_deleted' %}<div class="alert alert-success">✅ Profil gelöscht</div>{% endif %}
+    {% if request.query_params.get('flash') == 'profile_cloned' %}<div class="alert alert-success">✅ Profil dupliziert</div>{% endif %}
+    {% if request.query_params.get('flash') == 'sync_done' %}<div class="alert alert-success">✅ Karten aus Printix synchronisiert</div>{% endif %}
+    {% if request.query_params.get('flash') == 'mapping_saved' %}<div class="alert alert-success">✅ Lokaler Kartenwert gespeichert</div>{% endif %}
+    {% if request.query_params.get('flash') == 'mapping_deleted' %}<div class="alert alert-success">✅ Lokaler Kartenwert gelöscht</div>{% endif %}
     {% if request.query_params.get('flash') == 'error' %}<div class="alert alert-error">❌ {{ request.query_params.get('errmsg', 'Fehler') }}</div>{% endif %}
     {% if error %}<div class="alert alert-error">❌ {{ error }}</div>{% endif %}
+    {% if sync_summary %}<div class="alert alert-info">ℹ️ Sync: {{ sync_summary.users }} User, {{ sync_summary.cards }} Karten, {{ sync_summary.saved }} lokale Einträge, {{ sync_summary.decoded }} mit sichtbarem Wert, {{ sync_summary.id_only }} nur mit Card-ID.</div>{% endif %}
 
     <div class="cards-grid">
       <div>
@@ -80,39 +90,81 @@
           <h3>Lokale Kartensuche</h3>
           <form method="get" action="/cards" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
             <input type="hidden" name="profile_id" value="{{ selected_profile.id if selected_profile else '' }}">
-            <input type="text" name="q" value="{{ q }}" placeholder="Originalwert, HEX, Base64, Card-ID oder User-ID" style="flex:1;min-width:220px;">
+            <input type="text" name="q" value="{{ q }}" placeholder="Originalwert, HEX, Base64, Card-ID, User-ID oder E-Mail" style="flex:1;min-width:220px;">
             <button type="submit" class="btn btn-primary">Suchen</button>
           </form>
           <table class="cards-list">
-            <thead><tr><th>Anzeige</th><th>Card ID</th><th>User</th><th>Quelle</th></tr></thead>
+            <thead><tr><th>Anzeige</th><th>User</th><th>Card ID</th><th>Quelle</th><th>Aktion</th></tr></thead>
             <tbody>
             {% for row in results %}
               <tr>
-                <td><div class="cards-code">{{ row.display_value or row.raw_value or '—' }}</div><div class="cards-sub">{{ row.notes }}</div></td>
+                <td>
+                  <div class="cards-code">{{ row.display_value or row.raw_value or '—' }}</div>
+                  <div class="cards-sub">{{ row.notes }}</div>
+                  {% if row.import_status == 'id_only' or row.source == 'id_only_import' %}
+                    <span class="badge idonly">ID only</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if row.user_display_name %}<div>{{ row.user_display_name }}</div>{% endif %}
+                  {% if row.user_email %}<div class="cards-sub">{{ row.user_email }}</div>{% endif %}
+                  <div class="cards-code">{{ row.printix_user_id }}</div>
+                </td>
                 <td class="cards-code">{{ row.printix_card_id }}</td>
-                <td class="cards-code">{{ row.printix_user_id }}</td>
                 <td>{{ row.source }}</td>
+                <td>
+                  <div class="inline-actions">
+                    <a href="/cards?q={{ row.printix_card_id }}&edit_card_id={{ row.printix_card_id }}" class="btn btn-secondary">✏️ Bearbeiten</a>
+                    <form method="post" action="/cards/mappings/{{ row.printix_card_id }}/delete" onsubmit="return confirm('Lokalen Kartenwert wirklich löschen?');">
+                      <button type="submit" class="btn btn-secondary">🗑 Löschen</button>
+                    </form>
+                  </div>
+                </td>
               </tr>
             {% else %}
-              <tr><td colspan="4" style="color:#9ca3af;">Noch keine lokalen Kartenzuordnungen vorhanden.</td></tr>
+              <tr><td colspan="5" style="color:#9ca3af;">Noch keine lokalen Kartenzuordnungen vorhanden.</td></tr>
             {% endfor %}
             </tbody>
           </table>
+        </div>
+
+        <div class="cards-box" style="margin-top:20px;">
+          <h3>{% if edit_mapping %}Lokalen Kartenwert bearbeiten{% else %}Lokalen Kartenwert manuell pflegen{% endif %}</h3>
+          <div class="cards-sub">Nützlich für Altbestand, wenn Printix nur die Card-ID liefert. Hier wird der menschenlesbare Originalwert lokal verknüpft.</div>
+          <form method="post" action="/cards/mappings/save">
+            <div class="form-row"><label for="edit_printix_card_id">Stored card ID</label><input id="edit_printix_card_id" name="printix_card_id" value="{{ edit_mapping.printix_card_id if edit_mapping else q }}" required></div>
+            <div class="form-row"><label for="edit_printix_user_id">Printix User ID</label><input id="edit_printix_user_id" name="printix_user_id" value="{{ edit_mapping.printix_user_id if edit_mapping else '' }}" required></div>
+            <div class="form-row"><label for="edit_profile_id">Profil</label>
+              <select id="edit_profile_id" name="profile_id">
+                <option value="">— kein Profil —</option>
+                {% for p in profiles %}
+                <option value="{{ p.id }}" {% if edit_mapping and p.id == edit_mapping.profile_id %}selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-row"><label for="edit_raw_value">Originalwert / sichtbarer Kartenwert</label><textarea id="edit_raw_value" name="raw_value" required>{{ edit_mapping.raw_value if edit_mapping else '' }}</textarea></div>
+            <div class="form-row"><label for="edit_notes">Notizen</label><input id="edit_notes" name="notes" value="{{ edit_mapping.notes if edit_mapping else '' }}" placeholder="z. B. Reader, Quelle oder Besonderheiten"></div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="submit" class="btn btn-primary">💾 Lokalen Kartenwert speichern</button>
+              <a href="/cards" class="btn btn-secondary">Zurücksetzen</a>
+            </div>
+          </form>
         </div>
       </div>
 
       <div>
         <div class="cards-box">
           <h3>Profile</h3>
-          <div class="cards-sub">Built-in-Profile sind schreibgeschützt. Eigene Tenant-Profile können ergänzt und bearbeitet werden.</div>
+          <div class="cards-sub">Built-in-Profile sind schreibgeschützt. Eigene Tenant-Profile können ergänzt, kopiert und bearbeitet werden.</div>
           {% for p in profiles %}
           <div class="profile-card" data-profile-id="{{ p.id }}" data-profile-name="{{ p.name|e }}" data-profile-vendor="{{ p.vendor|e }}" data-profile-reader="{{ p.reader_model|e }}" data-profile-mode="{{ p.mode|e }}" data-profile-description="{{ p.description|e }}" data-profile-rules="{{ p.rules_json|e }}">
             <div class="profile-title">{% if p.is_builtin %}<span class="badge builtin">builtin</span>{% else %}<span class="badge">tenant</span>{% endif %}{{ p.name }}</div>
             <div class="profile-meta">{{ p.vendor }} · {{ p.reader_model }} · {{ p.mode }}</div>
             <div class="profile-meta">{{ p.description }}</div>
             {% if not p.is_builtin %}
-            <div style="display:flex; gap:8px; margin-top:8px;">
+            <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
               <button type="button" class="btn btn-secondary" onclick="loadProfileForEdit(this.closest('.profile-card'))">✏️ Bearbeiten</button>
+              <form method="post" action="/cards/profiles/{{ p.id }}/clone"><button type="submit" class="btn btn-secondary">📄 Duplizieren</button></form>
               <form method="post" action="/cards/profiles/{{ p.id }}/delete" onsubmit="return confirm('Profil wirklich löschen?');">
                 <button type="submit" class="btn btn-secondary">🗑 Löschen</button>
               </form>
@@ -169,6 +221,12 @@ function resetProfileForm() {
   document.getElementById('reader_model').value = '';
   document.getElementById('mode').value = '';
   document.getElementById('description').value = '';
-  document.getElementById('rules_json').value = '{\n  "input_mode": "text",\n  "submit_mode": "base64_text",\n  "strip_separators": true,\n  "leading_zero_mode": "keep",\n  "pad_even_hex": true\n}';
+  document.getElementById('rules_json').value = '{
+  "input_mode": "text",
+  "submit_mode": "base64_text",
+  "strip_separators": true,
+  "leading_zero_mode": "keep",
+  "pad_even_hex": true
+}';
 }
 </script>

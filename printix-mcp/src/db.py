@@ -14,9 +14,11 @@ verschlüsselt gespeichert. Der Schlüssel liegt in /data/fernet.key und wird
 beim ersten Start generiert.
 """
 
+import base64
 import hashlib
 import logging
 import os
+import re
 import secrets
 import sqlite3
 import uuid
@@ -1453,6 +1455,35 @@ def add_capture_log(
 
 # ─── Kartenprofile & Karten-Mappings ─────────────────────────────────────────
 
+
+def _card_query_candidates(query: str) -> list[str]:
+    q = (query or '').strip()
+    if not q:
+        return []
+    items: list[str] = []
+    def add(v: str):
+        if v and v not in items:
+            items.append(v)
+    add(q)
+    normalized = re.sub(r"[\s:\-]", "", q)
+    add(normalized)
+    stripped = normalized.lstrip('0') or '0'
+    add(stripped)
+    add('0' + stripped)
+    try:
+        encoded = base64.b64encode(q.encode('utf-8')).decode('ascii')
+        add(encoded)
+    except Exception:
+        pass
+    if len(q) % 4 == 0:
+        try:
+            decoded = base64.b64decode(q).decode('utf-8')
+            add(decoded)
+        except Exception:
+            pass
+    return items
+
+
 def create_card_profile(tenant_id: str, name: str, vendor: str = '', reader_model: str = '', mode: str = '', description: str = '', rules_json: str = '{}', is_active: bool = True) -> dict:
     pid = str(uuid.uuid4())
     now = _now()
@@ -1478,6 +1509,22 @@ def update_card_profile(profile_id: str, tenant_id: str, name: Optional[str] = N
     with _conn() as conn:
         conn.execute(f"UPDATE card_profiles SET {', '.join(parts)} WHERE id=? AND tenant_id=? AND is_builtin=0", params)
     return get_card_profile(profile_id, tenant_id=tenant_id)
+
+
+def clone_card_profile(profile_id: str, tenant_id: str, new_name: Optional[str] = None) -> Optional[dict]:
+    src = get_card_profile(profile_id, tenant_id=tenant_id)
+    if not src:
+        return None
+    return create_card_profile(
+        tenant_id=tenant_id,
+        name=(new_name or f"{src.get('name', 'Profile')} (Copy)"),
+        vendor=src.get('vendor', ''),
+        reader_model=src.get('reader_model', ''),
+        mode=src.get('mode', ''),
+        description=src.get('description', ''),
+        rules_json=src.get('rules_json', '{}') or '{}',
+        is_active=bool(src.get('is_active', 1)),
+    )
 
 
 def delete_card_profile(profile_id: str, tenant_id: str) -> bool:
@@ -1537,20 +1584,42 @@ def get_card_mapping_by_card_id(tenant_id: str, printix_card_id: str) -> Optiona
 def list_card_mappings(tenant_id: str, query: str = '') -> list[dict]:
     q = (query or '').strip()
     with _conn() as conn:
-        if q:
-            like = f"%{q}%"
-            rows = conn.execute(
-                """SELECT * FROM card_mappings
-                   WHERE tenant_id=? AND (
-                     display_value LIKE ? OR normalized_value LIKE ? OR hex_value LIKE ? OR decimal_value LIKE ? OR base64_value LIKE ? OR printix_card_id LIKE ? OR printix_user_id LIKE ? OR notes LIKE ?
-                   )
-                   ORDER BY updated_at DESC
-                """,
-                (tenant_id, like, like, like, like, like, like, like, like),
-            ).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM card_mappings WHERE tenant_id=? ORDER BY updated_at DESC LIMIT 200", (tenant_id,)).fetchall()
-    return [dict(r) for r in rows]
+        rows = conn.execute("SELECT * FROM card_mappings WHERE tenant_id=? ORDER BY updated_at DESC LIMIT 500", (tenant_id,)).fetchall()
+    data = [dict(r) for r in rows]
+    if not q:
+        return data[:200]
+
+    candidates = _card_query_candidates(q)
+    q_lower = q.lower()
+    result: list[dict] = []
+    for row in data:
+        haystacks = [
+            row.get('display_value', '') or '',
+            row.get('raw_value', '') or '',
+            row.get('normalized_value', '') or '',
+            row.get('hex_value', '') or '',
+            row.get('decimal_value', '') or '',
+            row.get('base64_value', '') or '',
+            row.get('final_secret_value', '') or '',
+            row.get('printix_card_id', '') or '',
+            row.get('printix_user_id', '') or '',
+            row.get('notes', '') or '',
+            row.get('source', '') or '',
+            row.get('lookup_candidates_json', '') or '',
+        ]
+        lower_blob = ' '.join(haystacks).lower()
+        matched = q_lower in lower_blob
+        if not matched:
+            for cand in candidates:
+                if cand and any(cand == (str(v) if v is not None else '') for v in [
+                    row.get('display_value'), row.get('raw_value'), row.get('normalized_value'), row.get('hex_value'),
+                    row.get('decimal_value'), row.get('base64_value'), row.get('final_secret_value'), row.get('printix_card_id')
+                ]):
+                    matched = True
+                    break
+        if matched:
+            result.append(row)
+    return result
 
 
 def delete_card_mapping(tenant_id: str, printix_card_id: str) -> bool:

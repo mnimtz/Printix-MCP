@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 from db import (
+    clone_card_profile,
     create_card_profile,
     delete_card_mapping,
     delete_card_profile,
@@ -33,6 +34,9 @@ class CardMappingStore:
         if profile_id:
             return update_card_profile(profile_id, tenant_id=self.tenant_id, name=name, vendor=vendor, reader_model=reader_model, mode=mode, description=description, rules_json=rules_json, is_active=is_active)
         return create_card_profile(tenant_id=self.tenant_id, name=name, vendor=vendor, reader_model=reader_model, mode=mode, description=description, rules_json=rules_json, is_active=is_active)
+
+    def clone_profile(self, profile_id: str, new_name: str = "") -> dict | None:
+        return clone_card_profile(profile_id, tenant_id=self.tenant_id, new_name=new_name or None)
 
     def delete_profile(self, profile_id: str) -> bool:
         return delete_card_profile(profile_id, tenant_id=self.tenant_id)

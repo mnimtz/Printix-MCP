@@ -1,3 +1,16 @@
+## v5.2.0
+- Existing cards can now be assigned a local original value directly from the user-detail page.
+- `/cards` includes a local mapping editor and delete action.
+- Printix sync preserves manual local values when Printix only returns card IDs.
+- Search results now show stored user display name/email when available.
+- Added more built-in reader profiles (Lowercase + Base64, Double Base64, Cleanup + Base64, YSoft Decimal Reversed).
+
+## v5.1.0
+- Karten & Codes: Import/Synchronisierung bestehender Printix-Karten in den lokalen Index
+- Karten & Codes: Profil duplizieren
+- Karten & Codes: verbesserte Suche über Originalwert-, Normalisierungs- und Base64-Kandidaten
+- User Details: Kartenquelle + direkter Link in Karten & Codes
+
 ## v5.0.0
 - Added a modular `cards/` package for card transforms, lookup candidates, built-in profiles and local card mapping storage.
 - Added a new standalone **Karten & Codes** tool with local search, profile management and transformation preview.
