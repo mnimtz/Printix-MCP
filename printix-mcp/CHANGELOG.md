@@ -1,3 +1,10 @@
+## 5.8.5 (2026-04-15) — Adaptive Dashboard Fit
+
+### Changed
+- Reworked the dashboard landing page to scale more aggressively with available screen width and height so the start page needs less vertical scrolling on common desktop resolutions
+- Expanded the quick-access grid to four columns on larger screens and tightened hero, badge, card and side-panel spacing for a denser but still readable overview
+- Added an extra compact layout mode for shorter desktop viewports so the start page remains more likely to fit above the fold without harming the mobile layout
+
 ## 5.8.4 (2026-04-15) — Dashboard Tile Translation Fix
 
 ### Fixed

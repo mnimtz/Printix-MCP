@@ -3,12 +3,16 @@
 
 {% block extra_head %}
 <style>
-  .landing-shell { display:flex; flex-direction:column; gap:22px; }
+  .landing-shell {
+    display:flex;
+    flex-direction:column;
+    gap:clamp(14px, 2vh, 22px);
+  }
   .landing-hero {
     position:relative;
     overflow:hidden;
     border-radius:28px;
-    padding:30px;
+    padding:clamp(18px, 2.6vh, 30px);
     background:
       radial-gradient(circle at top right, rgba(251, 191, 36, .28), transparent 34%),
       radial-gradient(circle at left center, rgba(34, 197, 94, .22), transparent 30%),
@@ -28,40 +32,40 @@
   }
   .landing-hero h1 {
     margin:0;
-    font-size:clamp(1.8rem, 4vw, 3rem);
+    font-size:clamp(1.5rem, 3.1vw, 2.6rem);
     line-height:1.05;
     letter-spacing:-.03em;
     max-width:780px;
   }
   .landing-hero p {
-    margin:14px 0 0;
+    margin:10px 0 0;
     max-width:820px;
     color:rgba(255,255,255,.86);
-    font-size:1rem;
-    line-height:1.6;
+    font-size:clamp(.9rem, 1.4vw, 1rem);
+    line-height:1.5;
   }
   .landing-badges {
     display:flex;
     flex-wrap:wrap;
-    gap:10px;
-    margin-top:18px;
+    gap:8px;
+    margin-top:14px;
   }
   .landing-badge {
     display:inline-flex;
     align-items:center;
     gap:8px;
-    padding:8px 12px;
+    padding:7px 11px;
     border-radius:999px;
     background:rgba(255,255,255,.12);
     border:1px solid rgba(255,255,255,.14);
     color:#fff;
-    font-size:.86em;
+    font-size:.8em;
     font-weight:700;
   }
   .landing-grid {
     display:grid;
-    grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr);
-    gap:18px;
+    grid-template-columns: minmax(0, 1.45fr) minmax(260px, .55fr);
+    gap:clamp(12px, 1.6vw, 18px);
     align-items:start;
   }
   .landing-panel {
@@ -69,7 +73,7 @@
     backdrop-filter:blur(12px);
     border:1px solid rgba(148, 163, 184, .16);
     border-radius:24px;
-    padding:22px;
+    padding:clamp(16px, 2vh, 22px);
     box-shadow:0 18px 38px rgba(15, 23, 42, .08);
   }
   .landing-panel h2 {
@@ -84,9 +88,9 @@
   }
   .feature-grid {
     display:grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap:14px;
-    margin-top:18px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap:clamp(10px, 1.2vw, 14px);
+    margin-top:14px;
   }
   .feature-card {
     position:relative;
@@ -94,9 +98,9 @@
     display:flex;
     flex-direction:column;
     justify-content:space-between;
-    min-height:156px;
-    height:156px;
-    padding:18px;
+    min-height:clamp(122px, 15vh, 148px);
+    height:clamp(122px, 15vh, 148px);
+    padding:clamp(14px, 1.8vh, 18px);
     border-radius:22px;
     color:#fff;
     text-decoration:none;
@@ -116,31 +120,31 @@
     z-index: 1;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-    margin-top: 10px;
+    gap: 6px;
+    margin-top: 8px;
   }
   .feature-metric {
     background: rgba(255,255,255,.14);
     border: 1px solid rgba(255,255,255,.16);
     border-radius: 14px;
-    padding: 8px 6px;
+    padding: 6px 5px;
     min-width: 0;
     text-align: center;
   }
   .feature-metric strong {
     display: block;
-    font-size: .88rem;
+    font-size: .82rem;
     line-height: 1.1;
   }
   .feature-metric span {
     display: block;
-    margin-top: 3px;
-    font-size: .95rem;
+    margin-top: 2px;
+    font-size: .88rem;
     line-height: 1;
     color: rgba(255,255,255,.9);
   }
   .feature-card.compact .feature-title {
-    margin-top: 14px;
+    margin-top: 10px;
   }
   .feature-card.compact .feature-sub {
     display: none;
@@ -163,31 +167,31 @@
   .feature-icon {
     position:relative;
     z-index:1;
-    width:48px;
-    height:48px;
-    border-radius:14px;
+    width:42px;
+    height:42px;
+    border-radius:12px;
     display:flex;
     align-items:center;
     justify-content:center;
     background:rgba(255,255,255,.14);
-    font-size:1.35rem;
+    font-size:1.15rem;
     box-shadow:inset 0 1px 0 rgba(255,255,255,.18);
   }
   .feature-title {
     position:relative;
     z-index:1;
-    margin-top:18px;
-    font-size:1.02rem;
+    margin-top:12px;
+    font-size:.96rem;
     font-weight:800;
     letter-spacing:-.02em;
   }
   .feature-sub {
     position:relative;
     z-index:1;
-    margin-top:8px;
+    margin-top:6px;
     color:rgba(255,255,255,.9);
-    font-size:.86em;
-    line-height:1.45;
+    font-size:.78em;
+    line-height:1.35;
   }
   .feature-card[data-tone="blue"] { background:linear-gradient(135deg, #0f4c81 0%, #1d70a2 100%); }
   .feature-card[data-tone="teal"] { background:linear-gradient(135deg, #0f766e 0%, #14b8a6 100%); }
@@ -203,39 +207,39 @@
   .landing-stats {
     display:grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap:12px;
-    margin-top:18px;
+    gap:10px;
+    margin-top:14px;
   }
   .landing-stat {
     border-radius:18px;
-    padding:16px;
+    padding:14px;
     background:#f8fbff;
     border:1px solid #dbeafe;
   }
   .landing-stat strong {
     display:block;
-    font-size:1.4rem;
+    font-size:1.18rem;
     color:#0f172a;
     line-height:1.1;
   }
   .landing-stat span {
     display:block;
-    margin-top:6px;
+    margin-top:4px;
     color:#64748b;
-    font-size:.86em;
+    font-size:.8em;
   }
   .landing-status-list {
     display:flex;
     flex-direction:column;
-    gap:12px;
-    margin-top:18px;
+    gap:10px;
+    margin-top:14px;
   }
   .landing-status-item {
     display:flex;
     justify-content:space-between;
     gap:12px;
     align-items:flex-start;
-    padding:14px 16px;
+    padding:12px 14px;
     border-radius:18px;
     background:#f8fafc;
     border:1px solid #e2e8f0;
@@ -243,20 +247,20 @@
   .landing-status-item strong {
     display:block;
     color:#0f172a;
-    font-size:.92em;
+    font-size:.86em;
   }
   .landing-status-item span {
     display:block;
     color:#64748b;
-    font-size:.82em;
+    font-size:.78em;
     margin-top:4px;
     line-height:1.45;
   }
   .landing-status-pill {
     flex-shrink:0;
     border-radius:999px;
-    padding:6px 10px;
-    font-size:.76em;
+    padding:5px 9px;
+    font-size:.72em;
     font-weight:800;
   }
   .landing-status-pill.ok { background:#dcfce7; color:#166534; }
@@ -265,15 +269,15 @@
   .landing-links {
     display:flex;
     flex-direction:column;
-    gap:10px;
-    margin-top:18px;
+    gap:8px;
+    margin-top:14px;
   }
   .landing-link {
     display:flex;
     justify-content:space-between;
     gap:12px;
     align-items:center;
-    padding:14px 16px;
+    padding:12px 14px;
     border-radius:18px;
     border:1px solid #e2e8f0;
     background:#fff;
@@ -289,7 +293,7 @@
   .landing-link small {
     display:block;
     color:#64748b;
-    font-size:.82em;
+    font-size:.78em;
     margin-top:4px;
   }
   .landing-arrow {
@@ -298,9 +302,44 @@
     font-size:1rem;
     flex-shrink:0;
   }
+  @media (max-width: 1320px) {
+    .feature-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
   @media (max-width: 1040px) {
     .landing-grid { grid-template-columns: 1fr; }
     .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (min-width: 1041px) and (max-height: 940px) {
+    .landing-shell { gap: 12px; }
+    .landing-hero { padding: 18px; }
+    .landing-hero p { display:none; }
+    .landing-badges { margin-top: 10px; }
+    .landing-panel { padding: 16px; }
+    .feature-grid { margin-top: 12px; }
+    .feature-card {
+      min-height: 118px;
+      height: 118px;
+      padding: 12px;
+    }
+    .feature-icon {
+      width: 38px;
+      height: 38px;
+      font-size: 1.02rem;
+    }
+    .feature-title {
+      margin-top: 8px;
+      font-size: .9rem;
+    }
+    .feature-sub {
+      margin-top: 4px;
+      font-size: .72em;
+      line-height: 1.22;
+    }
+    .landing-stats,
+    .landing-status-list,
+    .landing-links {
+      margin-top: 12px;
+    }
   }
   @media (max-width: 700px) {
     .landing-hero { padding:22px 18px; border-radius:22px; }
@@ -315,7 +354,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="container" style="max-width:1320px;">
+<div class="container" style="max-width:1500px;">
   <div class="landing-shell">
     <section class="landing-hero">
       <h1>{{ _('dash_landing_title') }}</h1>
