@@ -22,6 +22,7 @@ import os
 import secrets
 import time
 from urllib.parse import urlencode, urlparse
+from app_version import APP_VERSION
 
 logger = logging.getLogger("printix.oauth")
 
@@ -119,7 +120,7 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Printix MCP – Zugriff erlauben</title>
+  <title>Printix Management Console – Zugriff erlauben</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
@@ -154,10 +155,10 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
 </head>
 <body>
   <div class="card">
-    <div class="logo">🖨️</div>
-    <h1>Printix MCP Server</h1>
+    <div class="logo">Printix</div>
+    <h1>Printix Management Console</h1>
     <p class="sub">
-      Eine externe App möchte auf deinen Printix MCP Server zugreifen
+      Eine externe App möchte auf deine Printix Management Console zugreifen
       und Printix-Ressourcen in deinem Namen verwalten.
     </p>
     <div class="tenant-box">Tenant: {tenant_name}<br><small>App: {client_id}</small></div>
@@ -263,7 +264,11 @@ class OAuthMiddleware:
         await send({"type": "http.response.body", "body": b""})
 
     async def _health(self, send):
-        body = b'{"status":"ok","service":"printix-mcp"}'
+        body = json.dumps({
+            "status": "ok",
+            "service": "printix-mcp",
+            "version": APP_VERSION,
+        }).encode()
         await send({"type": "http.response.start", "status": 200,
                     "headers": [[b"content-type", b"application/json"],
                                  [b"content-length", str(len(body)).encode()]]})

@@ -1,0 +1,12 @@
+Printix MCP Server v5.8.0
+=========================
+
+Focus
+- Cross-language UI cleanup for settings, demo and fleet builder
+- Responsive/mobile follow-up for larger workflow pages
+
+Quick checks
+1. Switch through DE, EN, FR, IT, ES, NL, NO and SV in the UI and open `/settings`, `/tenant/demo` and `/fleet/package-builder`.
+2. Verify the visible helper texts, button labels and status messages switch with the selected language.
+3. On a narrow viewport, confirm demo preset cards, builder step navigation and action buttons stack cleanly.
+4. Confirm runtime/banner/add-on version shows `v5.8.0`.

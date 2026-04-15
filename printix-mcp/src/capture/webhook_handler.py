@@ -1,5 +1,5 @@
 """
-Capture Webhook Handler — Printix/Tungsten Connector Model (v4.6.19)
+Capture Webhook Handler — Printix/Tungsten Connector Model
 ===================================================================
 Kanonischer Handler fuer Printix Capture Webhooks. Wird aufgerufen von:
   - capture_server.py  (Capture Port, source="capture")
@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
+from app_version import APP_VERSION
 
 logger = logging.getLogger("printix.capture")
 
@@ -375,7 +376,7 @@ async def handle_webhook(
             "status": "ok",
             "profile_id": profile_id,
             "endpoint": f"/capture/webhook/{profile_id}",
-            "version": "4.6.15",
+            "version": APP_VERSION,
         }
 
     # ── Nur POST akzeptieren ────────────────────────────────────────────────
@@ -655,7 +656,7 @@ def _handle_debug(
         "timestamp": datetime.now().isoformat(),
         "method": method,
         "source": source,
-        "version": "4.6.15",
+        "version": APP_VERSION,
         "auth": auth_info,
         "payload": field_analysis,
         "headers": headers,

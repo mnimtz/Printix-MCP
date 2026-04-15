@@ -3,25 +3,49 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Printix MCP{% endblock %}</title>
+  <title>{% block title %}{{ _('brand_console_name') }}{% endblock %}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      background: #f0f2f5; color: #1a1a2e; min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(56, 189, 248, .10), transparent 24%),
+        radial-gradient(circle at right 20%, rgba(16, 185, 129, .08), transparent 22%),
+        linear-gradient(180deg, #f8fbff 0%, #eef4f8 100%);
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+    img, svg, video, canvas {
+      max-width: 100%;
+      height: auto;
     }
 
     /* ── Navigation ──────────────────────────────────────────────────────── */
     nav {
-      background: #1e3a5f; color: #fff; padding: 0 20px;
+      background: linear-gradient(90deg, #173a63 0%, #1d4f7a 100%); color: #fff; padding: 0 20px;
       display: flex; align-items: center; justify-content: space-between;
-      height: 56px; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+      min-height: 56px; box-shadow: 0 8px 24px rgba(15, 23, 42, .16);
       position: sticky; top: 0; z-index: 100;
+      backdrop-filter: blur(10px);
     }
     .nav-brand {
       font-weight: 700; font-size: 1.05em;
       display: flex; align-items: center; gap: 8px;
       white-space: nowrap; text-decoration: none; color: #fff;
+    }
+    .nav-brand-mark {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: #fff;
+    }
+    .nav-brand-mark svg {
+      width: 100%;
+      height: auto;
+      display: block;
     }
     .nav-right { display: flex; align-items: center; gap: 8px; }
 
@@ -114,12 +138,20 @@
     .lang-dropdown a.active { font-weight: 700; color: #2563eb !important; }
 
     /* ── Layout ──────────────────────────────────────────────────────────── */
-    .container { max-width: 880px; margin: 32px auto; padding: 0 20px; }
+    .container {
+      width: min(100%, 1280px);
+      margin: 28px auto;
+      padding: 0 18px;
+    }
 
     /* ── Card ────────────────────────────────────────────────────────────── */
     .card {
-      background: #fff; border-radius: 12px; padding: 32px 36px;
-      box-shadow: 0 4px 20px rgba(0,0,0,.07);
+      background: rgba(255,255,255,.92);
+      border-radius: 18px;
+      padding: 28px 30px;
+      box-shadow: 0 20px 40px rgba(15, 23, 42, .08);
+      border: 1px solid rgba(226, 232, 240, .92);
+      overflow-x: clip;
     }
 
     /* ── Forms ───────────────────────────────────────────────────────────── */
@@ -173,7 +205,16 @@
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: #f8fafc; }
     /* Table scroll wrapper (use on wide tables) */
-    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 8px; }
+    .table-scroll {
+      width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      background:#fff;
+    }
+    .table-scroll table { min-width: 720px; }
 
     /* ── Badges ──────────────────────────────────────────────────────────── */
     .badge {
@@ -233,8 +274,8 @@
       .lang-switcher     { display: none; }
 
       /* Layout */
-      .container { padding: 0 12px; margin: 16px auto; }
-      .card      { padding: 20px 16px; border-radius: 10px; }
+      .container { width: 100%; padding: 0 12px; margin: 14px auto; }
+      .card      { padding: 18px 14px; border-radius: 14px; }
 
       /* All inline grid layouts → single column on mobile.
          Targets every inline style="display:grid;grid-template-columns:..."
@@ -246,11 +287,13 @@
       /* Tables: wrap in scrollable container, auto column widths */
       .card > table,
       .card > div > table {
-        display: block; overflow-x: auto; -webkit-overflow-scrolling: touch;
+        display: block; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
       }
-      table { min-width: 500px; font-size: .85em; }
+      table { min-width: 520px; font-size: .85em; }
       td, th { padding: 8px 10px; }
       th[style*="width"] { width: auto !important; }
+      .table-scroll { margin-inline: -2px; }
+      .table-scroll table { min-width: 520px; }
 
       /* Tenant sub-tabs: horizontal scroll instead of wrap */
       .tenant-tabs {
@@ -304,6 +347,8 @@
 
       /* Form actions — wrap on mobile */
       .form-actions { flex-wrap: wrap; }
+      .form-actions > * { max-width: 100%; }
+      textarea, input, select { max-width: 100%; }
 
       /* Help page — reduce list indent */
       ol { padding-left: 16px !important; }
@@ -318,6 +363,7 @@
 
       /* Very small screens — tables can be narrower */
       table { min-width: 400px; }
+      .table-scroll table { min-width: 400px; }
 
       /* Single stat box per row */
       .stats-summary { flex-direction: column; }
@@ -343,7 +389,10 @@
 <body>
   {% if show_nav | default(true) %}
   <nav>
-    <a class="nav-brand" href="/">🖨️ Printix MCP</a>
+    <a class="nav-brand" href="/">
+      <span class="nav-brand-mark">{% include "_brand_logo.svg" %}</span>
+      <span>{{ _('brand_console_name') }}</span>
+    </a>
 
     <div class="nav-right">
       <!-- Desktop links -->
@@ -354,7 +403,7 @@
           <a href="/settings">{{ _('nav_settings') }}</a>
           <a href="/tenant/printers">{{ _('nav_tenant') }}</a>
           <a href="/fleet">{{ _('nav_fleet') }}</a>
-          <a href="/cards">🃏 Karten &amp; Codes</a>
+          <a href="/cards">🃏 {{ _('nav_cards') }}</a>
           <a href="/reports">{{ _('nav_reports') }}</a>
           <a href="/logs">{{ _('nav_logs') }}</a>
           <a href="/capture">{{ _('nav_capture') }}</a>
@@ -384,7 +433,7 @@
       </div>
 
       <!-- Hamburger button (mobile) -->
-      <button class="hamburger" id="hamburger" aria-label="Menü öffnen"
+      <button class="hamburger" id="hamburger" aria-label="{{ _('common_open_menu') }}"
               aria-expanded="false" onclick="toggleMobileMenu()">
         <span></span><span></span><span></span>
       </button>
@@ -401,7 +450,7 @@
       <a href="/settings"  onclick="closeMobileMenu()">⚙️ {{ _('nav_settings') }}</a>
       <a href="/tenant/printers" onclick="closeMobileMenu()">🖨️ {{ _('nav_tenant') }}</a>
       <a href="/fleet"     onclick="closeMobileMenu()">🩺 {{ _('nav_fleet') }}</a>
-      <a href="/cards"     onclick="closeMobileMenu()">🃏 Karten &amp; Codes</a>
+      <a href="/cards"     onclick="closeMobileMenu()">🃏 {{ _('nav_cards') }}</a>
       <a href="/reports"   onclick="closeMobileMenu()">📊 {{ _('nav_reports') }}</a>
       <a href="/logs"      onclick="closeMobileMenu()">📋 {{ _('nav_logs') }}</a>
       <a href="/capture"   onclick="closeMobileMenu()">📥 {{ _('nav_capture') }}</a>
@@ -416,7 +465,7 @@
     <div class="drawer-divider"></div>
 
     <div class="mobile-lang-section">
-      <small>🌐 Sprache / Language</small>
+      <small>🌐 {{ _('common_language') }}</small>
       <div class="mobile-lang-grid">
         {% if lang_names and supported_langs %}
           {% for code in supported_langs %}

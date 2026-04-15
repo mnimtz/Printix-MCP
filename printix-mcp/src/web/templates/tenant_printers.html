@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('tenant_tab_printers') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('tenant_tab_printers') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block extra_head %}
 <style>
   .tenant-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid #e5e7eb; padding-bottom:0; }
@@ -56,28 +56,28 @@
     <!-- Search -->
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
       <form class="search-bar" method="get" action="/tenant/printers" style="flex:1;min-width:200px;margin:0;">
-        <input type="text" name="search" value="{{ search }}" placeholder="Search…">
+        <input type="text" name="search" value="{{ search }}" placeholder="{{ _('tenant_search_printers') }}">
         <button type="submit">🔍</button>
       </form>
-      <a href="/tenant/printers{%- if search %}?search={{ search }}{%- endif -%}" class="btn btn-secondary" title="Reload from Printix API">
-        🔄 Aktualisieren
+      <a href="/tenant/printers{%- if search %}?search={{ search }}{%- endif -%}" class="btn btn-secondary" title="{{ _('common_reload_printix') }}">
+        🔄 {{ _('common_refresh') }}
       </a>
     </div>
 
     {% if error == "no_print_creds" %}
     <div class="alert alert-warning">⚠️ {{ _('tenant_no_print_creds') }}</div>
     {% elif error == "no_tenant" %}
-    <div class="alert alert-warning">⚠️ No tenant configured.</div>
+    <div class="alert alert-warning">⚠️ {{ _('common_no_tenant') }}</div>
     {% elif error %}
     <div class="alert alert-error">❌ {{ error }}</div>
     {% elif printers %}
-    <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">{{ printers|length }} printer(s)</p>
+    <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">{{ _('tenant_printers_count', count=printers|length) }}</p>
     <div style="overflow-x:auto;">
       <table>
         <thead>
           <tr>
             <th>{{ _('tenant_col_name') }}</th>
-            <th>Sign</th>
+            <th>{{ _('tenant_printers_sign') }}</th>
             <th>{{ _('tenant_col_site') }}</th>
             <th>{{ _('tenant_col_status') }}</th>
             <th>{{ _('tenant_col_queues') }}</th>
@@ -103,11 +103,11 @@
               {% if 'ONLINE' in status or 'ACTIVE' in status %}
                 <span class="status-dot dot-green"></span><span style="font-size:.85em;color:#166534;">{{ _('tenant_online') }}</span>
               {% elif 'WARNING' in status %}
-                <span class="status-dot dot-orange"></span><span style="font-size:.85em;color:#92400e;">Warning</span>
+                <span class="status-dot dot-orange"></span><span style="font-size:.85em;color:#92400e;">{{ _('tenant_warning') }}</span>
               {% elif 'OFFLINE' in status or 'INACTIVE' in status %}
                 <span class="status-dot dot-red"></span><span style="font-size:.85em;color:#991b1b;">{{ _('tenant_offline') }}</span>
               {% else %}
-                <span class="status-dot dot-gray"></span><span style="font-size:.85em;color:#6b7280;">{{ status or '–' }}</span>
+                <span class="status-dot dot-gray"></span><span style="font-size:.85em;color:#6b7280;">{{ status or _('common_not_available') }}</span>
               {% endif %}
             </td>
             <td>
@@ -123,7 +123,7 @@
       </table>
     </div>
     {% else %}
-    <div class="alert alert-info">No printers found.</div>
+    <div class="alert alert-info">{{ _('tenant_no_printers') }}</div>
     {% endif %}
 
     <div style="margin-top:20px;">

@@ -1,0 +1,7 @@
+Printix MCP Server v5.8.1
+
+Focus of this update:
+1. Verify dashboard tiles and helper texts no longer fall back to English in non-DE locales such as Dutch.
+2. Verify `Karten & Codes` and `Benutzer & Karten` show translated labels, profile metadata and helper copy after language switching.
+3. Verify built-in profile browser and custom profile editor no longer show hard-coded `Generic`, `Any`, `Custom`, `raw`, or vendor recommendation text outside translation handling.
+4. Confirm runtime/banner/add-on version shows `v5.8.1`.

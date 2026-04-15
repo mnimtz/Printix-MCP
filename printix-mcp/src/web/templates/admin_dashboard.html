@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}{{ _('admin_title') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('admin_title') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block content %}
 <div class="container">
   <div class="card" style="margin-bottom:20px;">
     <div class="section-title">{{ _('admin_title') }}</div>
-    <div class="section-sub">Printix MCP Server — Übersicht und Verwaltung.</div>
+    <div class="section-sub">{{ _('admin_overview_sub') }}</div>
 
     <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:16px; margin-bottom:24px;">
       <div style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:10px; padding:20px; text-align:center;">
@@ -35,11 +35,11 @@
 
   <!-- Server-Info -->
   <div class="card">
-    <div class="section-title" style="margin-bottom:12px;">Server-Info</div>
+    <div class="section-title" style="margin-bottom:12px;">{{ _('admin_server_info') }}</div>
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
     <table>
       <tr>
-        <th style="width:180px;">MCP (claude.ai)</th>
+        <th style="width:180px;">{{ _('admin_mcp_url') }}</th>
         <td>
           <div class="code-block" id="srv-mcp">
             <button class="copy-btn" onclick="copyToClipboard('srv-mcp-val', this)">⧉</button>
@@ -48,7 +48,7 @@
         </td>
       </tr>
       <tr>
-        <th>SSE (ChatGPT)</th>
+        <th>{{ _('admin_sse_url') }}</th>
         <td>
           <div class="code-block" id="srv-sse">
             <button class="copy-btn" onclick="copyToClipboard('srv-sse-val', this)">⧉</button>
@@ -56,9 +56,9 @@
           </div>
         </td>
       </tr>
-      <tr><th>OAuth Authorize</th><td><code>{{ base_url }}/oauth/authorize</code></td></tr>
-      <tr><th>OAuth Token</th><td><code>{{ base_url }}/oauth/token</code></td></tr>
-      <tr><th>Health-Check</th><td><code>{{ base_url }}/health</code></td></tr>
+      <tr><th>{{ _('admin_oauth_authorize') }}</th><td><code>{{ base_url }}/oauth/authorize</code></td></tr>
+      <tr><th>{{ _('admin_oauth_token') }}</th><td><code>{{ base_url }}/oauth/token</code></td></tr>
+      <tr><th>{{ _('admin_healthcheck') }}</th><td><code>{{ base_url }}/health</code></td></tr>
     </table>
     </div>
   </div>

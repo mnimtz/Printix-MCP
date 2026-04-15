@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}{{ _('admin_users') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('admin_users') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block content %}
 <div class="container">
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
       <div>
         <div class="section-title">{{ _('admin_users') }}</div>
-        <div class="section-sub">Benutzer genehmigen, sperren, bearbeiten und löschen.</div>
+        <div class="section-sub">{{ _('admin_users_sub') }}</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <a href="/admin/users/create" class="btn btn-primary btn-sm">+ {{ _('admin_create_user') }}</a>
@@ -23,8 +23,8 @@
           <th>{{ _('admin_email') }}</th>
           <th>{{ _('admin_status') }}</th>
           <th>{{ _('admin_is_admin') }}</th>
-          <th>Erstellt</th>
-          <th>Aktionen</th>
+          <th>{{ _('common_created') }}</th>
+          <th>{{ _('common_actions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -43,7 +43,7 @@
           </td>
           <td>
             {% if u.is_admin %}
-              <span class="badge badge-blue">Admin</span>
+              <span class="badge badge-blue">{{ _('admin_badge_admin') }}</span>
             {% else %}
               <span style="color:#6b7280; font-size:.85em;">—</span>
             {% endif %}
@@ -77,7 +77,7 @@
               </form>
               {% endif %}
             {% else %}
-              <span style="font-size:.78em; color:#9ca3af;">(du)</span>
+              <span style="font-size:.78em; color:#9ca3af;">{{ _('admin_self') }}</span>
             {% endif %}
           </td>
         </tr>
@@ -86,7 +86,7 @@
     </table>
     </div>
     {% else %}
-    <div class="alert alert-info">Noch keine Benutzer registriert.</div>
+    <div class="alert alert-info">{{ _('admin_no_users') }}</div>
     {% endif %}
   </div>
 </div>

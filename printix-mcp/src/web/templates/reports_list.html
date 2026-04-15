@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('reports_title') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('reports_title') }} — {{ _('brand_console_name') }}{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -60,7 +60,7 @@
     <table>
       <thead>
         <tr>
-          <th>Name</th>
+          <th>{{ _('reports_list_name') }}</th>
           <th>{{ _('rpt_list_type') }}</th>
           <th>{{ _('rpt_list_recipients') }}</th>
           <th>{{ _('rpt_list_schedule') }}</th>

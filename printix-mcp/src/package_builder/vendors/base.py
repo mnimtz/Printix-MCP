@@ -29,7 +29,7 @@ class VendorBase(ABC):
     # ── Analyse ────────────────────────────────────────────────────────────────
 
     @abstractmethod
-    def analyze(self, outer_zip_path: str) -> AnalysisResult:
+    def analyze(self, outer_zip_path: str, tr=None) -> AnalysisResult:
         """
         ZIP öffnen, Struktur validieren und AnalysisResult zurückgeben.
         Enthält: Feldschema + erkannte Struktur.
@@ -40,7 +40,7 @@ class VendorBase(ABC):
     # ── Feldschema ─────────────────────────────────────────────────────────────
 
     @abstractmethod
-    def get_fields(self) -> List[FieldSchema]:
+    def get_fields(self, tr=None) -> List[FieldSchema]:
         """Vollständiges Feldschema für diesen Hersteller zurückgeben."""
         ...
 
@@ -72,7 +72,7 @@ class VendorBase(ABC):
 
     # ── Installationshinweise ──────────────────────────────────────────────────
 
-    def get_install_notes(self, field_values: Dict[str, str]) -> List[str]:
+    def get_install_notes(self, field_values: Dict[str, str], tr=None) -> List[str]:
         """
         Menschenlesbare Installationshinweise nach dem Download.
         In Unterklasse überschreiben.

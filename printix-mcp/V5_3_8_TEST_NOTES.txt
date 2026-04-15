@@ -1,0 +1,7 @@
+Test focus for 5.3.8
+1. Build/start and verify version 5.3.8
+2. Add a card from User Detail using a visible value and a transformed submit mode
+3. Re-open user detail: original value + transformed value + stored card ID should be visible
+4. Search /cards by original value and by transformed/Base64 value
+5. Verify YSoft profile is visible in Card Lab
+6. Manual fallback field should only be used for older cards without local mapping

@@ -19,6 +19,7 @@ import json
 import logging
 from contextvars import ContextVar
 from typing import Optional
+from app_version import APP_VERSION
 
 logger = logging.getLogger("printix.auth")
 
@@ -139,7 +140,11 @@ class BearerAuthMiddleware:
         await send({"type": "http.response.body", "body": b""})
 
     async def _health_response(self, send):
-        body = b'{"status":"ok","service":"printix-mcp"}'
+        body = json.dumps({
+            "status": "ok",
+            "service": "printix-mcp",
+            "version": APP_VERSION,
+        }).encode()
         await send({"type": "http.response.start", "status": 200,
                     "headers": [[b"content-type", b"application/json"],
                                  [b"content-length", str(len(body)).encode()]]})

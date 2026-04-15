@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{% if mode == 'create' %}{{ _('cap_new_title') }}{% else %}{{ _('cap_edit_title') }}{% endif %} — Printix MCP{% endblock %}
+{% block title %}{% if mode == 'create' %}{{ _('cap_new_title') }}{% else %}{{ _('cap_edit_title') }}{% endif %} — {{ _('brand_console_name') }}{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -106,28 +106,28 @@
       <div class="cap-section-title">{{ _('cap_section_security') }}</div>
       <div class="cap-field-grid">
         <div class="form-group cap-field-full">
-          <label for="secret_key">HMAC Secret Keys</label>
+          <label for="secret_key">{{ _('capture_security_hmac_keys') }}</label>
           <textarea id="secret_key" name="secret_key" rows="3"
-                    placeholder="One secret per line (for key rotation)"
+                    placeholder="{{ _('capture_security_hmac_placeholder') }}"
                     style="font-family:monospace;font-size:.88em;">{{ profile.secret_key if profile else '' }}</textarea>
-          <div class="cap-hint">HMAC-SHA256/SHA512 secrets for signature verification. One key per line — all are tried during verification, enabling rotation without downtime.</div>
+          <div class="cap-hint">{{ _('capture_security_hmac_hint') | safe }}</div>
         </div>
         <div class="form-group cap-field-full">
-          <label for="connector_token">Connector Tokens</label>
+          <label for="connector_token">{{ _('capture_security_connector_tokens') }}</label>
           <textarea id="connector_token" name="connector_token" rows="3"
-                    placeholder="One token per line (for token rotation)"
+                    placeholder="{{ _('capture_security_connector_placeholder') }}"
                     style="font-family:monospace;font-size:.88em;">{{ profile.connector_token if profile else '' }}</textarea>
-          <div class="cap-hint">Bearer tokens sent via <code>Authorization: Bearer &lt;token&gt;</code> or <code>x-connector-token</code> header. One token per line for rotation.</div>
+          <div class="cap-hint">{{ _('capture_security_connector_hint') | safe }}</div>
         </div>
         <div class="form-group cap-field-full" style="margin-top:4px;">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
             <input type="checkbox" name="require_signature" value="1"
                    {% if profile and profile.require_signature %}checked{% endif %}
                    style="width:18px;height:18px;">
-            <span>Require Authentication</span>
+            <span>{{ _('capture_require_auth') }}</span>
           </label>
           <div class="cap-hint" style="margin-left:26px;">
-            When enabled, every webhook request <strong>must</strong> include a valid HMAC signature or connector token. Without this, requests without credentials are accepted in Printix compatibility mode.
+            {{ _('capture_require_auth_hint') | safe }}
           </div>
         </div>
       </div>
@@ -146,23 +146,23 @@
 
     <!-- Metadata Settings -->
     <div class="cap-form-card">
-      <div class="cap-section-title">Capture Metadata</div>
+      <div class="cap-section-title">{{ _('capture_metadata_title') }}</div>
       <div class="cap-field-grid">
         <div class="form-group">
-          <label for="metadata_format">Metadata Format</label>
+          <label for="metadata_format">{{ _('capture_metadata_format') }}</label>
           <select id="metadata_format" name="metadata_format" style="padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:.9em;">
-            <option value="flat" {% if not profile or (profile.metadata_format|default('flat')) == 'flat' %}selected{% endif %}>Flat (key-value)</option>
-            <option value="structured" {% if profile and profile.metadata_format == 'structured' %}selected{% endif %}>Structured (system + index fields)</option>
-            <option value="passthrough" {% if profile and profile.metadata_format == 'passthrough' %}selected{% endif %}>Passthrough (raw body to plugin)</option>
+            <option value="flat" {% if not profile or (profile.metadata_format|default('flat')) == 'flat' %}selected{% endif %}>{{ _('capture_metadata_format_flat') }}</option>
+            <option value="structured" {% if profile and profile.metadata_format == 'structured' %}selected{% endif %}>{{ _('capture_metadata_format_structured') }}</option>
+            <option value="passthrough" {% if profile and profile.metadata_format == 'passthrough' %}selected{% endif %}>{{ _('capture_metadata_format_passthrough') }}</option>
           </select>
-          <div class="cap-hint">How metadata from the Capture payload is processed before passing to the plugin.</div>
+          <div class="cap-hint">{{ _('capture_metadata_format_hint') }}</div>
         </div>
         <div class="form-group">
-          <label for="index_fields_json">Index Field Definitions</label>
+          <label for="index_fields_json">{{ _('capture_index_fields') }}</label>
           <textarea id="index_fields_json" name="index_fields_json" rows="4"
                     placeholder='[{"name": "department", "type": "string"}, {"name": "cost_center", "type": "string"}]'
                     style="font-family:monospace;font-size:.82em;">{{ profile.index_fields_json if profile else '[]' }}</textarea>
-          <div class="cap-hint">JSON array of expected index fields. Defines which custom metadata fields this profile processes (used for validation and logging).</div>
+          <div class="cap-hint">{{ _('capture_index_fields_hint') }}</div>
         </div>
       </div>
     </div>

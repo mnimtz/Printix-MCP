@@ -28,6 +28,7 @@ import json
 import logging
 import re
 import zipfile
+from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
@@ -85,63 +86,57 @@ class RicohVendor(VendorBase):
 
     # ── Feldschema ─────────────────────────────────────────────────────────────
 
-    def get_fields(self) -> List[FieldSchema]:
+    def get_fields(self, tr=None) -> List[FieldSchema]:
+        _ = tr or (lambda key, **kwargs: key)
         return [
             FieldSchema(
                 key="enable_registration",
-                label="Enable Registration",
+                label=_("fleet_builder_field_enable_registration_label"),
                 field_type="checkbox",
                 required=False,
                 default="true",
-                help_text="Aktiviert die Geräteregistrierung. Standardmäßig true.",
-                group="Registrierung",
+                help_text=_("fleet_builder_field_enable_registration_help"),
+                group=_("fleet_builder_group_registration"),
                 order=10,
             ),
             FieldSchema(
                 key="go_client_id",
-                label="Client ID (Go Registration)",
+                label=_("fleet_builder_field_go_client_id_label"),
                 field_type="text",
                 required=True,
                 placeholder="236b1f58-adab-4888-ba05-acfc9a804523",
-                help_text=(
-                    "Client ID aus einer Printix-Anwendung vom Typ 'Go registration'. "
-                    "Erstellt unter Applications im Printix-Admin."
-                ),
-                group="Go Registration",
+                help_text=_("fleet_builder_field_go_client_id_help"),
+                group=_("fleet_builder_group_go_registration"),
                 order=20,
             ),
             FieldSchema(
                 key="go_client_secret",
-                label="Client Secret (Go Registration)",
+                label=_("fleet_builder_field_go_client_secret_label"),
                 field_type="password",
                 required=True,
                 placeholder="",
-                help_text=(
-                    "Client Secret der Go-Registration-App. "
-                    "Wird beim Erstellen nur einmal angezeigt! "
-                    "Wird weder gespeichert noch geloggt."
-                ),
-                group="Go Registration",
+                help_text=_("fleet_builder_field_go_client_secret_help"),
+                group=_("fleet_builder_group_go_registration"),
                 order=30,
             ),
             FieldSchema(
                 key="tenant_id",
-                label="Tenant ID",
+                label=_("fleet_builder_field_tenant_id_label"),
                 field_type="text",
                 required=True,
                 placeholder="cbd7e0b5-da2a-4cb6-b7f7-a04ee31cac90",
-                help_text="Printix Tenant ID — identisch mit dem Wert aus Ihren Portal-Einstellungen.",
-                group="Tenant",
+                help_text=_("fleet_builder_field_tenant_id_help"),
+                group=_("fleet_builder_group_tenant"),
                 order=40,
             ),
             FieldSchema(
                 key="tenant_url",
-                label="Tenant URL",
+                label=_("fleet_builder_field_tenant_url_label"),
                 field_type="url",
                 required=True,
                 placeholder="https://acme.printix.net",
-                help_text="Printix Portal-URL des Tenants (z.B. https://firmenname.printix.net).",
-                group="Tenant",
+                help_text=_("fleet_builder_field_tenant_url_help"),
+                group=_("fleet_builder_group_tenant"),
                 order=50,
             ),
         ]
@@ -168,17 +163,20 @@ class RicohVendor(VendorBase):
 
     # ── Analyse ────────────────────────────────────────────────────────────────
 
-    def analyze(self, outer_zip_path: str) -> AnalysisResult:
+    def analyze(self, outer_zip_path: str, tr=None) -> AnalysisResult:
         try:
-            return self._do_analyze(outer_zip_path)
+            return self._do_analyze(outer_zip_path, tr=tr)
         except Exception as exc:
             logger.warning("Ricoh analyze Fehler: %s", exc, exc_info=True)
+            if tr:
+                return AnalysisResult(ok=False, error=tr("fleet_builder_error_analysis_exception", message=str(exc)))
             return AnalysisResult(ok=False, error=f"Analyse-Fehler: {exc}")
 
-    def _do_analyze(self, outer_zip_path: str) -> AnalysisResult:
+    def _do_analyze(self, outer_zip_path: str, tr=None) -> AnalysisResult:
         warnings: List[str] = []
         notes: List[str] = []
         found_files: List[str] = []
+        _ = tr or (lambda key, **kwargs: key)
 
         with zipfile.ZipFile(outer_zip_path, "r") as zf:
             namelist = zf.namelist()
@@ -188,49 +186,46 @@ class RicohVendor(VendorBase):
         if pkg_type == "simple":
             # Einfaches Go-Ricoh-ZIP (DALP + APK)
             dalp_name = dalp_info["dalp_name"]
-            found_files.append(f"DALP-Datei: {dalp_name}")
+            found_files.append(_("fleet_builder_found_dalp", value=dalp_name))
             apk_name = dalp_info.get("apk_name")
             if apk_name:
-                found_files.append(f"APK: {apk_name}")
+                found_files.append(_("fleet_builder_found_apk", value=apk_name))
             # Version aus Dateiname
             version = _extract_version(dalp_name) or "?"
             # DALP analysieren
             with zipfile.ZipFile(outer_zip_path, "r") as zf:
                 dalp_bytes = zf.read(dalp_name)
-            dalp_analysis = _analyze_dalp_content(dalp_bytes)
+            dalp_analysis = _analyze_dalp_content(dalp_bytes, tr=tr)
             found_files.extend(dalp_analysis["found"])
             warnings.extend(dalp_analysis["warnings"])
-            notes.append("Einfaches Go-Ricoh-Paket erkannt (DALP + APK).")
-            notes.append(f"Paketversion: {version}")
+            notes.append(_("fleet_builder_note_simple_package"))
+            notes.append(_("fleet_builder_note_package_version", value=version))
 
         elif pkg_type == "installer":
             # Installer-Paket mit verschachtelten ZIPs
-            found_files.append("deploysetting.json")
+            found_files.append(_("fleet_builder_found_deploysetting"))
             inner_info = dalp_info.get("inner_info", {})
             version = inner_info.get("version", "?")
-            found_files.append(f"rxspServletPackage ({version})")
+            found_files.append(_("fleet_builder_found_rxsp_package", value=version))
             if inner_info.get("servlet_zip"):
-                found_files.append(f"rxspServlet-ZIP ({_extract_version(inner_info['servlet_zip'])})")
+                found_files.append(_("fleet_builder_found_servlet_zip", value=_extract_version(inner_info["servlet_zip"])))
             if inner_info.get("sop_zip"):
-                found_files.append(f"rxspservletsop-ZIP ({_extract_version(inner_info['sop_zip'])})")
+                found_files.append(_("fleet_builder_found_sop_zip", value=_extract_version(inner_info["sop_zip"])))
             # DALP aus tiefster Ebene analysieren
             dalp_bytes = inner_info.get("dalp_bytes")
             if dalp_bytes:
-                dalp_analysis = _analyze_dalp_content(dalp_bytes)
+                dalp_analysis = _analyze_dalp_content(dalp_bytes, tr=tr)
                 found_files.extend(dalp_analysis["found"])
                 warnings.extend(dalp_analysis["warnings"])
             else:
-                warnings.append("Keine DALP-Datei im Installer-Paket gefunden.")
-            notes.append("Ricoh-Installer-Paket erkannt (PrintixGoRicohInstaller).")
-            notes.append(f"Paketversion: {version}")
+                warnings.append(_("fleet_builder_warn_no_dalp_installer"))
+            notes.append(_("fleet_builder_note_installer_package"))
+            notes.append(_("fleet_builder_note_package_version", value=version))
 
         else:
             return AnalysisResult(
                 ok=False,
-                error=(
-                    "Ricoh-Paketstruktur nicht erkannt. Bitte das Original-ZIP von der "
-                    "Printix-Softwareseite hochladen (Ricoh ZIP oder Ricoh Installer ZIP)."
-                ),
+                error=_("fleet_builder_error_structure_unknown"),
             )
 
         structure = StructureInfo(
@@ -246,7 +241,7 @@ class RicohVendor(VendorBase):
         return AnalysisResult(
             ok=True,
             structure=structure,
-            fields=self.get_fields(),
+            fields=self.get_fields(tr=tr),
         )
 
     # ── Patch ──────────────────────────────────────────────────────────────────
@@ -298,14 +293,12 @@ class RicohVendor(VendorBase):
     ):
         dalp_name = dalp_info["dalp_name"]
         files: Dict[str, bytes] = {}
-        with zipfile.ZipFile(outer_zip_path, "r") as zf:
-            for name in zf.namelist():
-                files[name] = zf.read(name)
+        files = _read_zip_file_entries(outer_zip_path)
 
         # DALP patchen
-        dalp_bytes = files[dalp_name]
+        dalp_bytes = files[dalp_name]["data"]
         patched_dalp = _patch_dalp_app_extension(dalp_bytes, field_values, summary)
-        files[dalp_name] = patched_dalp
+        files[dalp_name]["data"] = patched_dalp
         summary.patched_logical_files.append(dalp_name)
 
         # ZIP neu bauen
@@ -326,10 +319,7 @@ class RicohVendor(VendorBase):
         servlet_zip_name = inner_info.get("servlet_zip")
 
         # Äußeres ZIP einlesen
-        outer_files: Dict[str, bytes] = {}
-        with zipfile.ZipFile(outer_zip_path, "r") as zf:
-            for name in zf.namelist():
-                outer_files[name] = zf.read(name)
+        outer_files = _read_zip_file_entries(outer_zip_path)
 
         if not rxsp_file_path or rxsp_file_path not in outer_files:
             summary.notes.append("Inneres RXSP-Paket nicht gefunden — kann nicht patchen.")
@@ -337,58 +327,44 @@ class RicohVendor(VendorBase):
             return
 
         # Inneres ZIP öffnen und patchen
-        inner_files = _read_zip_bytes(outer_files[rxsp_file_path])
+        inner_files = _read_zip_entries(outer_files[rxsp_file_path]["data"])
 
         if servlet_zip_name and servlet_zip_name in inner_files:
             # Sub-ZIP öffnen, DALP finden und patchen
-            sub_files = _read_zip_bytes(inner_files[servlet_zip_name])
+            sub_files = _read_zip_entries(inner_files[servlet_zip_name]["data"])
             dalp_name = _find_dalp_in_names(list(sub_files.keys()))
             if dalp_name:
-                patched = _patch_dalp_app_extension(sub_files[dalp_name], field_values, summary)
-                sub_files[dalp_name] = patched
+                patched = _patch_dalp_app_extension(sub_files[dalp_name]["data"], field_values, summary)
+                sub_files[dalp_name]["data"] = patched
                 summary.patched_logical_files.append(dalp_name)
             else:
                 summary.notes.append("DALP-Datei nicht im Servlet-ZIP gefunden.")
             # Sub-ZIP neu bauen
-            inner_files[servlet_zip_name] = _build_zip_bytes(sub_files)
+            inner_files[servlet_zip_name]["data"] = _build_zip_bytes(sub_files)
 
         # Inneres ZIP neu bauen
-        outer_files[rxsp_file_path] = _build_zip_bytes(inner_files)
+        outer_files[rxsp_file_path]["data"] = _build_zip_bytes(inner_files)
 
         # Äußeres ZIP neu bauen
         _write_zip(outer_files, output_path)
 
     # ── Installationshinweise ──────────────────────────────────────────────────
 
-    def get_install_notes(self, field_values: Dict[str, str]) -> List[str]:
+    def get_install_notes(self, field_values: Dict[str, str], tr=None) -> List[str]:
+        _ = tr or (lambda key, **kwargs: key)
         tenant_url = field_values.get("tenant_url", "")
         notes = [
-            "Nächste Schritte gemäß Printix-Dokumentation:",
-            "1. Ein dediziertes Netzwerk in Printix erstellen (ohne Printix Client).",
-            "2. Drucker manuell registrieren (Manual Registration).",
-            "3. Sign-in-Profil und Go-Konfiguration erstellen.",
+            _("fleet_builder_install_intro"),
+            _("fleet_builder_install_step_1"),
+            _("fleet_builder_install_step_2"),
+            _("fleet_builder_install_step_3"),
         ]
-        notes.append(
-            "4a. Installation per Installer: "
-            "PrintixGoRicohInstaller.exe -i <IP> -u <Admin-User> -p <Admin-Passwort> "
-            "-m installall -f <gepatchtes-zip>"
-        )
-        notes.append(
-            "4b. Alternativ: Installation via Drucker-Webseite → "
-            "Device Management → Configuration → Install → Local File."
-        )
-        notes.append(
-            "Stellen Sie sicher, dass folgende Endpoints erreichbar sind: "
-            "device-api.printix.net, on-device-api.printix.net, "
-            "on-device-printer-sign-in.printix.net, "
-            "on-device-printer-release-documents.printix.net"
-        )
+        notes.append(_("fleet_builder_install_step_4a"))
+        notes.append(_("fleet_builder_install_step_4b"))
+        notes.append(_("fleet_builder_install_endpoints"))
         if tenant_url:
-            notes.append(f"Tenant-URL: {tenant_url}")
-        notes.append(
-            "Hinweis: Das Client Secret wird beim Erstellen der Go-Registration-App "
-            "nur einmal angezeigt und kann danach nicht mehr abgerufen werden."
-        )
+            notes.append(_("fleet_builder_install_tenant_url", value=tenant_url))
+        notes.append(_("fleet_builder_install_secret_note"))
         return notes
 
 
@@ -476,6 +452,7 @@ def _patch_dalp_app_extension(
     dalp_bytes: bytes,
     field_values: Dict[str, str],
     summary: PatchSummary,
+    tr=None,
 ) -> bytes:
     """
     Patcht die <app-extension>-Sektion einer DALP-Datei.
@@ -524,32 +501,35 @@ def _patch_dalp_app_extension(
     return patched
 
 
-def _analyze_dalp_content(dalp_bytes: bytes) -> Dict:
+def _analyze_dalp_content(dalp_bytes: bytes, tr=None) -> Dict:
     """Analysiert den Inhalt einer DALP-Datei und gibt found/warnings zurück."""
     result: Dict = {"found": [], "warnings": []}
+    translate = tr or (lambda key, **kwargs: key)
     try:
-        encoding, _ = _detect_xml_encoding(dalp_bytes)
+        encoding, has_decl = _detect_xml_encoding(dalp_bytes)
         root = ET.fromstring(dalp_bytes.decode(encoding))
 
         # Produktinfo
         title_elem = root.find(".//information/title")
         if title_elem is not None and title_elem.text:
-            result["found"].append(f"App: {title_elem.text}")
+            result["found"].append(translate("fleet_builder_found_app", value=title_elem.text))
 
         vendor_elem = root.find(".//information/vendor")
         if vendor_elem is not None and vendor_elem.text:
-            result["found"].append(f"Hersteller: {vendor_elem.text}")
+            result["found"].append(translate("fleet_builder_found_vendor", value=vendor_elem.text))
 
         ver_elem = root.find(".//information/application-ver")
         if ver_elem is not None and ver_elem.text:
-            result["found"].append(f"App-Version: {ver_elem.text}")
+            result["found"].append(translate("fleet_builder_found_app_version", value=ver_elem.text))
 
         # Bestehende <app-extension>
         app_ext = root.find(".//app-extension")
         if app_ext is not None:
             existing_tags = [child.tag for child in app_ext]
             if existing_tags:
-                result["found"].append(f"Vorhandene app-extension Tags: {', '.join(existing_tags)}")
+                result["found"].append(
+                    translate("fleet_builder_found_app_extension_tags", value=", ".join(existing_tags))
+                )
             # Prüfen welche Tags schon Werte haben
             for tag_name in APP_EXT_TAGS:
                 elem = app_ext.find(tag_name)
@@ -559,7 +539,7 @@ def _analyze_dalp_content(dalp_bytes: bytes) -> Dict:
                     else:
                         result["found"].append(f"  {tag_name}: {elem.text}")
         else:
-            result["found"].append("<app-extension> nicht vorhanden — wird beim Patchen erstellt.")
+            result["found"].append(translate("fleet_builder_found_app_extension_missing"))
 
     except ET.ParseError as e:
         result["warnings"].append(f"DALP XML nicht parsebar: {e}")
@@ -621,26 +601,58 @@ def _resolve_rxsp_path(deploy_data: Dict, namelist: List[str]) -> Optional[str]:
     return _glob_find(namelist, INNER_PKG_PATTERN)
 
 
-def _read_zip_bytes(zip_bytes: bytes) -> Dict[str, bytes]:
-    """Liest ein ZIP aus Bytes in ein Dict ein."""
+def _clone_zip_info(info: zipfile.ZipInfo) -> zipfile.ZipInfo:
+    cloned = zipfile.ZipInfo(filename=info.filename, date_time=info.date_time)
+    cloned.comment = info.comment
+    cloned.extra = info.extra
+    cloned.create_system = info.create_system
+    cloned.create_version = info.create_version
+    cloned.extract_version = info.extract_version
+    cloned.flag_bits = info.flag_bits
+    cloned.volume = info.volume
+    cloned.internal_attr = info.internal_attr
+    cloned.external_attr = info.external_attr
+    cloned.compress_type = info.compress_type
+    return cloned
+
+
+def _read_zip_entries(zip_bytes: bytes):
+    """Liest ein ZIP aus Bytes inkl. ZipInfo-Metadaten ein."""
     with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
-        return {name: zf.read(name) for name in zf.namelist()}
+        entries = OrderedDict()
+        for info in zf.infolist():
+            data = b"" if info.is_dir() else zf.read(info.filename)
+            entries[info.filename] = {"info": _clone_zip_info(info), "data": data}
+        return entries
 
 
-def _build_zip_bytes(files: Dict[str, bytes]) -> bytes:
-    """Baut ein ZIP aus einem Dict als Bytes."""
+def _read_zip_file_entries(zip_path: str):
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        entries = OrderedDict()
+        for info in zf.infolist():
+            data = b"" if info.is_dir() else zf.read(info.filename)
+            entries[info.filename] = {"info": _clone_zip_info(info), "data": data}
+        return entries
+
+
+def _build_zip_bytes(files) -> bytes:
+    """Baut ein ZIP aus Einträgen mit erhaltener Metadatenstruktur als Bytes."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for name, data in files.items():
-            zf.writestr(name, data)
+        for name, entry in files.items():
+            info = _clone_zip_info(entry["info"])
+            info.filename = name
+            zf.writestr(info, entry["data"])
     return buf.getvalue()
 
 
-def _write_zip(files: Dict[str, bytes], output_path: str):
-    """Schreibt ein Dict als ZIP-Datei auf Disk."""
+def _write_zip(files, output_path: str):
+    """Schreibt Einträge als ZIP-Datei auf Disk und erhält Dateinamen/Attribute bestmöglich."""
     with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for name, data in files.items():
-            zf.writestr(name, data)
+        for name, entry in files.items():
+            info = _clone_zip_info(entry["info"])
+            info.filename = name
+            zf.writestr(info, entry["data"])
 
 
 def _detect_xml_encoding(xml_bytes: bytes) -> Tuple[str, bool]:

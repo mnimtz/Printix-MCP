@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('tenant_tab_queues') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('tenant_tab_queues') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block extra_head %}
 <style>
   .tenant-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid #e5e7eb; padding-bottom:0; }
@@ -51,29 +51,29 @@
     <!-- Search -->
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
       <form class="search-bar" method="get" action="/tenant/queues" style="flex:1;min-width:200px;margin:0;">
-        <input type="text" name="search" value="{{ search }}" placeholder="Search…">
+        <input type="text" name="search" value="{{ search }}" placeholder="{{ _('tenant_search_queues') }}">
         <button type="submit">🔍</button>
       </form>
-      <a href="/tenant/queues{%- if search %}?search={{ search }}{%- endif -%}" class="btn btn-secondary" title="Reload from Printix API">
-        🔄 Aktualisieren
+      <a href="/tenant/queues{%- if search %}?search={{ search }}{%- endif -%}" class="btn btn-secondary" title="{{ _('common_reload_printix') }}">
+        🔄 {{ _('common_refresh') }}
       </a>
     </div>
 
     {% if error == "no_print_creds" %}
     <div class="alert alert-warning">⚠️ {{ _('tenant_no_print_creds') }}</div>
     {% elif error == "no_tenant" %}
-    <div class="alert alert-warning">⚠️ No tenant configured.</div>
+    <div class="alert alert-warning">⚠️ {{ _('common_no_tenant') }}</div>
     {% elif error %}
     <div class="alert alert-error">❌ {{ error }}</div>
     {% elif queues %}
-    <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">{{ queues|length }} queue(s)</p>
+    <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">{{ _('tenant_queues_count', count=queues|length) }}</p>
     <div style="overflow-x:auto;">
       <table>
         <thead>
           <tr>
             <th>{{ _('tenant_col_status') }}</th>
             <th>{{ _('tenant_col_name') }}</th>
-            <th>Printer (Model)</th>
+            <th>{{ _('tenant_queue_printer_model') }}</th>
             <th>{{ _('tenant_col_site') }}</th>
           </tr>
         </thead>
@@ -83,11 +83,11 @@
           <tr>
             <td style="width:80px;">
               {% if 'ONLINE' in status or 'ACTIVE' in status %}
-                <span class="status-dot dot-green"></span><span style="font-size:.82em;color:#166534;">Online</span>
+                <span class="status-dot dot-green"></span><span style="font-size:.82em;color:#166534;">{{ _('tenant_online') }}</span>
               {% elif 'WARNING' in status %}
-                <span class="status-dot dot-orange"></span><span style="font-size:.82em;color:#92400e;">Warn</span>
+                <span class="status-dot dot-orange"></span><span style="font-size:.82em;color:#92400e;">{{ _('tenant_warning') }}</span>
               {% elif 'OFFLINE' in status or 'INACTIVE' in status %}
-                <span class="status-dot dot-red"></span><span style="font-size:.82em;color:#991b1b;">Offline</span>
+                <span class="status-dot dot-red"></span><span style="font-size:.82em;color:#991b1b;">{{ _('tenant_offline') }}</span>
               {% else %}
                 <span class="status-dot dot-gray"></span><span style="font-size:.82em;color:#9ca3af;">{{ status or '?' }}</span>
               {% endif %}
@@ -101,7 +101,7 @@
       </table>
     </div>
     {% else %}
-    <div class="alert alert-info">No queues found.</div>
+    <div class="alert alert-info">{{ _('tenant_no_queues') }}</div>
     {% endif %}
 
     <div style="margin-top:20px;">

@@ -258,7 +258,7 @@ def poll_device_code_token(device_code: str, tenant: str = "common") -> dict:
 def auto_register_app(
     access_token: str,
     sso_redirect_uri: str,
-    app_name: str = "Printix MCP Server",
+    app_name: str = "Printix Management Console",
 ) -> dict | None:
     """
     Erstellt eine neue SSO-App-Registration im Entra-Tenant des Admins

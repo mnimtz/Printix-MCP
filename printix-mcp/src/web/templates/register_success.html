@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('reg_title') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('reg_title') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block content %}
 <div class="container">
   <div class="card">
@@ -12,10 +12,8 @@
     </div>
 
     <div class="alert alert-warning" style="margin-bottom:24px;">
-      <strong>⚠️ Wichtig: Zugangsdaten jetzt sichern!</strong><br>
-      Bearer Token und OAuth-Secret werden nur einmal angezeigt.
-      Trage sie direkt in claude.ai und ChatGPT ein — danach sind sie unter
-      <a href="/settings">Einstellungen</a> neu abrufbar.
+      <strong>⚠️ {{ _('reg_success_secure_title') }}</strong><br>
+      {{ _('reg_success_secure_body') | safe }}
     </div>
 
     <!-- Bearer Token -->
@@ -29,7 +27,7 @@
 
     <!-- OAuth -->
     <div style="margin-bottom:24px;">
-      <div class="section-title" style="margin-bottom:8px;">🔐 OAuth 2.0</div>
+      <div class="section-title" style="margin-bottom:8px;">🔐 {{ _('reg_success_oauth') }}</div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
         <div>
           <label style="font-size:.82em; font-weight:600; color:#6b7280; display:block; margin-bottom:4px;">
@@ -54,11 +52,11 @@
 
     <!-- Verbindungs-URLs -->
     <div style="margin-bottom:24px;">
-      <div class="section-title" style="margin-bottom:12px;">🔗 URLs</div>
+      <div class="section-title" style="margin-bottom:12px;">🔗 {{ _('reg_success_urls') }}</div>
       <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
       <table>
         <tr>
-          <th style="width:180px;">claude.ai → /mcp</th>
+          <th style="width:180px;">{{ _('reg_success_mcp_url') }}</th>
           <td>
             <div class="code-block">
               <button class="copy-btn" onclick="copyToClipboard('mcp-url-val', this)">⧉</button>
@@ -67,7 +65,7 @@
           </td>
         </tr>
         <tr>
-          <th>ChatGPT → /sse</th>
+          <th>{{ _('reg_success_sse_url') }}</th>
           <td>
             <div class="code-block">
               <button class="copy-btn" onclick="copyToClipboard('sse-url-val', this)">⧉</button>
@@ -76,11 +74,11 @@
           </td>
         </tr>
         <tr>
-          <th>OAuth Auth-URL</th>
+          <th>{{ _('reg_success_auth_url') }}</th>
           <td><code>{{ oauth_authorize_url }}</code></td>
         </tr>
         <tr>
-          <th>OAuth Token-URL</th>
+          <th>{{ _('reg_success_token_url') }}</th>
           <td><code>{{ oauth_token_url }}</code></td>
         </tr>
       </table>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('admin_settings') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('admin_settings') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block content %}
 <div class="container">
   <div class="card" style="max-width:680px;margin:40px auto;">
@@ -40,20 +40,20 @@
 
       <!-- ── Capture Webhook URL (v4.5.0) ─────────────────────────────────── -->
       <div class="form-group">
-        <label>Capture Webhook URL (optional)</label>
+        <label>{{ _('admin_capture_public_url') }}</label>
         <input type="url" name="capture_public_url" value="{{ capture_public_url | default('') }}"
                placeholder="https://capture.firma.de">
-        <small class="hint">Eigene URL fuer Capture Webhooks. Wenn leer, wird die MCP-URL verwendet.</small>
+        <small class="hint">{{ _('admin_capture_public_url_hint') }}</small>
       </div>
 
       <div class="alert alert-info" style="margin-bottom:20px;font-size:.88em;">
-        <strong>Capture Webhook:</strong><br>
+        <strong>{{ _('admin_capture_webhook') }}:</strong><br>
         {% if capture_public_url %}
         <code>{{ capture_public_url }}/capture/webhook/&lt;profile_id&gt;</code>
-        <span style="color:#059669;font-weight:600;"> (separater Endpunkt)</span>
+        <span style="color:#059669;font-weight:600;"> {{ _('admin_capture_mode_separate') }}</span>
         {% else %}
         <code>{{ public_url or 'http://&lt;HA-IP&gt;:8765' }}/capture/webhook/&lt;profile_id&gt;</code>
-        <span style="color:#6b7280;"> (via MCP-Server)</span>
+        <span style="color:#6b7280;"> {{ _('admin_capture_mode_shared') }}</span>
         {% endif %}
       </div>
 
@@ -246,14 +246,14 @@
             <div id="script-ps" style="position:relative;">
               <pre style="background:#1e293b;color:#e2e8f0;padding:14px 40px 14px 14px;border-radius:0 8px 8px 8px;
                           font-size:.78em;line-height:1.6;overflow-x:auto;margin:0 0 12px 0;white-space:pre-wrap;word-break:break-all;"
-              ><code id="entra-script-ps"># Printix MCP — Entra App (PowerShell)
+              ><code id="entra-script-ps"># Printix Management Console — Entra App (PowerShell)
 az login
 $app = az ad app create `
-  --display-name "Printix MCP Server" `
+  --display-name "Printix Management Console" `
   --sign-in-audience AzureADMultipleOrgs `
   --web-redirect-uris "{{ entra_redirect_uri }}" | ConvertFrom-Json
 $secret = az ad app credential reset `
-  --id $app.appId --display-name "Printix MCP" `
+  --id $app.appId --display-name "Printix Management Console" `
   --years 2 | ConvertFrom-Json
 @{tenant_id=(az account show --query tenantId -o tsv)
   client_id=$app.appId
@@ -266,15 +266,15 @@ $secret = az ad app credential reset `
             <div id="script-bash" style="position:relative;display:none;">
               <pre style="background:#1e293b;color:#e2e8f0;padding:14px 40px 14px 14px;border-radius:0 8px 8px 8px;
                           font-size:.78em;line-height:1.6;overflow-x:auto;margin:0 0 12px 0;white-space:pre-wrap;word-break:break-all;"
-              ><code id="entra-script-bash"># Printix MCP — Entra App (Bash)
+              ><code id="entra-script-bash"># Printix Management Console — Entra App (Bash)
 az login
 APP=$(az ad app create \
-  --display-name "Printix MCP Server" \
+  --display-name "Printix Management Console" \
   --sign-in-audience AzureADMultipleOrgs \
   --web-redirect-uris "{{ entra_redirect_uri }}" -o json)
 APP_ID=$(echo "$APP" | jq -r '.appId')
 SECRET=$(az ad app credential reset \
-  --id "$APP_ID" --display-name "Printix MCP" \
+  --id "$APP_ID" --display-name "Printix Management Console" \
   --years 2 -o json)
 echo "{\"tenant_id\":\"$(az account show --query tenantId -o tsv)\",\"client_id\":\"$APP_ID\",\"client_secret\":\"$(echo "$SECRET" | jq -r '.password')\"}"</code></pre>
               <button type="button" class="copy-btn"

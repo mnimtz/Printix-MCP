@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('rpt_form_title_edit') if is_edit else _('rpt_form_title_new') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('rpt_form_title_edit') if is_edit else _('rpt_form_title_new') }} — {{ _('brand_console_name') }}{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -37,7 +37,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
       <h2 class="section-title" style="margin:0;">
         {{ _('rpt_form_title_edit') if is_edit else _('rpt_form_title_new') }}
-        {% if preset_key %}<span class="badge badge-blue" style="margin-left:8px;font-size:.75em;">Preset</span>{% endif %}
+        {% if preset_key %}<span class="badge badge-blue" style="margin-left:8px;font-size:.75em;">{{ _('reports_list_preset_badge') }}</span>{% endif %}
       </h2>
       <a href="/reports" class="btn btn-secondary btn-sm">{{ _('rpt_back') }}</a>
     </div>
@@ -339,7 +339,7 @@
             <div id="logoPreviewWrap" style="margin-top:10px; {{ 'display:none;' if not _logo_src else '' }}">
               <img id="logoPreview" class="logo-preview"
                    src="{{ _logo_src }}"
-                   alt="Logo preview"
+                   alt="{{ _('reports_logo_preview_alt') }}"
                    style="display:{{ 'inline-block' if _logo_src else 'none' }}"
                    onerror="this.style.display='none'">
               <button type="button" class="btn btn-secondary btn-sm"
@@ -526,12 +526,12 @@ function handleLogoSelect(input) {
   if (!file) return;
 
   if (!/^image\//.test(file.type)) {
-    alert((I18N && I18N.logo_err_type) || "Bitte eine Bilddatei w\u00e4hlen (PNG/JPG/SVG).");
+    alert((I18N && I18N.logo_err_type) || "{{ _('reports_logo_error_type') }}");
     input.value = "";
     return;
   }
   if (file.size > LOGO_MAX_BYTES) {
-    alert((I18N && I18N.logo_err_size) || "Datei zu gro\u00df (max. 512 KB).");
+    alert((I18N && I18N.logo_err_size) || "{{ _('reports_logo_error_size') }}");
     input.value = "";
     return;
   }

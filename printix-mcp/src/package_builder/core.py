@@ -150,6 +150,21 @@ class PackageBuilderCore:
             result.prefill = {**prefill, **result.prefill}
         return result
 
+    def analyze_localized(self, session_id: str, tenant: Optional[Dict] = None, tr=None) -> AnalysisResult:
+        session = self._get_session(session_id)
+        if not session:
+            return AnalysisResult(ok=False, error=(tr("fleet_builder_error_session_missing") if tr else "Session nicht gefunden oder abgelaufen."))
+
+        vendor = get_vendor(session.vendor_id)
+        if not vendor:
+            return AnalysisResult(ok=False, error=(tr("fleet_builder_error_vendor_missing", vendor=session.vendor_id) if tr else f"Vendor '{session.vendor_id}' nicht verfügbar."))
+
+        result = vendor.analyze(session.upload_path, tr=tr)
+        if result.ok and tenant:
+            prefill = vendor.prefill_from_tenant(tenant)
+            result.prefill = {**prefill, **result.prefill}
+        return result
+
     # ── Patch ─────────────────────────────────────────────────────────────────
 
     def patch(
@@ -213,6 +228,13 @@ class PackageBuilderCore:
             return []
         vendor = get_vendor(session.vendor_id)
         return vendor.get_install_notes(field_values) if vendor else []
+
+    def get_install_notes_localized(self, session_id: str, field_values: Dict[str, str], tr=None) -> List[str]:
+        session = self._get_session(session_id)
+        if not session:
+            return []
+        vendor = get_vendor(session.vendor_id)
+        return vendor.get_install_notes(field_values, tr=tr) if vendor else []
 
     # ── Intern ────────────────────────────────────────────────────────────────
 

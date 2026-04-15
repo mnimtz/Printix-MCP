@@ -1,6 +1,6 @@
 # Printix MCP Server — Home Assistant Add-on
 
-**Version 5.3.0** · Multi-Tenant MCP Server for the Printix Cloud Print API
+**Version 5.8.2** · Multi-Tenant MCP Server for the Printix Cloud Print API
 
 A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix Cloud Print API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Manage printers, users, print jobs, and generate detailed reports — all through natural language in your AI chat.
 
@@ -46,6 +46,16 @@ A dedicated tool for managing, transforming and locally mapping RFID/badge card 
 - **Search & Filter** — full-text search across all stored card mappings
 - **Sync Import** — import card data from Printix users into local mappings
 - **Accessible via** the "🃏 Karten & Codes" menu entry
+
+### Cards UX Refresh (since v5.3.10)
+
+- **Clear split of responsibilities** — `Benutzer & Karten` stays the simple workflow, while `Karten & Codes` is the advanced workspace
+- **Profile now visible and actionable** — built-in profiles can be applied directly, and copied into editable custom profiles
+- **Custom profile management** — add, edit and delete your own reader/transformation profiles in the UI
+- **User detail integration** — profiles are now also available when adding a card under `Benutzer & Karten`
+- **Safer add-card flow** — when a profile is selected, the server recomputes the final value from the raw input before sending it to Printix
+- **Reader-oriented built-ins** — added profile templates based on the project notes and Excel workflows for YSoft/Konica, Elatec, RFIDeas and Baltech
+- **Richer local card evidence** — local SQLite mappings now persist preview data such as working value, HEX/Decimal derivations and the Printix secret for exact user/card context
 
 ### Reports & Automation (since v3.0.0)
 
@@ -102,6 +112,13 @@ Each user manages their own Printix OAuth2 credentials independently. Multiple t
 
 See [CHANGELOG.md](CHANGELOG.md) for a full version history.
 
+**v5.8.2** — Ricoh package builder repair, ZIP structure preservation, branding cleanup to Printix Management Console
+**v5.8.1** — Full dashboard and cards translation pass, plus template i18n cleanup for non-DE locales
+**v5.7.1** — Wider i18n coverage across cards, reports, capture and navigation polish
+**v5.5.0** — Landing page tiles, broader responsive UI refresh, cleaner mobile layout foundation
+**v5.3.12** — User card browser in detail view, reduced scrolling, clearer card actions
+**v5.3.11** — Built-in profile detail browser, reduced sidebar scrolling, more modern master-detail layout
+**v5.3.10** — Cards UX refresh, profile management UI, profile-aware add-card hardening, richer reader profile library, guided profile editor fields, improved local card mapping storage and grouped profile discoverability
 **v4.6.20** — Advanced card transformer UI in “Benutzer & Karten”, decoded stored card display, prefix/suffix trimming, leading-zero rules, HEX/decimal/reversed-byte previews
 **v4.6.19** — Fix Tenant URL field styling (input[type=url] in global CSS)
 **v4.6.18** — Tenant URL as settings field, Package Builder prefill, UI fixes
@@ -115,3 +132,9 @@ See [CHANGELOG.md](CHANGELOG.md) for a full version history.
 ## License
 
 MIT License — 2026 [Marcus Nimtz](https://github.com/mnimtz) / Tungsten Automation
+### UI Refresh & Landing Page (since v5.5.0)
+
+- **Modern landing page** — after login, users land on a colorful tile-based home screen with direct short links to the most important features
+- **Feature tiles for daily work** — `Drucker`, `Queues`, `Workstations`, `Benutzer & Karten`, `Demo-Daten`, `Karten & Codes`, `Reports`, `Clientless / Zero Trust Builder`, `Fleet Monitor`, `Capture-Store` and `Logs`
+- **Stronger responsive foundation** — global layout, cards and table wrappers now behave more robustly on mobile and small displays
+- **Cleaner user card experience** — user cards and built-in profile browsing use focused master-detail layouts instead of long scrolling stacks

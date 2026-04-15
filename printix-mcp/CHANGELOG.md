@@ -1,4 +1,125 @@
-## 5.3.0 (2026-04-14) — Cards & Codes Final Release
+## 5.8.4 (2026-04-15) — Dashboard Tile Translation Fix
+
+### Fixed
+- Corrected missing dashboard tile subtitle translations for the `Clientless / Zero Trust Builder` and `Druckerflotte` tiles in additional languages so they no longer fall back to the wrong language
+- Extended the newer branding/landing-page translation layer with the affected tile texts for ES, NO and SV
+
+## 5.8.3 (2026-04-15) — Dashboard Tile Balance
+
+### Changed
+- Balanced the dashboard quick-access grid so all tiles keep the same visual card height on desktop instead of the final row feeling larger
+- Compressed the environmental tile into the same card footprint and replaced the metric labels with compact symbols for a cleaner, less text-heavy look
+- Kept the metric meaning accessible through localized hover titles while preserving a tighter dashboard layout
+
+## 5.8.2 (2026-04-15) — Ricoh Builder Repair & Branding Cleanup
+
+### Fixed
+- Repaired the Ricoh package analyzer so real DALP packages no longer fail during XML inspection because of a translator-variable collision
+- Preserved ZIP entry structure more carefully while rebuilding patched vendor packages so simple Ricoh uploads keep their original folder and file layout intact
+- Continued the localization pass in the package builder by moving the visible package-version label behind translation keys
+
+### Changed
+- Renamed the visible product branding from `Printix MCP Admin` / `Printix MCP Server` to `Printix Management Console` in the login/runtime-facing console surfaces touched by this update
+- Bumped the shared runtime/add-on version to `5.8.2` for consistent banners, health output and package metadata
+
+## 5.8.1 (2026-04-15) — Dashboard & Cards Translation Completion
+
+### Changed
+- Completed the translation follow-up for the new dashboard landing page so tile labels, helper texts and status cards no longer default back to English in non-DE locales like Dutch
+- Extended the cards-related i18n coverage for `Karten & Codes` and `Benutzer & Karten`, including profile selectors, built-in browser metadata, Base64 source labels and vendor recommendation hints
+- Removed remaining hard-coded fallback words such as `Generic`, `Any`, `Custom` and inline recommendation text from the cards templates so the active UI language can fully drive those surfaces
+
+## 5.8.0 (2026-04-15) — Cross-Language UI Cleanup & Responsive Follow-Up
+
+### Changed
+- Continued the translation cleanup across `Settings`, `Demo-Daten`, `Fleet Package Builder` and remaining helper flows so more UI text now follows the selected language
+- Added new translation keys not only for DE/EN but also for FR, IT, ES, NL, NO and SV in the newly touched areas
+- Improved mobile behavior for the package builder and demo pages so step bars, action rows, preset cards and summary boxes stack more cleanly on smaller screens
+
+## 5.7.1 (2026-04-15) — Extended I18n Coverage
+
+### Changed
+- Continued the localization cleanup in navigation, admin settings, reports, capture workflows and the cards/user conversion helpers
+- Replaced remaining hard-coded labels in `Karten & Codes` and `Benutzer & Karten` for input modes, submit modes, preview tables and profile editing fields
+- Moved more capture and report feedback text, copy actions and upload warnings behind translation keys so the active UI language is reflected more consistently
+
+## 5.7.0 (2026-04-15) — I18n Cleanup & Cards UI Consistency
+
+### Changed
+- Replaced many remaining hard-coded UI texts in the registration flow, settings, tenant views and card workflows with centralized translation keys
+- Normalized `Karten & Codes` and `Benutzer & Karten` so helper texts, messages, buttons, placeholders and JavaScript alerts follow the active UI language
+- Cleaned up Printix tenant pages (`Drucker`, `Queues`, `Workstations`, `Benutzer`) to reduce mixed-language output in search bars, counters, status labels and empty states
+
+### Added
+- Centralized extra translation key layer for newly normalized UI sections with automatic fallback wiring for all supported languages
+- New versioned release notes for the wider localization pass and cards/user-flow consistency work
+
+## 5.5.0 (2026-04-15) — Landing Page & Responsive UI Refresh
+
+### Changed
+- Reworked `/dashboard` into a modern landing page with colorful feature tiles and direct short links to the most important product areas
+- Improved the global UI foundation in `base.html` so containers, cards, forms and table wrappers behave more reliably on smaller screens
+- Continued the master-detail direction in cards/profile workflows to reduce long scrolling areas and improve focus
+
+### Added
+- Landing page shortcuts for `Drucker`, `Queues`, `Workstations`, `Benutzer & Karten`, `Demo-Daten`, `Karten & Codes`, `Reports`, `Clientless / Zero Trust Builder`, `Fleet Monitor`, `Capture-Store` and `Logs`
+- New status and quick-access panels on the landing page for a clearer first step after login
+
+## 5.3.12 (2026-04-15) — User Card Detail Browser
+
+### Changed
+- Replaced the long scrolling card stack in the user detail page with a master-detail browser
+- Existing cards are now selected from a compact left-side list and shown in a focused detail panel
+- Card delete and local value repair actions stay directly available without forcing the page to grow endlessly
+
+## 5.3.11 (2026-04-15) — Built-in Profile Detail Browser
+
+### Changed
+- Replaced the long scrolling built-in profile stack in `Karten & Codes` with a master-detail browser
+- Built-in profiles now open in a dedicated detail panel with description, rule chips and direct actions
+- The right column is more compact and modern while staying editable and extensible
+
+## 5.3.10 (2026-04-15) — Cards UX Refresh & Version Consistency
+
+### Changed
+- `Karten & Codes` redesigned as the dedicated advanced workspace for card values, mappings and transformation profiles
+- Clearer separation between `Benutzer & Karten` (standard workflow) and `Karten & Codes` (advanced workflow)
+- User detail card add form now supports direct profile selection with a reduced default UI and collapsible advanced options
+- Flexible card transformation rules now support `remove_chars`, `replace_map`, `prepend_text`, `append_text`, `append_char`, `append_count`, `base64_source` and the `working` submit mode
+- `Benutzer & Karten` now surfaces stored Printix secret, working value and derived HEX/Decimal values when a local mapping exists
+- Grouped profile selects in both `Karten & Codes` and `Benutzer & Karten` make built-ins easier to find by manufacturer
+- Built-in profile list in `Karten & Codes` is now grouped by vendor with recommendation hints for common reader families
+- Selection labels now surface vendor and reader context more clearly for faster profile picking
+
+### Added
+- Custom profile editing directly in the `Karten & Codes` UI
+- Built-in profile actions to apply them in Card Lab or duplicate them into editable custom profiles
+- Shared profile availability in both the advanced card tool and the user detail page
+- Central runtime version file for consistent server, capture and health responses
+- Reader-oriented built-in profiles derived from the project notes and Excel workflows, including YSoft/Konica, Elatec, RFIDeas, Baltech, Inepro Spider, MiCard RFIDeas, HP MFP24 and double-Base64 cases
+- Guided profile editor fields for common rule options such as submit mode, Base64 source, cleanup, replacements and append logic
+- Richer mapping persistence in SQLite with stored preview JSON and Printix secret values for exact user/card context
+
+### Fixed
+- When adding a card with a selected profile, the server now recomputes the final submit value from the raw value before registering the card in Printix
+- Removed the unused legacy `cards.html` template to avoid parallel UI implementations drifting apart
+- Version strings aligned across `config.yaml`, startup banners, health endpoints and README files
+- Tenant user detail now actually receives the richer locally stored card mapping fields instead of silently dropping them
+
+---
+
+## 5.3.9 (2026-04-14) — Cards Schema Repair & Profile Save Fix
+
+### Fixed
+- `card_mappings` migration now adds all missing columns for existing SQLite databases, including `local_value`, `final_value`, `normalized_value`, `source`, `notes`, `updated_at`, `profile_id` and `search_blob`
+- Fix for `❌ table card_mappings has no column named local_value` when adding a new card under **Benutzer & Karten**
+- `upsert_profile()` is now a real update-or-insert instead of always creating a new profile
+- `/cards/profiles/save` now stores `rules_json` consistently as an object default (`{}`) instead of `[]`
+- Local card mappings can now persist the selected `profile_id` in a dedicated DB column instead of overloading `notes`
+
+---
+
+## 5.3.8 (2026-04-14) — Cards & Codes Final Release
 
 ### New
 - **Karten & Codes** page (`/cards`) — full Card Lab with local mappings, transformation profiles and search

@@ -1,22 +1,20 @@
 {% extends "base.html" %}
-{% block title %}Registrierung — Optionen{% endblock %}
+{% block title %}{{ _('reg_title') }} — {{ _('reg_step3') }}{% endblock %}
 {% block content %}
 <div class="container">
   <div class="card">
     <div class="steps">
-      <div class="step-item"><div class="step-circle done">✓</div><span class="step-label">Konto</span></div>
+      <div class="step-item"><div class="step-circle done">✓</div><span class="step-label">{{ _('reg_step1') }}</span></div>
       <div class="step-connector"></div>
-      <div class="step-item"><div class="step-circle done">✓</div><span class="step-label">Printix API</span></div>
+      <div class="step-item"><div class="step-circle done">✓</div><span class="step-label">{{ _('reg_step2') }}</span></div>
       <div class="step-connector"></div>
-      <div class="step-item"><div class="step-circle active">3</div><span class="step-label active">Optional</span></div>
+      <div class="step-item"><div class="step-circle active">3</div><span class="step-label active">{{ _('reg_step3') }}</span></div>
       <div class="step-connector"></div>
-      <div class="step-item"><div class="step-circle pending">4</div><span class="step-label">Zusammenfassung</span></div>
+      <div class="step-item"><div class="step-circle pending">4</div><span class="step-label">{{ _('reg_step4') }}</span></div>
     </div>
 
-    <div class="section-title">Optionale Erweiterungen</div>
-    <div class="section-sub">
-      Diese Einstellungen sind nicht erforderlich — du kannst sie jederzeit später hinzufügen.
-    </div>
+    <div class="section-title">{{ _('reg_optional_title') }}</div>
+    <div class="section-sub">{{ _('reg_optional_subtitle') }}</div>
 
     {% if error %}
     <div class="alert alert-error">{{ error }}</div>
@@ -25,11 +23,10 @@
     <form method="post" action="/register/optional">
       <!-- SQL Reporting -->
       <div style="font-size:.9em; font-weight:700; color:#1e3a5f; margin-bottom:4px;">
-        📊 Azure SQL Reporting
+        📊 {{ _('reg_sql_reporting_title') }}
       </div>
       <div style="font-size:.83em; color:#6b7280; margin-bottom:16px;">
-        Direktzugriff auf die Printix BI-Datenbank für AI-gestütztes Reporting.
-        Zugangsdaten werden von Printix/Tungsten bereitgestellt.
+        {{ _('reg_sql_reporting_subtitle') }}
       </div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
         <div class="form-group" style="grid-column: 1 / -1;">
@@ -55,11 +52,10 @@
 
       <!-- Mail -->
       <div style="font-size:.9em; font-weight:700; color:#1e3a5f; margin-bottom:4px;">
-        📧 E-Mail-Versand (Resend)
+        📧 {{ _('reg_mail_title') }}
       </div>
       <div style="font-size:.83em; color:#6b7280; margin-bottom:16px;">
-        Für automatischen Versand von Reports per E-Mail.
-        API-Key erstellen unter <strong>resend.com → API Keys</strong>.
+        {{ _('reg_mail_subtitle') | safe }}
       </div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
         <div class="form-group">
@@ -67,16 +63,16 @@
           <input type="password" name="mail_api_key" placeholder="re_...">
         </div>
         <div class="form-group">
-          <label>Absenderadresse</label>
+          <label>{{ _('reg_mail_sender') }}</label>
           <input type="email" name="mail_from" placeholder="reports@firma.de">
         </div>
       </div>
 
       <div style="display:flex; gap:12px; margin-top:8px;">
-        <a href="/register/api" class="btn btn-secondary">← Zurück</a>
-        <button type="submit" class="btn btn-primary">Weiter →</button>
+        <a href="/register/api" class="btn btn-secondary">← {{ _('reg_back') }}</a>
+        <button type="submit" class="btn btn-primary">{{ _('reg_next') }} →</button>
         <a href="/register/optional" onclick="skipOptional(event)" class="btn btn-secondary" style="color:#6b7280;">
-          Überspringen →
+          {{ _('reg_skip_optional') }} →
         </a>
       </div>
     </form>

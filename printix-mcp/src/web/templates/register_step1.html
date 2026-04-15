@@ -1,29 +1,29 @@
 {% extends "base.html" %}
-{% block title %}Registrierung — Konto{% endblock %}
+{% block title %}{{ _('reg_title') }} — {{ _('reg_step1') }}{% endblock %}
 {% block content %}
 <div class="container">
   <div class="card">
     <div class="steps">
-      <div class="step-item"><div class="step-circle active">1</div><span class="step-label active">Konto</span></div>
+      <div class="step-item"><div class="step-circle active">1</div><span class="step-label active">{{ _('reg_step1') }}</span></div>
       <div class="step-connector"></div>
-      <div class="step-item"><div class="step-circle pending">2</div><span class="step-label">Printix API</span></div>
+      <div class="step-item"><div class="step-circle pending">2</div><span class="step-label">{{ _('reg_step2') }}</span></div>
       <div class="step-connector"></div>
-      <div class="step-item"><div class="step-circle pending">3</div><span class="step-label">Optional</span></div>
+      <div class="step-item"><div class="step-circle pending">3</div><span class="step-label">{{ _('reg_step3') }}</span></div>
       <div class="step-connector"></div>
-      <div class="step-item"><div class="step-circle pending">4</div><span class="step-label">Zusammenfassung</span></div>
+      <div class="step-item"><div class="step-circle pending">4</div><span class="step-label">{{ _('reg_step4') }}</span></div>
     </div>
 
-    <div class="section-title">Konto erstellen</div>
-    <div class="section-sub">Benutzername und Passwort für die Web-Verwaltungsoberfläche.</div>
+    <div class="section-title">{{ _('reg_account_create') }}</div>
+    <div class="section-sub">{{ _('reg_account_subtitle') }}</div>
 
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
     <form method="post" action="/register">
       <div class="form-group">
-        <label for="username">Benutzername</label>
+        <label for="username">{{ _('reg_username') }}</label>
         <input type="text" id="username" name="username" value="{{ username | default('') }}"
                placeholder="z.B. marcus" required minlength="3" autocomplete="username">
-        <small class="hint">Mindestens 3 Zeichen. Wird für den Login verwendet.</small>
+        <small class="hint">{{ _('reg_username_hint') }}</small>
       </div>
       <div class="form-group">
         <label for="full_name">{{ _('reg_full_name') }}</label>
@@ -36,24 +36,24 @@
                placeholder="z.B. Acme GmbH" autocomplete="organization">
       </div>
       <div class="form-group">
-        <label for="email">E-Mail-Adresse (optional)</label>
+        <label for="email">{{ _('reg_email_optional') }}</label>
         <input type="email" id="email" name="email" value="{{ email | default('') }}"
                placeholder="name@firma.de" autocomplete="email">
       </div>
       <div class="form-group">
-        <label for="password">Passwort</label>
+        <label for="password">{{ _('reg_password') }}</label>
         <input type="password" id="password" name="password"
-               placeholder="Mindestens 8 Zeichen" required minlength="8" autocomplete="new-password">
+               placeholder="{{ _('reg_password_min_placeholder') }}" required minlength="8" autocomplete="new-password">
       </div>
       <div class="form-group">
-        <label for="password2">Passwort wiederholen</label>
+        <label for="password2">{{ _('reg_password_repeat') }}</label>
         <input type="password" id="password2" name="password2"
-               placeholder="Passwort bestätigen" required autocomplete="new-password">
+               placeholder="{{ _('reg_password2') }}" required autocomplete="new-password">
       </div>
-      <button type="submit" class="btn btn-primary">Weiter →</button>
+      <button type="submit" class="btn btn-primary">{{ _('reg_next') }} →</button>
     </form>
     <div style="margin-top: 20px; font-size: .85em; color: #6b7280;">
-      Bereits registriert? <a href="/login" style="color: #2563eb;">Anmelden</a>
+      {{ _('reg_already_registered') }} <a href="/login" style="color: #2563eb;">{{ _('nav_login') }}</a>
     </div>
   </div>
 </div>

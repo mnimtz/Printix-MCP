@@ -1,5 +1,5 @@
 """
-Printix MCP Server — Home Assistant Add-on v5.3.0 (Multi-Tenant)
+Printix MCP Server — Home Assistant Add-on (Multi-Tenant)
 =================================================================
 Model Context Protocol server for the Printix Cloud Print API.
 
@@ -30,6 +30,7 @@ from mcp.server.fastmcp import FastMCP
 from printix_client import PrintixClient, PrintixAPIError
 from auth import BearerAuthMiddleware, current_tenant
 from oauth import OAuthMiddleware
+from app_version import APP_VERSION
 
 
 # ─── Logging Setup ────────────────────────────────────────────────────────────
@@ -2422,7 +2423,7 @@ if __name__ == "__main__":
             logger.warning("Scheduler-Init fehlgeschlagen: %s", _sched_err)
 
     logger.info("╔══════════════════════════════════════════════════════════════╗")
-    logger.info("║        PRINTIX MCP SERVER v4.6.19 — MULTI-TENANT            ║")
+    logger.info("║        PRINTIX MCP SERVER v%s — MULTI-TENANT            ║", APP_VERSION)
     logger.info("╠══════════════════════════════════════════════════════════════╣")
     logger.info("║  MCP (claude.ai):  %s/mcp", base)
     logger.info("║  SSE (ChatGPT):    %s/sse", base)

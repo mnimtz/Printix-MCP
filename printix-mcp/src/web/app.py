@@ -58,7 +58,7 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 
 
 def create_app(session_secret: str) -> FastAPI:
-    app = FastAPI(title="Printix MCP Admin", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Printix Management Console", docs_url=None, redoc_url=None)
     app.add_middleware(SessionMiddleware, secret_key=session_secret, max_age=3600 * 8)
 
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -1233,6 +1233,7 @@ def create_app(session_secret: str) -> FastAPI:
         vendor_id: str = Form(""),
         file: UploadFile = File(...),
     ):
+        tc = t_ctx(request)
         user = require_login(request)
         if user is None:
             return JSONResponse({"ok": False, "error": "Nicht angemeldet."}, status_code=401)
@@ -1254,7 +1255,7 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception:
             pass
 
-        result = _pkg_builder.analyze(session_id, tenant=tenant)
+        result = _pkg_builder.analyze_localized(session_id, tenant=tenant, tr=tc["_"])
         if not result.ok:
             _pkg_builder.cleanup_session(session_id)
             return JSONResponse({"ok": False, "error": result.error})
@@ -1281,7 +1282,7 @@ def create_app(session_secret: str) -> FastAPI:
         result = _pkg_builder.patch(session_id, field_values, original_filename)
         resp = result.to_dict()
         if result.ok:
-            notes = _pkg_builder.get_install_notes(session_id, field_values)
+            notes = _pkg_builder.get_install_notes_localized(session_id, field_values, tr=t_ctx(request)["_"])
             resp["install_notes"] = notes
         return JSONResponse(resp)
 
@@ -2351,6 +2352,7 @@ def create_app(session_secret: str) -> FastAPI:
         tc = t_ctx(request)
         px_user = None
         cards   = []
+        profiles = []
         error   = None
         try:
             from db import get_tenant_full_by_user_id
@@ -2358,6 +2360,15 @@ def create_app(session_secret: str) -> FastAPI:
             if not tenant or not (tenant.get("card_client_id") or tenant.get("shared_client_id")):
                 error = "no_card_creds"
             else:
+                try:
+                    from cards.store import list_profiles, init_cards_tables
+                    from cards.profiles import get_builtin_profiles
+                    init_cards_tables()
+                    builtin_profiles = get_builtin_profiles()
+                    custom_profiles = list_profiles(tenant.get("id", ""))
+                    profiles = builtin_profiles + custom_profiles
+                except Exception as _profile_e:
+                    logger.warning("tenant_user_detail profiles unavailable: %s", _profile_e)
                 client = _make_printix_client(tenant)
                 px_user_raw = client.get_user(printix_user_id)
                 # Printix API returns {"user": {...}, "success": true} — unwrap nested
@@ -2374,8 +2385,15 @@ def create_app(session_secret: str) -> FastAPI:
                         href = (c.get("_links") or {}).get("self", {}).get("href", "")
                         c["card_id"] = href.split("/")[-1] if href else c.get("id", "")
                         mapping = get_mapping_by_card(tenant_id, printix_user_id, c["card_id"])
-                        if mapping and mapping.get("local_value"):
-                            c["display_value"] = mapping.get("local_value")
+                        if mapping:
+                            c["display_value"] = mapping.get("display_value") or mapping.get("local_value")
+                            c["final_value"] = mapping.get("final_value", "")
+                            c["printix_secret_value"] = mapping.get("printix_secret_value", "")
+                            c["working_value"] = mapping.get("working_value", "")
+                            c["hex_value"] = mapping.get("hex_value", "")
+                            c["hex_reversed_value"] = mapping.get("hex_reversed_value", "")
+                            c["decimal_value"] = mapping.get("decimal_value", "")
+                            c["decimal_reversed_value"] = mapping.get("decimal_reversed_value", "")
                         cards.append(c)
                 except Exception:
                     cards = []
@@ -2384,7 +2402,7 @@ def create_app(session_secret: str) -> FastAPI:
             error = str(e)
         return templates.TemplateResponse("tenant_user_detail.html", {
             "request": request, "user": user,
-            "px_user": px_user, "cards": cards,
+            "px_user": px_user, "cards": cards, "profiles": profiles,
             "printix_user_id": printix_user_id,
             "flash": flash, "error": error,
             **tc,
@@ -2395,42 +2413,84 @@ def create_app(session_secret: str) -> FastAPI:
         request: Request,
         printix_user_id: str,
         card_number: str = Form(...),
+        raw_value: str = Form(""),
+        normalized_value: str = Form(""),
+        final_value: str = Form(""),
+        profile_id: str = Form(""),
     ):
         user = require_login(request)
         if user is None:
             return JSONResponse({"ok": False, "error": "not logged in"}, status_code=401)
         try:
-            from db import get_tenant_full_by_user_id
-            tenant = get_tenant_full_by_user_id(user["id"])
+            tenant = _cards_tenant_for_user(user)
             client = _make_printix_client(tenant)
+            source_raw = (raw_value or "").strip()
+            source_normalized = (normalized_value or "").strip() or source_raw
+            sent_value = (final_value or card_number or "").strip()
+            final_to_store = sent_value
+            if profile_id:
+                from cards.store import get_profile, init_cards_tables
+                from cards.transform import transform_card_value
+                init_cards_tables()
+                prof = get_profile(profile_id, tenant.get("id", ""))
+                rules = (prof or {}).get("rules_json", {}) if prof else {}
+                if isinstance(rules, str):
+                    import json as _json
+                    try:
+                        rules = _json.loads(rules or "{}")
+                    except Exception:
+                        rules = {}
+                preview = transform_card_value(source_raw or sent_value, **rules)
+                source_raw = source_raw or preview.get("raw", "") or sent_value
+                source_normalized = preview.get("normalized") or source_normalized
+                sent_value = preview.get("final_submit_value") or sent_value
+                final_to_store = sent_value
+            else:
+                from cards.transform import transform_card_value
+                preview = transform_card_value(source_raw or sent_value)
+                source_raw = source_raw or preview.get("raw", "") or sent_value
+                source_normalized = preview.get("normalized") or source_normalized
+                final_to_store = sent_value
+
             before = client.list_user_cards(printix_user_id)
             before_ids = set()
             for c in before.get("cards", before.get("content", [])):
-                href = (c.get("_links") or {}).get("self", {}).get("href", "")
-                cid = href.split("/")[-1] if href else c.get("id", "")
+                cid = _extract_card_id(c)
                 if cid:
                     before_ids.add(cid)
-            client.register_card(printix_user_id, card_number.strip())
-            try:
-                from cards.transform import transform_card_value
+            client.register_card(printix_user_id, sent_value)
+
+            after = client.list_user_cards(printix_user_id)
+            after_cards = after.get("cards", after.get("content", []))
+            new_card_id = _find_new_card_id(before_ids, after_cards)
+
+            if not new_card_id:
+                try:
+                    card_obj = client.search_card(card_number=sent_value)
+                    candidate_id = _extract_card_id(card_obj)
+                    owner_href = (((card_obj.get("_links") or {}).get("owner") or {}).get("href", "") if isinstance(card_obj, dict) else "")
+                    if candidate_id and (not owner_href or owner_href.endswith("/" + printix_user_id)):
+                        new_card_id = candidate_id
+                except Exception as _search_e:
+                    logger.warning("card search fallback failed: %s", _search_e)
+
+            if new_card_id:
                 from cards.store import save_mapping, init_cards_tables
                 init_cards_tables()
-                after = client.list_user_cards(printix_user_id)
-                after_cards = after.get("cards", after.get("content", []))
-                new_card_id = ""
-                for c in after_cards:
-                    href = (c.get("_links") or {}).get("self", {}).get("href", "")
-                    cid = href.split("/")[-1] if href else c.get("id", "")
-                    if cid and cid not in before_ids:
-                        new_card_id = cid
-                        break
-                preview = transform_card_value(card_number.strip())
-                save_mapping(tenant.get("id",""), printix_user_id, new_card_id, card_number.strip(), preview.get("final_submit_value",""), preview.get("normalized",""), "tenant_user_add_card", "")
-            except Exception as _map_e:
-                logger.warning("local card mapping save failed: %s", _map_e)
-            return RedirectResponse(
-                f"/tenant/users/{printix_user_id}?flash=card_added", status_code=302
-            )
+                save_mapping(
+                    tenant.get("id", ""),
+                    printix_user_id,
+                    new_card_id,
+                    source_raw,
+                    final_to_store,
+                    source_normalized,
+                    "tenant_user_add_card",
+                    "",
+                    profile_id or "",
+                    preview=preview,
+                )
+                return RedirectResponse(f"/tenant/users/{printix_user_id}?flash=card_added", status_code=302)
+            return RedirectResponse(f"/tenant/users/{printix_user_id}?flash=error&errmsg=Card%20created%20in%20Printix%20but%20local%20mapping%20failed", status_code=302)
         except Exception as e:
             logger.error("tenant_user_add_card error: %s", e)
             from urllib.parse import quote_plus as _qp
@@ -2488,7 +2548,17 @@ def create_app(session_secret: str) -> FastAPI:
             tenant = get_tenant_full_by_user_id(user["id"])
             init_cards_tables()
             preview = transform_card_value(local_value.strip())
-            save_mapping(tenant.get("id",""), printix_user_id, card_id, local_value.strip(), preview.get("final_submit_value",""), preview.get("normalized",""), "tenant_user_manual", "")
+            save_mapping(
+                tenant.get("id",""),
+                printix_user_id,
+                card_id,
+                local_value.strip(),
+                preview.get("final_submit_value",""),
+                preview.get("normalized",""),
+                "tenant_user_manual",
+                "",
+                preview=preview,
+            )
             return RedirectResponse(f"/tenant/users/{printix_user_id}?flash=card_added", status_code=302)
         except Exception as e:
             logger.error("tenant_user_save_local_card_value error: %s", e)
@@ -2873,6 +2943,26 @@ def create_app(session_secret: str) -> FastAPI:
 
 
 
+
+    def _cards_tenant_for_user(user_dict):
+        from db import get_tenant_full_by_user_id
+        return get_tenant_full_by_user_id(user_dict["id"])
+
+    def _extract_card_id(card_obj):
+        if not isinstance(card_obj, dict):
+            return ""
+        href = ((card_obj.get("_links") or {}).get("self") or {}).get("href", "")
+        if href:
+            return href.split("/")[-1]
+        return card_obj.get("card_id", "") or card_obj.get("id", "") or ""
+
+    def _find_new_card_id(before_ids, after_cards):
+        for c in after_cards or []:
+            cid = _extract_card_id(c)
+            if cid and cid not in before_ids:
+                return cid
+        return ""
+
     # ── Cards & Codes ─────────────────────────────────────────────────────────
     @app.get("/cards", response_class=HTMLResponse)
     async def cards_tool_get(request: Request, q: str = ""):
@@ -2881,32 +2971,56 @@ def create_app(session_secret: str) -> FastAPI:
         from cards.store import init_cards_tables, search_mappings, list_profiles
         from cards.profiles import get_builtin_profiles
         init_cards_tables()
-        tid = user.get("tenant_id", "")
+        tenant = _cards_tenant_for_user(user)
+        tid = tenant.get("id", "")
         mappings = search_mappings(tid, q)
-        profiles = list_profiles(tid) + get_builtin_profiles()
+        builtin_profiles = get_builtin_profiles()
+        custom_profiles = list_profiles(tid)
+        profiles = builtin_profiles + custom_profiles
         tc = t_ctx(request)
         return templates.TemplateResponse("cards_tool.html", {
-            "request": request, **tc, "user": user, "mappings": mappings, "profiles": profiles, "query": q
+            "request": request, **tc, "user": user, "mappings": mappings,
+            "profiles": profiles, "builtin_profiles": builtin_profiles,
+            "custom_profiles": custom_profiles, "query": q
         })
 
     @app.post("/cards/mappings/save", response_class=RedirectResponse)
     async def cards_mapping_save(request: Request):
         user = require_login(request)
         if user is None: return RedirectResponse("/login", status_code=302)
-        from cards.store import init_cards_tables, save_mapping
+        from cards.store import init_cards_tables, save_mapping, get_profile
         from cards.transform import transform_card_value
         init_cards_tables()
+        tenant = _cards_tenant_for_user(user)
+        tid = tenant.get("id", "")
         form = await request.form()
-        tid = user.get("tenant_id", "")
-        uid  = form.get("printix_user_id", "")
-        cid  = form.get("printix_card_id", "")
-        lval = form.get("local_value", "")
-        prof = form.get("profile_id", "")
-        notes = form.get("notes", "")
-        if not (uid and cid and lval):
+        uid = (form.get("printix_user_id", "") or "").strip()
+        cid = (form.get("printix_card_id", "") or "").strip()
+        raw_value = (form.get("raw_value", "") or form.get("local_value", "") or "").strip()
+        normalized_value = (form.get("normalized_value", "") or "").strip()
+        final_value = (form.get("final_value", "") or "").strip()
+        profile_id = (form.get("profile_id", "") or "").strip()
+        notes = (form.get("notes", "") or "").strip()
+        source = (form.get("source", "") or "cards_tool").strip()
+        if not (uid and cid and raw_value):
             return RedirectResponse("/cards?flash=mapping_error", status_code=303)
-        final = transform_card_value(lval, prof) if prof else lval
-        save_mapping(tid, uid, cid, lval, final, final, "cards_tool", notes)
+        if profile_id:
+            prof = get_profile(profile_id, tid)
+            rules = (prof or {}).get("rules_json", {}) if prof else {}
+            if isinstance(rules, str):
+                import json as _json
+                try:
+                    rules = _json.loads(rules or "{}")
+                except Exception:
+                    rules = {}
+            preview = transform_card_value(raw_value, **rules)
+            normalized_value = normalized_value or preview.get("normalized", "")
+            final_value = final_value or preview.get("final_submit_value", "")
+        else:
+            preview = transform_card_value(raw_value)
+            normalized_value = normalized_value or preview.get("normalized", "")
+            final_value = final_value or preview.get("final_submit_value", "")
+        save_mapping(tid, uid, cid, raw_value, final_value, normalized_value, source, notes, profile_id, preview=preview)
         return RedirectResponse("/cards?flash=mapping_saved", status_code=303)
 
     @app.post("/cards/mappings/{mapping_id}/delete", response_class=RedirectResponse)
@@ -2915,7 +3029,8 @@ def create_app(session_secret: str) -> FastAPI:
         if user is None: return RedirectResponse("/login", status_code=302)
         from cards.store import delete_mapping, init_cards_tables
         init_cards_tables()
-        delete_mapping(mapping_id, user.get("tenant_id", ""))
+        tenant = _cards_tenant_for_user(user)
+        delete_mapping(mapping_id, tenant.get("id", ""))
         return RedirectResponse("/cards?flash=mapping_deleted", status_code=303)
 
     @app.post("/cards/profiles/save", response_class=RedirectResponse)
@@ -2925,9 +3040,10 @@ def create_app(session_secret: str) -> FastAPI:
         from cards.store import upsert_profile, init_cards_tables
         init_cards_tables()
         form = await request.form()
-        tid = user.get("tenant_id", "")
-        upsert_profile(tid, form.get("name",""), form.get("vendor",""), form.get("reader_model",""), form.get("mode","plain"), form.get("description",""), form.get("rules_json","[]"))
-        return RedirectResponse("/cards?flash=mapping_saved", status_code=303)
+        tenant = _cards_tenant_for_user(user)
+        tid = tenant.get("id", "")
+        upsert_profile(tid, form.get("name",""), form.get("vendor",""), form.get("reader_model",""), form.get("mode","plain"), form.get("description",""), form.get("rules_json","{}"), form.get("profile_id",""))
+        return RedirectResponse("/cards?flash=profile_saved", status_code=303)
 
     @app.post("/cards/profiles/{profile_id}/delete", response_class=RedirectResponse)
     async def cards_profile_delete(request: Request, profile_id: str):
@@ -2935,13 +3051,61 @@ def create_app(session_secret: str) -> FastAPI:
         if user is None: return RedirectResponse("/login", status_code=302)
         from cards.store import delete_profile, init_cards_tables
         init_cards_tables()
-        delete_profile(profile_id, user.get("tenant_id", ""))
+        tenant = _cards_tenant_for_user(user)
+        delete_profile(profile_id, tenant.get("id", ""))
         return RedirectResponse("/cards", status_code=303)
 
     @app.post("/cards/sync-import", response_class=RedirectResponse)
     async def cards_sync_import(request: Request):
         user = require_login(request)
         if user is None: return RedirectResponse("/login", status_code=302)
-        return RedirectResponse("/cards?flash=sync_ok&imported=0&id_only=0", status_code=303)
+        from cards.store import init_cards_tables, save_mapping
+        init_cards_tables()
+        tenant = _cards_tenant_for_user(user)
+        tid = tenant.get("id", "")
+        client = _make_printix_client(tenant)
+        imported = 0
+        id_only = 0
+        for role in ("USER", "GUEST_USER"):
+            try:
+                users_data = client.list_users(role=role, page=0, page_size=200)
+            except Exception:
+                continue
+            raw_users = users_data.get("users", users_data.get("content", users_data if isinstance(users_data, list) else []))
+            for u in raw_users or []:
+                uid = u.get("id", "")
+                if not uid:
+                    continue
+                try:
+                    cards_data = client.list_user_cards(uid)
+                except Exception:
+                    continue
+                for c in cards_data.get("cards", cards_data.get("content", [])) or []:
+                    cid = _extract_card_id(c)
+                    if not cid:
+                        continue
+                    raw_secret = c.get("secret") or c.get("cardNumber") or c.get("number") or ""
+                    local_value = ""
+                    if raw_secret:
+                        try:
+                            import base64 as _b64
+                            local_value = _b64.b64decode(raw_secret).decode("utf-8")
+                        except Exception:
+                            local_value = raw_secret
+                    if local_value and local_value != cid:
+                        save_mapping(
+                            tid, uid, cid, local_value, raw_secret or local_value, local_value,
+                            "printix_import", "", preview={"raw": local_value, "normalized": local_value,
+                            "final_submit_value": local_value}, printix_secret_value=raw_secret or ""
+                        )
+                        imported += 1
+                    else:
+                        save_mapping(
+                            tid, uid, cid, cid, cid, cid,
+                            "printix_import_id_only", "Printix did not provide original card value",
+                            preview={"raw": cid, "normalized": cid, "final_submit_value": cid}
+                        )
+                        id_only += 1
+        return RedirectResponse(f"/cards?flash=sync_ok&imported={imported}&id_only={id_only}", status_code=303)
 
     return app

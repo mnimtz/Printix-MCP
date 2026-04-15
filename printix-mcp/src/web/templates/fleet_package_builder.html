@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Clientless / Zero Trust Package Builder — Printix MCP{% endblock %}
+{% block title %}{{ _('fleet_builder_title') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block extra_head %}
 <style>
   /* ── Wizard Shell ─────────────────────────────────────────────────────── */
@@ -138,40 +138,48 @@
   .btn-secondary-w:hover { background: #e2e8f0; }
   .btn-success { background: #16a34a; color: #fff; }
   .btn-success:hover { background: #15803d; }
+  @media (max-width: 760px) {
+    .step-bar { flex-direction: column; }
+    .step-item { width: 100%; border-right: none; border-bottom: 1px solid #e5e7eb; }
+    .step-item:last-child { border-bottom: none; }
+    .wizard-actions { flex-direction: column; }
+    .btn-wizard { width: 100%; text-align: center; }
+    .upload-zone { padding: 26px 14px; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container wizard-card">
   <div class="card">
-    <h2 class="section-title" style="margin-bottom: 6px;">📦 Clientless / Zero Trust Package Builder</h2>
+    <h2 class="section-title" style="margin-bottom: 6px;">📦 {{ _('fleet_builder_title') }}</h2>
     <p style="font-size:.87em;color:#6b7280;margin-bottom:24px;">
-      Installerpakete automatisch patchen — ohne manuelles Entpacken.
+      {{ _('fleet_builder_subtitle') }}
     </p>
 
     <!-- Step Indicator -->
     <div class="step-bar" id="step-bar">
       <div class="step-item active" id="step-ind-1">
-        <span class="step-bubble">1</span> Hersteller &amp; Upload
+        <span class="step-bubble">1</span> {{ _('fleet_builder_step_vendor_upload') }}
       </div>
       <div class="step-item" id="step-ind-2">
-        <span class="step-bubble">2</span> Konfiguration
+        <span class="step-bubble">2</span> {{ _('fleet_builder_step_config') }}
       </div>
       <div class="step-item" id="step-ind-3">
-        <span class="step-bubble">3</span> Download
+        <span class="step-bubble">3</span> {{ _('fleet_builder_step_download') }}
       </div>
     </div>
 
     <!-- Status / Error -->
     <div class="status-bar" id="status-bar">
       <div class="spinner"></div>
-      <span id="status-text">Verarbeite…</span>
+      <span id="status-text">{{ _('fleet_builder_status_processing') }}</span>
     </div>
     <div class="error-bar" id="error-bar"></div>
 
     <!-- ── Step 1: Hersteller + Upload ──────────────────────────────────── -->
     <div class="step-panel active" id="step1">
-      <h3 style="margin:0 0 14px;font-size:1em;font-weight:700;">1. Hersteller auswählen</h3>
+      <h3 style="margin:0 0 14px;font-size:1em;font-weight:700;">1. {{ _('fleet_builder_select_vendor') }}</h3>
       <div class="vendor-grid" id="vendor-grid">
         {% for v in vendors %}
         <div class="vendor-card {% if loop.first %}selected{% endif %}"
@@ -189,16 +197,16 @@
         {% endfor %}
       </div>
 
-      <h3 style="margin:24px 0 14px;font-size:1em;font-weight:700;">2. Original-Installerpaket hochladen</h3>
+      <h3 style="margin:24px 0 14px;font-size:1em;font-weight:700;">2. {{ _('fleet_builder_upload_package') }}</h3>
       <div class="upload-zone" id="upload-zone"
            onclick="document.getElementById('file-input').click()"
            ondragover="event.preventDefault();this.classList.add('dragover')"
            ondragleave="this.classList.remove('dragover')"
            ondrop="handleDrop(event)">
         <div class="upload-icon">📂</div>
-        <div style="font-weight:600;color:#374151;">ZIP-Datei hier ablegen oder klicken</div>
+        <div style="font-weight:600;color:#374151;">{{ _('fleet_builder_upload_drop') }}</div>
         <div style="font-size:.82em;color:#9ca3af;margin-top:6px;">
-          Nur Original-Installerpakete vom Hersteller (max. 100 MB)
+          {{ _('fleet_builder_upload_hint') }}
         </div>
         <div class="upload-filename" id="upload-filename" style="display:none;"></div>
       </div>
@@ -207,9 +215,9 @@
 
       <div class="wizard-actions">
         <button class="btn-wizard btn-primary" id="btn-analyze" disabled onclick="doAnalyze()">
-          🔍 Analysieren &amp; weiter →
+          🔍 {{ _('fleet_builder_analyze_continue') }}
         </button>
-        <a href="/fleet" class="btn-wizard btn-secondary-w">← Zurück zur Flotte</a>
+        <a href="/fleet" class="btn-wizard btn-secondary-w">← {{ _('fleet_builder_back_to_fleet') }}</a>
       </div>
     </div>
 
@@ -217,15 +225,13 @@
     <div class="step-panel" id="step2">
       <!-- Analyseergebnis -->
       <div class="analysis-box" id="analysis-box" style="display:none;">
-        <strong>📋 Paketstruktur erkannt:</strong>
+        <strong>📋 {{ _('fleet_builder_analysis_detected') }}</strong>
         <div id="analysis-details" style="margin-top:8px;"></div>
       </div>
 
-      <h3 style="margin:0 0 16px;font-size:1em;font-weight:700;">Konfigurationsfelder</h3>
+      <h3 style="margin:0 0 16px;font-size:1em;font-weight:700;">{{ _('fleet_builder_config_fields') }}</h3>
       <p style="font-size:.82em;color:#6b7280;margin-bottom:18px;">
-        Mit <span style="color:#16a34a;font-weight:700;">grünem Hintergrund</span> vorausgefüllte Felder
-        stammen aus Ihren Portal-Einstellungen — bitte prüfen und bei Bedarf anpassen.
-        Client Secret wird nie gespeichert.
+        {{ _('fleet_builder_prefilled_hint') | safe }}
       </p>
 
       <form id="config-form" onsubmit="return false;">
@@ -234,9 +240,9 @@
 
       <div class="wizard-actions">
         <button class="btn-wizard btn-primary" id="btn-patch" onclick="doPatch()">
-          ⚙️ Paket patchen
+          ⚙️ {{ _('fleet_builder_patch_package') }}
         </button>
-        <button class="btn-wizard btn-secondary-w" onclick="goToStep(1)">← Zurück</button>
+        <button class="btn-wizard btn-secondary-w" onclick="goToStep(1)">← {{ _('reg_back') }}</button>
       </div>
     </div>
 
@@ -244,29 +250,29 @@
     <div class="step-panel" id="step3">
       <div class="success-box">
         <div class="success-icon">✅</div>
-        <div class="success-title">Paket erfolgreich gepatcht!</div>
+        <div class="success-title">{{ _('fleet_builder_success_title') }}</div>
         <div style="font-size:.87em;color:#374151;" id="success-filename"></div>
         <div class="summary-chips" id="summary-chips"></div>
       </div>
 
       <div style="text-align:center;margin-bottom:24px;">
         <a id="download-link" href="#" class="btn-wizard btn-success" style="display:inline-block;">
-          ⬇️ Fertiges ZIP herunterladen
+          ⬇️ {{ _('fleet_builder_download_ready') }}
         </a>
       </div>
 
       <div class="install-notes" id="install-notes-box" style="display:none;">
         <h4 style="margin:0 0 10px;font-size:.9em;font-weight:700;color:#374151;">
-          📋 Installationshinweise
+          📋 {{ _('fleet_builder_install_notes') }}
         </h4>
         <div id="install-notes-list"></div>
       </div>
 
       <div class="wizard-actions">
         <button class="btn-wizard btn-secondary-w" onclick="resetWizard()">
-          🔄 Neues Paket bauen
+          🔄 {{ _('fleet_builder_new_package') }}
         </button>
-        <a href="/fleet" class="btn-wizard btn-secondary-w">← Zurück zur Flotte</a>
+        <a href="/fleet" class="btn-wizard btn-secondary-w">← {{ _('fleet_builder_back_to_fleet') }}</a>
       </div>
     </div>
 
@@ -291,7 +297,7 @@ function selectVendor(card) {
 function handleFileSelect(file) {
   if (!file) return;
   if (!file.name.toLowerCase().endsWith(".zip")) {
-    showError("Bitte eine .zip-Datei auswählen.");
+    showError("{{ _('fleet_builder_error_select_zip') }}");
     return;
   }
   _selectedFile = file;
@@ -314,7 +320,7 @@ function handleDrop(e) {
 // ── Analysieren ────────────────────────────────────────────────────────────
 async function doAnalyze() {
   if (!_selectedFile) return;
-  showStatus("Paket wird hochgeladen und analysiert…");
+  showStatus("{{ _('fleet_builder_status_upload_analyze') }}");
   document.getElementById("btn-analyze").disabled = true;
   hideError();
 
@@ -330,7 +336,7 @@ async function doAnalyze() {
     const data = await resp.json();
 
     if (!data.ok) {
-      showError(data.error || "Analyse fehlgeschlagen.");
+      showError(data.error || "{{ _('fleet_builder_error_analysis_failed') }}");
       document.getElementById("btn-analyze").disabled = false;
       hideStatus();
       return;
@@ -347,7 +353,7 @@ async function doAnalyze() {
     hideStatus();
     goToStep(2);
   } catch (err) {
-    showError("Netzwerk-Fehler: " + err.message);
+    showError("{{ _('fleet_builder_error_network') }}: " + err.message);
     document.getElementById("btn-analyze").disabled = false;
     hideStatus();
   }
@@ -361,7 +367,7 @@ function renderAnalysis(structure) {
 
   let html = "";
   if (structure.package_version) {
-    html += `<div class="found-item">📦 Paketversion: <strong>${esc(structure.package_version)}</strong></div>`;
+    html += `<div class="found-item">📦 ${esc(t('fleet_builder_js_package_version'))}: <strong>${esc(structure.package_version)}</strong></div>`;
   }
   (structure.found_files || []).forEach(f => {
     html += `<div class="found-item">✅ ${esc(f)}</div>`;
@@ -375,7 +381,7 @@ function renderAnalysis(structure) {
 function renderFields(fields, prefill) {
   const container = document.getElementById("fields-container");
   if (!fields || fields.length === 0) {
-    container.innerHTML = "<p style='color:#6b7280;font-size:.88em;'>Keine konfigurierbaren Felder gefunden.</p>";
+    container.innerHTML = "<p style='color:#6b7280;font-size:.88em;'>{{ _('fleet_builder_no_fields') }}</p>";
     return;
   }
 
@@ -418,7 +424,7 @@ function renderFields(fields, prefill) {
 
 // ── Patchen ────────────────────────────────────────────────────────────────
 async function doPatch() {
-  showStatus("Paket wird gepatcht und neu verpackt…");
+  showStatus("{{ _('fleet_builder_status_patch_repack') }}");
   document.getElementById("btn-patch").disabled = true;
   hideError();
 
@@ -443,7 +449,7 @@ async function doPatch() {
     }
   });
   if (missingFields.length > 0) {
-    showError("Bitte alle Pflichtfelder (*) ausfüllen: " + missingFields.join(", "));
+    showError("{{ _('fleet_builder_error_fill_required') }}: " + missingFields.join(", "));
     document.getElementById("btn-patch").disabled = false;
     hideStatus();
     return;
@@ -462,7 +468,7 @@ async function doPatch() {
     const data = await resp.json();
 
     if (!data.ok) {
-      showError(data.error || "Patchen fehlgeschlagen.");
+      showError(data.error || "{{ _('fleet_builder_error_patch_failed') }}");
       document.getElementById("btn-patch").disabled = false;
       hideStatus();
       return;
@@ -473,7 +479,7 @@ async function doPatch() {
     renderSuccess(data);
     goToStep(3);
   } catch (err) {
-    showError("Netzwerk-Fehler: " + err.message);
+    showError("{{ _('fleet_builder_error_network') }}: " + err.message);
     document.getElementById("btn-patch").disabled = false;
     hideStatus();
   }
@@ -482,7 +488,7 @@ async function doPatch() {
 function renderSuccess(data) {
   // Dateiname
   document.getElementById("success-filename").textContent =
-    "📦 " + (data.output_filename || "Paket");
+    "📦 " + (data.output_filename || "{{ _('common_name') }}");
 
   // Download-Link
   document.getElementById("download-link").href =

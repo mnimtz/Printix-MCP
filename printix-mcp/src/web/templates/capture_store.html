@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('cap_title') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('cap_title') }} — {{ _('brand_console_name') }}{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -135,12 +135,9 @@
   <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: flex-start; gap: 12px;">
     <span style="font-size: 1.4em;">⚠️</span>
     <div>
-      <strong style="color: #92400e;">Webhook-URL nicht konfiguriert</strong>
+      <strong style="color: #92400e;">{{ _('capture_webhook_missing_title') }}</strong>
       <p style="color: #78350f; font-size: .88em; margin: 4px 0 0;">
-        Die angezeigte Webhook-URL ist ein Fallback und vermutlich <strong>falsch</strong>.
-        Bitte unter <a href="/admin/settings" style="color: #92400e; text-decoration: underline;">Admin-Einstellungen</a>
-        eine <code>capture_public_url</code> oder <code>public_url</code> setzen
-        (z.B. <code>https://capture.printix.cloud</code>).
+        {{ _('capture_webhook_missing_body') | safe }}
       </p>
     </div>
   </div>
@@ -149,10 +146,9 @@
   <div style="background: #ecfdf5; border: 1px solid #10b981; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: flex-start; gap: 12px;">
     <span style="font-size: 1.4em;">&#x2705;</span>
     <div>
-      <strong style="color: #065f46;">Capture-Server separat konfiguriert</strong>
+      <strong style="color: #065f46;">{{ _('capture_webhook_separate_title') }}</strong>
       <p style="color: #047857; font-size: .88em; margin: 4px 0 0;">
-        Webhooks laufen auf einem <strong>eigenen Endpunkt</strong>, getrennt vom MCP-Server.
-        Basis-URL: <code>{{ webhook_base }}</code>
+        {{ _('capture_webhook_separate_body', value=webhook_base) | safe }}
       </p>
     </div>
   </div>
@@ -210,7 +206,7 @@
 
         <!-- Webhook URL -->
         <div class="pc-info" style="margin-top: 8px; font-weight: 600;">{{ _('cap_webhook_url') }}:</div>
-        <div class="webhook-url" id="wh-{{ p.id[:8] }}">{{ webhook_base }}/capture/webhook/{{ p.id }}<button class="copy-btn" onclick="copyWh('wh-{{ p.id[:8] }}', this)">Copy</button></div>
+        <div class="webhook-url" id="wh-{{ p.id[:8] }}">{{ webhook_base }}/capture/webhook/{{ p.id }}<button class="copy-btn" onclick="copyWh('wh-{{ p.id[:8] }}', this)">{{ _('capture_copy') }}</button></div>
 
         <div class="pc-info">{{ _('cap_created') }}: {{ p.created_at[:10] }}</div>
 
@@ -250,10 +246,12 @@
 function copyWh(id, btn) {
   const el = document.getElementById(id);
   if (!el) return;
-  const text = el.textContent.replace('Copy', '').trim();
+  const copyLabel = {{ _('capture_copy') | tojson }};
+  const copiedLabel = {{ _('capture_copied') | tojson }};
+  const text = el.textContent.replace(copyLabel, '').trim();
   navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = '✓';
-    setTimeout(() => btn.textContent = 'Copy', 1500);
+    btn.textContent = copiedLabel;
+    setTimeout(() => btn.textContent = copyLabel, 1500);
   });
 }
 

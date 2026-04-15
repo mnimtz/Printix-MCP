@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('tenant_tab_demo') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('tenant_tab_demo') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block extra_head %}
 <style>
   .tenant-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid #e5e7eb; padding-bottom:0; flex-wrap:wrap; }
@@ -75,6 +75,12 @@
   .btn-loading .btn-text { display:none; }
 
   .section-sep { margin: 24px 0 16px; border:none; border-top:2px solid #f1f5f9; }
+  @media(max-width:760px){
+    .preset-cards { flex-direction:column; }
+    .preset-card { min-width:0; width:100%; }
+    .stats-summary { flex-direction:column; }
+    .sessions-table { min-width: 860px; }
+  }
 </style>
 {% endblock %}
 
@@ -122,7 +128,7 @@
     {% elif flash == "rollback_ok" or flash == "deleted" %}
     <div class="alert alert-success">✅ {{ _('demo_rollback_ok') }}</div>
     {% elif flash == "error" %}
-    <div class="alert alert-error">❌ {{ flash_msg or 'Error' }}</div>
+    <div class="alert alert-error">❌ {{ flash_msg or _('user_error_default') }}</div>
     {% endif %}
 
     <!-- Schema-Init (Anzeige wird per JS gesteuert sobald sessions-XHR fertig ist) -->
@@ -320,7 +326,7 @@
     <h3 class="section-title" style="margin-bottom:12px;">📊 {{ _('demo_sessions_title') }}</h3>
 
     <div id="sessionsContainer">
-      <p id="sessionsLoading" style="color:#9ca3af;font-size:.9em;">⏳ {{ _('demo_loading') if _('demo_loading') != 'demo_loading' else 'Loading…' }}</p>
+      <p id="sessionsLoading" style="color:#9ca3af;font-size:.9em;">⏳ {{ _('demo_loading_fallback') }}</p>
     </div>
 
     <template id="sessionsTableTemplate">
@@ -461,7 +467,7 @@ function updateEstimate() {
     estBox.style.background = '#fef3c7';
     estBox.style.color = '#92400e';
   } else {
-    estTxt.innerHTML = '~' + estJobs.toLocaleString() + ' Jobs &nbsp;—&nbsp; <span style="color:#065f46;">✓ schnelle Generierung</span>';
+    estTxt.innerHTML = '~' + estJobs.toLocaleString() + ' Jobs &nbsp;—&nbsp; <span style="color:#065f46;">✓ {{ _("demo_fast_generation") }}</span>';
     estBox.style.background = '#d1fae5';
     estBox.style.color = '#065f46';
   }
@@ -539,9 +545,9 @@ function startProgress(doSubmit) {
         if (d.status === "done") {
           window.location.href = demoPath + "?flash=generated";
         } else if (d.status === "error") {
-          window.location.href = demoPath + "?flash=error&flash_msg=" + encodeURIComponent(d.error || "Unbekannter Fehler");
+          window.location.href = demoPath + "?flash=error&flash_msg=" + encodeURIComponent(d.error || "{{ _('demo_unknown_error') | e }}");
         } else if (d.status === "unknown") {
-          window.location.href = demoPath + "?flash=error&flash_msg=" + encodeURIComponent("Verbindung unterbrochen. Bitte erneut starten.");
+          window.location.href = demoPath + "?flash=error&flash_msg=" + encodeURIComponent("{{ _('demo_connection_interrupted') | e }}");
         } else {
           setTimeout(poll, 3000);
         }
@@ -603,8 +609,8 @@ function startProgress(doSubmit) {
     container.appendChild(clone);
 
     var tbody = document.getElementById('sessionsTbody');
-    var rollbackLabel  = (document.getElementById('i18nDemoRollback')?.dataset.msg) || 'Rollback';
-    var confirmMsg     = (document.getElementById('i18nDemoConfirmRollback')?.dataset.msg) || 'Delete this demo session?';
+    var rollbackLabel  = (document.getElementById('i18nDemoRollback')?.dataset.msg) || '{{ _("demo_btn_rollback") }}';
+    var confirmMsg     = (document.getElementById('i18nDemoConfirmRollback')?.dataset.msg) || '{{ _("demo_confirm_rollback") }}';
 
     sessions.forEach(function(s) {
       var tr = document.createElement('tr');
@@ -656,7 +662,7 @@ function startProgress(doSubmit) {
       .then(function(data) {
         if (!data || data.error) {
           var loading = document.getElementById('sessionsLoading');
-          if (loading) loading.textContent = '⚠️ ' + (data && data.error ? data.error : 'Sessions konnten nicht geladen werden.');
+          if (loading) loading.textContent = '⚠️ ' + (data && data.error ? data.error : '{{ _("demo_sessions_load_error") }}');
           return;
         }
         if (data.has_sql === false) {
@@ -669,7 +675,7 @@ function startProgress(doSubmit) {
       })
       .catch(function(e) {
         var loading = document.getElementById('sessionsLoading');
-        if (loading) loading.textContent = '⚠️ Sessions konnten nicht geladen werden.';
+        if (loading) loading.textContent = '⚠️ {{ _("demo_sessions_load_error") }}';
       });
   }
 

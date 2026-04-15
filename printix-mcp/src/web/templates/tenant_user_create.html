@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('user_create_title') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('user_create_title') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block extra_head %}
 <style>
   .tenant-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid #e5e7eb; padding-bottom:0; }
@@ -31,8 +31,7 @@
     <h3 style="font-size:1.05em;font-weight:700;margin-bottom:16px;">➕ {{ _('user_create_title') }}</h3>
 
     <div class="alert" style="background:#ede9fe;color:#4c1d95;border:1px solid #c4b5fd;border-radius:8px;padding:10px 14px;margin-bottom:18px;font-size:.85em;">
-      ℹ️ Only <strong>Guest Users</strong> can be created via the Printix API.
-      Regular users (USER role) are provisioned through your directory service (e.g. Azure AD).
+      ℹ️ {{ _('user_create_guest_only') | safe }}
     </div>
 
     {% if error == "no_card_creds" %}
@@ -55,7 +54,7 @@
       <div class="form-group">
         <label for="pin">{{ _('user_create_pin') }}</label>
         <input type="text" id="pin" name="pin" placeholder="1234" pattern="[0-9]*" maxlength="8">
-        <div class="hint">Numeric PIN for card reader access (optional)</div>
+        <div class="hint">{{ _('user_create_pin_hint') }}</div>
       </div>
 
       <div style="display:flex;gap:10px;margin-top:8px;">

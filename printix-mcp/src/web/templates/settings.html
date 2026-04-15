@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('settings_title') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('settings_title') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block content %}
 <div class="container">
   <div class="card">
@@ -24,14 +24,14 @@
                value="{{ tenant.printix_tenant_id if tenant else '' }}" required>
       </div>
       <div class="form-group">
-        <label>Tenant URL</label>
+        <label>{{ _('settings_tenant_url') }}</label>
         <input type="url" name="tenant_url"
                value="{{ tenant.tenant_url if tenant else '' }}" required
-               placeholder="https://firmenname.printix.net">
+               placeholder="{{ _('settings_tenant_url_placeholder') }}">
       </div>
 
       <div class="divider"></div>
-      <div class="section-title" style="margin-bottom:12px;">Print API</div>
+      <div class="section-title" style="margin-bottom:12px;">{{ _('settings_print_api') }}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group">
           <label>{{ _('px_client_id') }}</label>
@@ -40,11 +40,11 @@
         </div>
         <div class="form-group">
           <label>{{ _('px_client_secret') }}</label>
-          <input type="password" name="print_client_secret" value="" placeholder="(unverändert lassen)">
+          <input type="password" name="print_client_secret" value="" placeholder="{{ _('settings_leave_unchanged') }}">
         </div>
       </div>
 
-      <div class="section-title" style="margin-bottom:12px;">Card API</div>
+      <div class="section-title" style="margin-bottom:12px;">{{ _('settings_card_api') }}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group">
           <label>{{ _('px_card_client_id') }}</label>
@@ -53,11 +53,11 @@
         </div>
         <div class="form-group">
           <label>{{ _('px_card_secret') }}</label>
-          <input type="password" name="card_client_secret" value="" placeholder="(unverändert lassen)">
+          <input type="password" name="card_client_secret" value="" placeholder="{{ _('settings_leave_unchanged') }}">
         </div>
       </div>
 
-      <div class="section-title" style="margin-bottom:12px;">Workstation API</div>
+      <div class="section-title" style="margin-bottom:12px;">{{ _('settings_workstation_api') }}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group">
           <label>{{ _('px_ws_client_id') }}</label>
@@ -66,7 +66,7 @@
         </div>
         <div class="form-group">
           <label>{{ _('px_ws_secret') }}</label>
-          <input type="password" name="ws_client_secret" value="" placeholder="(unverändert lassen)">
+          <input type="password" name="ws_client_secret" value="" placeholder="{{ _('settings_leave_unchanged') }}">
         </div>
       </div>
 
@@ -92,7 +92,7 @@
         </div>
         <div class="form-group">
           <label>{{ _('sql_password') }}</label>
-          <input type="password" name="sql_password" value="" placeholder="(unverändert lassen)">
+          <input type="password" name="sql_password" value="" placeholder="{{ _('settings_leave_unchanged') }}">
         </div>
       </div>
 
@@ -103,40 +103,40 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group">
           <label>{{ _('mail_api_key') }}</label>
-          <input type="password" name="mail_api_key" value="" placeholder="(unverändert lassen)">
+          <input type="password" name="mail_api_key" value="" placeholder="{{ _('settings_leave_unchanged') }}">
         </div>
         <div class="form-group">
-          <label>{{ _('mail_from') }} <small style="color:#6b7280;">Absender-E-Mail</small></label>
+          <label>{{ _('mail_from') }} <small style="color:#6b7280;">{{ _('settings_sender_email_hint') }}</small></label>
           <input type="email" name="mail_from"
                  value="{{ tenant.mail_from if tenant else '' }}">
         </div>
         <div class="form-group">
-          <label>Absender-Anzeigename <small style="color:#6b7280;">z.B. „Printix Reports"</small></label>
+          <label>{{ _('settings_sender_name') }} <small style="color:#6b7280;">{{ _('settings_sender_name_hint') }}</small></label>
           <input type="text" name="mail_from_name"
                  value="{{ tenant.mail_from_name if tenant else '' }}"
-                 placeholder="Printix Reports">
+                 placeholder="{{ _('settings_sender_name_hint') }}">
           <small class="hint" style="display:block;margin-top:4px;color:#6b7280;">
-            Wird als „Name &lt;email&gt;" im Absenderfeld angezeigt — verhindert Spam-Klassifizierung
+            {{ _('settings_sender_name_help') }}
           </small>
         </div>
         <div class="form-group">
-          <label>Alert-Empfänger <small style="color:#6b7280;">kommagetrennt</small></label>
+          <label>{{ _('settings_alert_recipients') }} <small style="color:#6b7280;">{{ _('settings_comma_separated') }}</small></label>
           <input type="text" name="alert_recipients"
                  value="{{ tenant.alert_recipients if tenant else '' }}"
-                 placeholder="admin@firma.de, it@firma.de">
+                 placeholder="admin@example.com, it@example.com">
           <small class="hint" style="display:block;margin-top:4px;color:#6b7280;">
-            Empfänger für alle E-Mail-Benachrichtigungen
+            {{ _('settings_alert_recipients_help') }}
           </small>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
         <div class="form-group">
-          <label>Alert-Mindest-Level</label>
+          <label>{{ _('settings_alert_min_level') }}</label>
           <select name="alert_min_level" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
             {% set cur_level = tenant.alert_min_level if tenant else 'ERROR' %}
-            <option value="WARNING"  {% if cur_level == 'WARNING'  %}selected{% endif %}>WARNING — Warnungen und höher</option>
-            <option value="ERROR"    {% if cur_level == 'ERROR'    %}selected{% endif %}>ERROR — Nur Fehler und kritisch</option>
-            <option value="CRITICAL" {% if cur_level == 'CRITICAL' %}selected{% endif %}>CRITICAL — Nur kritische Fehler</option>
+            <option value="WARNING"  {% if cur_level == 'WARNING'  %}selected{% endif %}>{{ _('settings_alert_level_warning') }}</option>
+            <option value="ERROR"    {% if cur_level == 'ERROR'    %}selected{% endif %}>{{ _('settings_alert_level_error') }}</option>
+            <option value="CRITICAL" {% if cur_level == 'CRITICAL' %}selected{% endif %}>{{ _('settings_alert_level_critical') }}</option>
           </select>
         </div>
       </div>
@@ -144,8 +144,8 @@
       <!-- Mail Delivery: Benachrichtigungs-Ereignisse -->
       <div style="margin-top:20px;">
         <div class="section-title" style="margin-bottom:8px;">
-          📬 E-Mail Benachrichtigungen
-          <small class="hint">Für welche Ereignisse soll eine E-Mail verschickt werden?</small>
+          📬 {{ _('settings_mail_notifications') }}
+          <small class="hint">{{ _('settings_mail_notifications_hint') }}</small>
         </div>
         {% set ne = (tenant.notify_events | from_json) if (tenant and tenant.notify_events) else ["log_error"] %}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
@@ -154,8 +154,8 @@
                    {% if "log_error" in ne %}checked{% endif %}
                    style="margin-top:2px;accent-color:#2563eb;">
             <span>
-              <strong>🚨 Kritische Log-Fehler</strong><br>
-              <small style="color:#6b7280;">ERROR / CRITICAL im Server-Log</small>
+              <strong>🚨 {{ _('settings_notify_log_error_title') }}</strong><br>
+              <small style="color:#6b7280;">{{ _('settings_notify_log_error_sub') }}</small>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">
@@ -163,8 +163,8 @@
                    {% if "new_printer" in ne %}checked{% endif %}
                    style="margin-top:2px;accent-color:#2563eb;">
             <span>
-              <strong>🖨️ Neuer Drucker</strong><br>
-              <small style="color:#6b7280;">Neuer Drucker in Printix erkannt</small>
+              <strong>🖨️ {{ _('settings_notify_new_printer_title') }}</strong><br>
+              <small style="color:#6b7280;">{{ _('settings_notify_new_printer_sub') }}</small>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">
@@ -172,8 +172,8 @@
                    {% if "new_queue" in ne %}checked{% endif %}
                    style="margin-top:2px;accent-color:#2563eb;">
             <span>
-              <strong>📋 Neue Drucker-Queue</strong><br>
-              <small style="color:#6b7280;">Neue Queue in Printix erkannt</small>
+              <strong>📋 {{ _('settings_notify_new_queue_title') }}</strong><br>
+              <small style="color:#6b7280;">{{ _('settings_notify_new_queue_sub') }}</small>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">
@@ -181,8 +181,8 @@
                    {% if "new_guest_user" in ne %}checked{% endif %}
                    style="margin-top:2px;accent-color:#2563eb;">
             <span>
-              <strong>👤 Neuer Gast-Benutzer</strong><br>
-              <small style="color:#6b7280;">Neuer Gast in Printix erkannt</small>
+              <strong>👤 {{ _('settings_notify_new_guest_user_title') }}</strong><br>
+              <small style="color:#6b7280;">{{ _('settings_notify_new_guest_user_sub') }}</small>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">
@@ -190,8 +190,8 @@
                    {% if "report_sent" in ne %}checked{% endif %}
                    style="margin-top:2px;accent-color:#2563eb;">
             <span>
-              <strong>📊 Report versendet</strong><br>
-              <small style="color:#6b7280;">Bestätigung nach jedem automatischen Report</small>
+              <strong>📊 {{ _('settings_notify_report_sent_title') }}</strong><br>
+              <small style="color:#6b7280;">{{ _('settings_notify_report_sent_sub') }}</small>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">
@@ -199,14 +199,13 @@
                    {% if "user_registered" in ne %}checked{% endif %}
                    style="margin-top:2px;accent-color:#2563eb;">
             <span>
-              <strong>🔔 Neuer MCP-Benutzer</strong><br>
-              <small style="color:#6b7280;">Neuer Benutzer hat sich registriert (Admin)</small>
+              <strong>🔔 {{ _('settings_notify_user_registered_title') }}</strong><br>
+              <small style="color:#6b7280;">{{ _('settings_notify_user_registered_sub') }}</small>
             </span>
           </label>
         </div>
         <small class="hint" style="display:block;margin-top:8px;color:#6b7280;">
-          ℹ️ Benachrichtigungen für Drucker/Queue/Gast-Benutzer werden alle 30 Minuten geprüft.
-          Empfänger und Mail-Konfiguration oben eintragen.
+          ℹ️ {{ _('settings_notify_poll_hint') }}
         </small>
       </div>
 
@@ -220,7 +219,7 @@
 
     <!-- OAuth-Secret regenerieren -->
     <div class="divider"></div>
-    <div class="section-title" style="margin-bottom:8px;">OAuth Secret</div>
+    <div class="section-title" style="margin-bottom:8px;">{{ _('settings_oauth_secret') }}</div>
     {% if tenant and tenant.oauth_client_secret %}
     <div class="code-block" id="oauth-secret-box" style="margin-bottom:12px;">
       <button class="copy-btn" onclick="copyToClipboard('oauth-secret-val', this)">⧉</button>
@@ -244,7 +243,7 @@ async function regenOAuth() {
     const box = document.getElementById('oauth-secret-val');
     if (box) box.textContent = data.oauth_client_secret;
     const msg = document.getElementById('regen-result');
-    msg.textContent = '✓ {{ _("settings_saved") }}';
+    msg.textContent = '✓ {{ _("settings_regen_success") }}';
     msg.style.display = 'block';
   }
 }

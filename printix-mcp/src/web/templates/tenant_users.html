@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('tenant_tab_users') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('tenant_tab_users') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block extra_head %}
 <style>
   .tenant-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid #e5e7eb; padding-bottom:0; }
@@ -55,26 +55,26 @@
 
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
       <form class="search-bar" method="get" action="/tenant/users" style="flex:1;min-width:200px;margin:0;">
-        <input type="text" name="search" value="{{ search }}" placeholder="Search name / email…">
+        <input type="text" name="search" value="{{ search }}" placeholder="{{ _('tenant_search_name_email') }}">
         <button type="submit">🔍</button>
       </form>
-      <a href="/tenant/users{% if search %}?search={{ search }}{% endif %}" class="btn btn-secondary" title="Reload from Printix API">🔄 Aktualisieren</a>
+      <a href="/tenant/users{% if search %}?search={{ search }}{% endif %}" class="btn btn-secondary" title="{{ _('common_reload_printix') }}">🔄 {{ _('common_refresh') }}</a>
       <a href="/tenant/users/create" class="btn btn-primary">➕ {{ _('user_new_btn') }}</a>
     </div>
 
     <div class="hint-box">
-      Open a user to access the advanced <strong>Benutzer &amp; Karten</strong> card tools. There you can preview and transform reader values before saving, including HEX/decimal conversion, reversed byte order, prefix/suffix trimming and leading-zero rules.
+      {{ _('tenant_users_hint') | safe }}
     </div>
 
     {% if error == "no_card_creds" %}
     <div class="alert alert-warning">⚠️ {{ _('tenant_no_card_creds') }}</div>
     {% elif error == "no_tenant" %}
-    <div class="alert alert-warning">⚠️ No tenant configured.</div>
+    <div class="alert alert-warning">⚠️ {{ _('common_no_tenant') }}</div>
     {% elif error %}
     <div class="alert alert-error">❌ {{ error }}</div>
     {% elif users %}
     <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">
-      {{ total_count }} user(s){% if total_pages > 1 %} — Seite {{ page + 1 }} / {{ total_pages }}{% endif %}
+      {{ _('tenant_users_count', count=total_count) }}{% if total_pages > 1 %} — Seite {{ page + 1 }} / {{ total_pages }}{% endif %}
     </p>
     <div style="overflow-x:auto;">
       <table>
@@ -83,7 +83,7 @@
             <th>{{ _('tenant_col_name') }}</th>
             <th>{{ _('tenant_col_email') }}</th>
             <th>{{ _('tenant_col_cards') }}</th>
-            <th>Role</th>
+            <th>{{ _('tenant_role') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -136,7 +136,7 @@
     {% endif %}
 
     {% else %}
-    <div class="alert alert-info">No users found.</div>
+    <div class="alert alert-info">{{ _('tenant_no_users') }}</div>
     {% endif %}
 
     <div style="margin-top:20px;">

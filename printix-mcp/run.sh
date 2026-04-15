@@ -1,6 +1,6 @@
 #!/usr/bin/with-contenv bashio
 # ==============================================================================
-# Printix MCP Server v5.3.0 — Home Assistant Add-on Entrypoint
+# Printix MCP Server — Home Assistant Add-on Entrypoint
 #
 # Startet bis zu drei Services:
 #   1. Web-Verwaltungsoberfläche  (WEB_PORT,      Standard: 8080)
@@ -12,6 +12,9 @@
 # ==============================================================================
 
 set -e
+
+APP_VERSION="$(cat /app/VERSION 2>/dev/null || echo "0.0.0")"
+export APP_VERSION
 
 # ─── Fernet-Key für DB-Verschlüsselung laden / generieren ─────────────────────
 
@@ -82,7 +85,7 @@ else
 fi
 
 bashio::log.info "╔══════════════════════════════════════════════════════════════╗"
-bashio::log.info "║        PRINTIX MCP SERVER v5.3.0 — MULTI-TENANT             ║"
+bashio::log.info "║        PRINTIX MCP SERVER v${APP_VERSION} — MULTI-TENANT             ║"
 bashio::log.info "╠══════════════════════════════════════════════════════════════╣"
 bashio::log.info "║ Web-Verwaltung:  http://<HA-IP>:${HOST_WEB_PORT}"
 bashio::log.info "║  → Erstkonfiguration / Benutzer registrieren"
