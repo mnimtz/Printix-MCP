@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ _('emp_printer_setup') }} — Printix MCP{% endblock %}
+{% block content %}
+<div class="container">
+
+  <!-- Sub-Navigation -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+    <a href="/my" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_my_dashboard') }}</a>
+    <a href="/my/jobs" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_my_jobs') }}</a>
+    <a href="/my/delegation" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_delegation') }}</a>
+    <a href="/my/reports" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_my_reports') }}</a>
+    <a href="/my/printer-setup" class="btn btn-primary" style="font-size:.85em;">{{ _('emp_printer_setup') }}</a>
+  </div>
+
+  {% if flash == 'token_generated' %}
+    <div class="alert alert-success">{{ _('emp_flash_token_generated') }}</div>
+  {% elif flash == 'token_revoked' %}
+    <div class="alert alert-success">{{ _('emp_flash_token_revoked') }}</div>
+  {% endif %}
+
+  <div class="card">
+    <div class="section-title">{{ _('emp_printer_setup') }}</div>
+    <div class="section-sub">{{ _('emp_printer_setup_desc') }}</div>
+
+    <!-- Neuer Token anzeigen (einmalig) -->
+    {% if new_token %}
+    <div class="alert alert-warning" style="margin-top:16px;">
+      <strong>{{ _('emp_token_once') }}</strong><br>
+      <div class="code-block" style="margin-top:8px;">
+        <button class="copy-btn" onclick="copyToClipboard('print-token-val', this)">&#x29C9;</button>
+        <code id="print-token-val" style="word-break:break-all;">{{ new_token }}</code>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Token Status -->
+    <div style="margin-top:16px;">
+      {% if has_token %}
+        <div class="alert alert-success">
+          {{ _('emp_token_active') }}
+        </div>
+        <div style="display:flex;gap:12px;margin-top:12px;">
+          <form method="post" action="/my/printer-setup/generate">
+            <button type="submit" class="btn btn-secondary">{{ _('emp_token_regenerate') }}</button>
+          </form>
+          <form method="post" action="/my/printer-setup/revoke"
+                onsubmit="return confirm('{{ _('emp_confirm_revoke') }}');">
+            <button type="submit" class="btn btn-danger">{{ _('emp_token_revoke') }}</button>
+          </form>
+        </div>
+      {% else %}
+        <div class="alert alert-info">
+          {{ _('emp_token_none') }}
+        </div>
+        <form method="post" action="/my/printer-setup/generate" style="margin-top:12px;">
+          <button type="submit" class="btn btn-primary">{{ _('emp_token_generate') }}</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Einrichtungsanleitung -->
+  <div class="card" style="margin-top:16px;">
+    <div class="section-title">{{ _('emp_setup_guide') }}</div>
+
+    <div style="margin-top:12px;">
+      <h4 style="font-size:.95em;margin-bottom:8px;">macOS</h4>
+      <ol style="padding-left:20px;font-size:.9em;line-height:1.6;">
+        <li>{{ _('emp_setup_mac_1') }}</li>
+        <li>{{ _('emp_setup_mac_2') }}</li>
+        <li>{{ _('emp_setup_mac_3') }}</li>
+      </ol>
+    </div>
+
+    <div style="margin-top:16px;">
+      <h4 style="font-size:.95em;margin-bottom:8px;">Windows</h4>
+      <ol style="padding-left:20px;font-size:.9em;line-height:1.6;">
+        <li>{{ _('emp_setup_win_1') }}</li>
+        <li>{{ _('emp_setup_win_2') }}</li>
+        <li>{{ _('emp_setup_win_3') }}</li>
+      </ol>
+    </div>
+
+    <div style="margin-top:16px;">
+      <h4 style="font-size:.95em;margin-bottom:8px;">Linux</h4>
+      <ol style="padding-left:20px;font-size:.9em;line-height:1.6;">
+        <li>{{ _('emp_setup_linux_1') }}</li>
+      </ol>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

@@ -274,6 +274,8 @@
           <a href="/settings">{{ _('nav_settings') }}</a>
           <a href="/tenant/printers">{{ _('nav_tenant') }}</a>
           <a href="/reports">{{ _('nav_reports') }}</a>
+          {% if user.role_type != 'employee' %}<a href="/employees">{{ _('nav_employees') }}</a>{% endif %}
+          <a href="/my">{{ _('nav_my_portal') }}</a>
           <a href="/logs">{{ _('nav_logs') }}</a>
           <a href="/help">{{ _('nav_help') }}</a>
           <a href="/logout">{{ _('nav_logout') }}</a>
@@ -317,6 +319,10 @@
       <a href="/settings"  onclick="closeMobileMenu()">⚙️ {{ _('nav_settings') }}</a>
       <a href="/tenant/printers" onclick="closeMobileMenu()">🖨️ {{ _('nav_tenant') }}</a>
       <a href="/reports"   onclick="closeMobileMenu()">📊 {{ _('nav_reports') }}</a>
+      {% if user.role_type != 'employee' %}
+        <a href="/employees" onclick="closeMobileMenu()">👥 {{ _('nav_employees') }}</a>
+      {% endif %}
+      <a href="/my"        onclick="closeMobileMenu()">🧑‍💼 {{ _('nav_my_portal') }}</a>
       <a href="/logs"      onclick="closeMobileMenu()">📋 {{ _('nav_logs') }}</a>
       <a href="/help"      onclick="closeMobileMenu()">❓ {{ _('nav_help') }}</a>
       <a href="/logout"    onclick="closeMobileMenu()">🚪 {{ _('nav_logout') }}</a>

@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.0 (2026-04-16)
+
+### Cloud Print Port — Phase 1: Mitarbeiter-Portal & Delegation
+
+- **Neuer Benutzertyp „Mitarbeiter" (employee)**: Self-Service-Portal unter `/my/*` — Dashboard, Druckjobs, Delegation, Printer-Setup, Reports Light. Mitarbeiter gehören zu einem übergeordneten User/Admin (`parent_user_id`).
+- **Delegation-System**: Mitarbeiter können Druckjob-Delegates vorschlagen, Admin/User genehmigt. Delegates können Jobs am Drucker releasen. Bidirektionale Delegation möglich.
+- **Mitarbeiter-Verwaltung** (`/employees/*`): Admin/User kann Mitarbeiter anlegen, einsehen, löschen. Spätere Phasen: Printix-User-Sync, Entra ID Import.
+- **Print-Token**: Dedizierter `ptk_*`-Token (SHA-256 Hash-Lookup) für Cloud-Print-Drucker-Authentifizierung. Generieren/Widerrufen im Self-Service-Portal.
+- **Reports Light**: 3 Report-Platzhalter (Druckübersicht, Kostenanalyse, Druckverlauf) — werden in Phase 2 mit SQL-Filterung aktiviert.
+- **DB-Schema-Erweiterung**: `delegations`-Tabelle, `users.role_type`, `users.parent_user_id`, `tenants.print_token/print_token_hash`. Idempotente Migration via PRAGMA.
+- **i18n**: ~100 neue Keys in DE, EN, FR, IT, ES, NL — non-destructive Patch des bestehenden TRANSLATIONS-Dict.
+- **Navigation**: Neue Links „Mitarbeiter" (Admin/User) und „Mein Portal" (alle) in Desktop + Mobile.
+
 ## 3.6.6 (2026-04-10)
 
 ### Bugfix: Azure SQL Auto-Pause / Transient Fault

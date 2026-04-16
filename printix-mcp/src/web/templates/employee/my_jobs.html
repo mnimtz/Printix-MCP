@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ _('emp_my_jobs') }} — Printix MCP{% endblock %}
+{% block content %}
+<div class="container">
+
+  <!-- Sub-Navigation -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+    <a href="/my" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_my_dashboard') }}</a>
+    <a href="/my/jobs" class="btn btn-primary" style="font-size:.85em;">{{ _('emp_my_jobs') }}</a>
+    <a href="/my/delegation" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_delegation') }}</a>
+    <a href="/my/reports" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_my_reports') }}</a>
+    <a href="/my/printer-setup" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_printer_setup') }}</a>
+  </div>
+
+  <div class="card">
+    <div class="section-title">{{ _('emp_my_jobs') }}</div>
+
+    {% if jobs %}
+    <table>
+      <thead>
+        <tr>
+          <th>{{ _('emp_job_name') }}</th>
+          <th>{{ _('emp_job_status') }}</th>
+          <th>{{ _('emp_job_pages') }}</th>
+          <th>{{ _('emp_job_copies') }}</th>
+          <th>{{ _('emp_job_color') }}</th>
+          <th>{{ _('emp_job_printer') }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td>{{ job.get('documentName', '-') }}</td>
+          <td>
+            {% set st = job.get('status', 'unknown') %}
+            {% if st == 'Pending' %}
+              <span style="color:#d97706;">{{ _('emp_pending') }}</span>
+            {% elif st == 'Processing' %}
+              <span style="color:#2563eb;">{{ _('emp_processing') }}</span>
+            {% elif st == 'Completed' %}
+              <span style="color:#16a34a;">{{ _('emp_completed') }}</span>
+            {% else %}
+              {{ st }}
+            {% endif %}
+          </td>
+          <td>{{ job.get('pageCount', '-') }}</td>
+          <td>{{ job.get('copies', 1) }}</td>
+          <td>{{ job.get('colorMode', '-') }}</td>
+          <td>{{ job.get('printerName', '-') }}</td>
+          <td>
+            {% if st in ('Pending', 'Processing') %}
+            <form method="post" action="/my/jobs/{{ job.get('id', '') }}/delete"
+                  onsubmit="return confirm('{{ _('emp_confirm_delete') }}');"
+                  style="margin:0;">
+              <button type="submit" class="btn btn-danger" style="font-size:.78em;padding:4px 10px;">
+                {{ _('emp_delete') }}
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="alert alert-info" style="margin-top:12px;">
+      {{ _('emp_no_jobs') }}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

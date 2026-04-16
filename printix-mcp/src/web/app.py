@@ -1522,4 +1522,13 @@ def create_app(session_secret: str) -> FastAPI:
     except Exception as _re:
         logger.error("Reports-Routen konnten nicht registriert werden: %s", _re)
 
+    # ── Cloud Print Port — Employee & Delegation (v4.0.0) ─────────────────────
+    try:
+        from cloudprint.db_extensions import init_cloudprint_schema
+        init_cloudprint_schema()
+        from web.employee_routes import register_employee_routes
+        register_employee_routes(app, templates, t_ctx, require_login)
+    except Exception as _ep:
+        logger.error("Employee-Routen konnten nicht registriert werden: %s", _ep)
+
     return app

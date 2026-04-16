@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{{ _('emp_my_dashboard') }} — Printix MCP{% endblock %}
+{% block content %}
+<div class="container">
+
+  <!-- Sub-Navigation -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+    <a href="/my" class="btn btn-primary" style="font-size:.85em;">{{ _('emp_my_dashboard') }}</a>
+    <a href="/my/jobs" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_my_jobs') }}</a>
+    <a href="/my/delegation" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_delegation') }}</a>
+    <a href="/my/reports" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_my_reports') }}</a>
+    <a href="/my/printer-setup" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_printer_setup') }}</a>
+  </div>
+
+  <div class="card">
+    <div class="section-title">{{ _('emp_my_dashboard') }}</div>
+    <div class="section-sub">{{ _('emp_welcome') }}, {{ user.full_name or user.username }}</div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:20px;">
+      <!-- Delegationen Ausgabe -->
+      <div style="background:#f8fafc;border-radius:10px;padding:16px;border:1px solid #e2e8f0;">
+        <div style="font-size:.8em;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">
+          {{ _('emp_my_delegates') }}
+        </div>
+        <div style="font-size:1.6em;font-weight:700;color:#1e3a5f;">
+          {{ delegations_out | length }}
+        </div>
+      </div>
+
+      <!-- Delegationen Eingang -->
+      <div style="background:#f8fafc;border-radius:10px;padding:16px;border:1px solid #e2e8f0;">
+        <div style="font-size:.8em;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">
+          {{ _('emp_delegated_to_me') }}
+        </div>
+        <div style="font-size:1.6em;font-weight:700;color:#1e3a5f;">
+          {{ delegations_in | length }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Aktive Delegationen -->
+  {% if delegations_out %}
+  <div class="card" style="margin-top:16px;">
+    <div class="section-title">{{ _('emp_my_delegates') }}</div>
+    <table>
+      <thead>
+        <tr>
+          <th>{{ _('emp_delegate_name') }}</th>
+          <th>{{ _('emp_delegate_email') }}</th>
+          <th>{{ _('emp_status') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in delegations_out %}
+        <tr>
+          <td>{{ d.delegate_full_name or d.delegate_username }}</td>
+          <td>{{ d.delegate_email }}</td>
+          <td>
+            {% if d.status == 'active' %}
+              <span style="color:#16a34a;">{{ _('emp_active') }}</span>
+            {% elif d.status == 'pending' %}
+              <span style="color:#d97706;">{{ _('emp_pending') }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
