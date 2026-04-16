@@ -43,7 +43,10 @@ Routen:
 """
 
 import os
+import json
 import logging
+import secrets
+import tempfile
 from typing import Optional
 
 from fastapi import FastAPI, Request, Form, UploadFile, File
@@ -59,9 +62,16 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 
 def create_app(session_secret: str) -> FastAPI:
     app = FastAPI(title="Printix Management Console", docs_url=None, redoc_url=None)
-    app.add_middleware(SessionMiddleware, secret_key=session_secret, max_age=3600 * 8)
 
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+    def current_app_version() -> str:
+        version_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "VERSION")
+        try:
+            with open(version_path, "r", encoding="utf-8") as fh:
+                return fh.read().strip() or "?"
+        except Exception:
+            return "?"
 
     # ── Package Builder (singleton, lebt für die Laufzeit der App) ────────────
     from package_builder import PackageBuilderCore as _PBC
@@ -111,6 +121,10 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception:
             return None
 
+    def _generate_temp_password(length: int = 14) -> str:
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@$%?"
+        return "".join(secrets.choice(alphabet) for _ in range(length))
+
     def require_login(request: Request) -> Optional[dict]:
         user = get_session_user(request)
         if not user:
@@ -118,6 +132,35 @@ def create_app(session_secret: str) -> FastAPI:
         if user.get("status") != "approved":
             return None
         return user
+
+    def can_access_partner_portal(user: Optional[dict]) -> bool:
+        if not user:
+            return False
+        return bool(user.get("can_access_partner_portal") or user.get("is_admin"))
+
+    @app.middleware("http")
+    async def invitation_activation_guard(request: Request, call_next):
+        allowed_paths = {
+            "/login",
+            "/logout",
+            "/pending",
+            "/account/activate",
+        }
+        path = request.url.path or "/"
+        if not path.startswith("/auth/entra") and not path.startswith("/lang/") and path not in allowed_paths:
+            session = request.scope.get("session") or {}
+            user_id = session.get("user_id")
+            if user_id:
+                try:
+                    from db import get_user_by_id
+                    active_user = get_user_by_id(user_id)
+                except Exception:
+                    active_user = None
+                if active_user and active_user.get("must_change_password"):
+                    return RedirectResponse("/account/activate", status_code=302)
+        return await call_next(request)
+
+    app.add_middleware(SessionMiddleware, secret_key=session_secret, max_age=3600 * 8)
 
     def mcp_base_url() -> str:
         """Gibt die öffentliche MCP-Basis-URL zurück (DB-Setting > ENV > Fallback)."""
@@ -454,6 +497,8 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception:
             pass
 
+        if user.get("must_change_password"):
+            return RedirectResponse("/account/activate", status_code=302)
         if user.get("is_admin"):
             return RedirectResponse("/admin", status_code=302)
         if status == "pending":
@@ -599,11 +644,72 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception:
             pass
 
+        if user.get("must_change_password"):
+            return RedirectResponse("/account/activate", status_code=302)
         if user.get("is_admin"):
             return RedirectResponse("/admin", status_code=302)
         if status == "pending":
             return RedirectResponse("/pending", status_code=302)
         return RedirectResponse("/dashboard", status_code=302)
+
+    @app.get("/account/activate", response_class=HTMLResponse)
+    async def account_activate_get(request: Request):
+        user = get_session_user(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+        if not user.get("must_change_password"):
+            return RedirectResponse("/dashboard" if not user.get("is_admin") else "/admin", status_code=302)
+        return templates.TemplateResponse("account_activate.html", {
+            "request": request,
+            "user": user,
+            "saved": False,
+            "error": None,
+            **t_ctx(request),
+        })
+
+    @app.post("/account/activate", response_class=HTMLResponse)
+    async def account_activate_post(
+        request: Request,
+        new_password: str = Form(...),
+        new_password2: str = Form(...),
+    ):
+        user = get_session_user(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+        if not user.get("must_change_password"):
+            return RedirectResponse("/dashboard" if not user.get("is_admin") else "/admin", status_code=302)
+        tc = t_ctx(request)
+        _ = tc["_"]
+        error = None
+        if new_password != new_password2:
+            error = _("reg_pw_mismatch")
+        elif len(new_password) < 8:
+            error = _("invite_pw_length_error")
+        else:
+            try:
+                from db import complete_invitation_password_change, audit
+                complete_invitation_password_change(user["id"], new_password)
+                audit(user["id"], "accept_invitation", "Einladung angenommen und Passwort gesetzt", object_type="user", object_id=user["id"])
+            except Exception as e:
+                error = str(e)
+        if error:
+            return templates.TemplateResponse("account_activate.html", {
+                "request": request,
+                "user": user,
+                "saved": False,
+                "error": error,
+                **tc,
+            })
+        refreshed = get_session_user(request)
+        target = "/admin" if refreshed and refreshed.get("is_admin") else "/dashboard"
+        return templates.TemplateResponse("account_activate.html", {
+            "request": request,
+            "user": refreshed or user,
+            "saved": True,
+            "error": None,
+            "redirect_target": target,
+            **tc,
+        })
 
     # ── Entra Auto-Setup (Ein-Klick via Bootstrap-App) ─────────────────────
     #
@@ -882,12 +988,26 @@ def create_app(session_secret: str) -> FastAPI:
             "base_url": base,
             "mcp_url":  f"{base}/mcp",
             "sse_url":  f"{base}/sse",
+            "app_version": current_app_version(),
             "has_api": has_api,
             "has_sql": has_sql,
             "kpis": kpis,
             "env_summary": env_summary,
             "sparkline_data": sparkline_data,
             "forecast": forecast,
+            **t_ctx(request),
+        })
+
+    @app.get("/partner-portal", response_class=HTMLResponse)
+    async def partner_portal(request: Request):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        if not can_access_partner_portal(user):
+            return RedirectResponse("/dashboard", status_code=302)
+        return templates.TemplateResponse("partner_portal.html", {
+            "request": request,
+            "user": user,
             **t_ctx(request),
         })
 
@@ -1613,6 +1733,137 @@ def create_app(session_secret: str) -> FastAPI:
             logger.error("Approve-Fehler: %s", e)
         return RedirectResponse("/admin/users", status_code=302)
 
+    @app.get("/admin/users/invite", response_class=HTMLResponse)
+    async def admin_invite_user_get(request: Request):
+        admin = get_session_user(request)
+        if not admin or not admin.get("is_admin"):
+            return RedirectResponse("/login", status_code=302)
+        return templates.TemplateResponse("admin_user_invite.html", {
+            "request": request,
+            "user": admin,
+            "saved": False,
+            "error": None,
+            **t_ctx(request),
+        })
+
+    @app.post("/admin/users/invite", response_class=HTMLResponse)
+    async def admin_invite_user_post(
+        request: Request,
+        username: str = Form(...),
+        email: str = Form(...),
+        full_name: str = Form(default=""),
+        company: str = Form(default=""),
+        invite_lang: str = Form(default="de"),
+        role_type: str = Form(default="user"),
+    ):
+        admin = get_session_user(request)
+        if not admin or not admin.get("is_admin"):
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        _ = tc["_"]
+        error = None
+        if len(username.strip()) < 3:
+            error = _("invite_username_length_error")
+        elif "@" not in email or "." not in email:
+            error = _("invite_email_required_error")
+        else:
+            try:
+                from db import username_exists
+                if username_exists(username.strip()):
+                    error = _("reg_user_exists")
+            except Exception as e:
+                error = str(e)
+        if error:
+            return templates.TemplateResponse("admin_user_invite.html", {
+                "request": request,
+                "user": admin,
+                "saved": False,
+                "error": error,
+                "f_username": username,
+                "f_email": email,
+                "f_full_name": full_name,
+                "f_company": company,
+                "f_invite_lang": invite_lang,
+                "f_role_type": role_type,
+                **tc,
+            })
+
+        temp_password = _generate_temp_password()
+        created_user = None
+        try:
+            from db import create_invited_user, get_tenant_full_by_user_id, delete_user, audit
+            tenant = get_tenant_full_by_user_id(admin["id"]) or {}
+            if not tenant.get("mail_api_key") or not tenant.get("mail_from"):
+                raise RuntimeError(_("invite_mail_not_configured"))
+
+            created_user = create_invited_user(
+                username=username.strip(),
+                password=temp_password,
+                email=email.strip(),
+                full_name=full_name.strip(),
+                company=company.strip(),
+                invited_by_user_id=admin["id"],
+                invitation_language=invite_lang.strip(),
+                role_type=role_type.strip(),
+            )
+
+            from invite_mail import render_invitation_email
+            from reporting.mail_client import send_report
+            login_url = f"{_get_base_url(request)}/login"
+            subject, html_body = render_invitation_email(
+                lang=invite_lang.strip(),
+                full_name=full_name.strip(),
+                username=username.strip(),
+                password=temp_password,
+                login_url=login_url,
+            )
+            send_report(
+                recipients=[email.strip()],
+                subject=subject,
+                html_body=html_body,
+                api_key=tenant.get("mail_api_key", ""),
+                mail_from=tenant.get("mail_from", ""),
+                mail_from_name=tenant.get("mail_from_name", "") or "Printix Management Console",
+            )
+            audit(
+                admin["id"],
+                "invite_user",
+                f"Benutzer '{username.strip()}' eingeladen ({email.strip()}, lang={invite_lang.strip()})",
+                object_type="user",
+                object_id=created_user["id"],
+            )
+        except Exception as e:
+            logger.error("Invite-User-Fehler: %s", e)
+            if created_user:
+                try:
+                    from db import delete_user
+                    delete_user(created_user["id"])
+                except Exception:
+                    pass
+            return templates.TemplateResponse("admin_user_invite.html", {
+                "request": request,
+                "user": admin,
+                "saved": False,
+                "error": str(e),
+                "f_username": username,
+                "f_email": email,
+                "f_full_name": full_name,
+                "f_company": company,
+                "f_invite_lang": invite_lang,
+                "f_role_type": role_type,
+                **tc,
+            })
+
+        return templates.TemplateResponse("admin_user_invite.html", {
+            "request": request,
+            "user": admin,
+            "saved": True,
+            "error": None,
+            "created_username": username.strip(),
+            "created_email": email.strip(),
+            **tc,
+        })
+
     @app.post("/admin/users/{user_id}/disable")
     async def admin_disable(user_id: str, request: Request):
         admin = get_session_user(request)
@@ -1662,7 +1913,7 @@ def create_app(session_secret: str) -> FastAPI:
         email:     str = Form(default=""),
         full_name: str = Form(default=""),
         company:   str = Form(default=""),
-        is_admin:  str = Form(default=""),
+        role_type: str = Form(default="user"),
         status:    str = Form(default="approved"),
     ):
         admin = get_session_user(request)
@@ -1691,7 +1942,8 @@ def create_app(session_secret: str) -> FastAPI:
                 "request": request, "user": admin,
                 "saved": False, "error": error,
                 "f_username": username, "f_email": email,
-                "f_is_admin": is_admin, "f_status": status, **tc,
+                "f_full_name": full_name, "f_company": company,
+                "f_role_type": role_type, "f_status": status, **tc,
             })
 
         try:
@@ -1700,7 +1952,7 @@ def create_app(session_secret: str) -> FastAPI:
                 username=username.strip(),
                 password=password,
                 email=email.strip(),
-                is_admin=(is_admin == "1"),
+                role_type=role_type.strip(),
                 status=status,
                 full_name=full_name.strip(),
                 company=company.strip(),
@@ -1744,7 +1996,7 @@ def create_app(session_secret: str) -> FastAPI:
         email:     str = Form(default=""),
         full_name: str = Form(default=""),
         company:   str = Form(default=""),
-        is_admin:  str = Form(default=""),
+        role_type: str = Form(default="user"),
         status:    str = Form(default="approved"),
     ):
         admin = get_session_user(request)
@@ -1766,7 +2018,7 @@ def create_app(session_secret: str) -> FastAPI:
                 email=email.strip(),
                 full_name=full_name.strip(),
                 company=company.strip(),
-                is_admin=(is_admin == "1"),
+                role_type=role_type.strip(),
                 status=status,
             )
             audit(admin["id"], "edit_user", f"User {user_id} bearbeitet", object_type="user", object_id=user_id)
@@ -1916,9 +2168,22 @@ def create_app(session_secret: str) -> FastAPI:
             logger.error("feedback_update-Fehler: %s", e)
         return RedirectResponse(f"/feedback/{ticket_id}", status_code=302)
 
-    def _admin_settings_ctx(request, user, saved=False, error=None,
-                            auto_setup_success=False):
+    def _admin_settings_ctx(
+        request,
+        user,
+        saved=False,
+        error=None,
+        auto_setup_success=False,
+        backup_success=None,
+        backup_error=None,
+        restore_success=None,
+    ):
         """Baut den Template-Kontext für admin_settings.html."""
+        try:
+            from backup_manager import list_backups
+            backups = list_backups()
+        except Exception:
+            backups = []
         try:
             from db import get_setting
             public_url = get_setting("public_url", "")
@@ -1958,6 +2223,10 @@ def create_app(session_secret: str) -> FastAPI:
             "entra": entra_cfg,
             "entra_redirect_uri": saved_redirect,
             "auto_setup_success": auto_setup_success,
+            "backups": backups,
+            "backup_success": backup_success,
+            "backup_error": backup_error,
+            "restore_success": restore_success,
             "saved": saved, "error": error,
             **t_ctx(request),
         }
@@ -2018,6 +2287,78 @@ def create_app(session_secret: str) -> FastAPI:
 
         return templates.TemplateResponse("admin_settings.html",
             _admin_settings_ctx(request, user, saved=True))
+
+    @app.post("/admin/settings/backup/create", response_class=HTMLResponse)
+    async def admin_backup_create(request: Request):
+        user = get_session_user(request)
+        if not user or not user.get("is_admin"):
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from backup_manager import create_backup
+            from db import audit
+            result = create_backup()
+            audit(user["id"], "backup_create", f"Backup erstellt: {result['filename']}")
+            return templates.TemplateResponse(
+                "admin_settings.html",
+                _admin_settings_ctx(request, user, backup_success=result),
+            )
+        except Exception as e:
+            logger.error("Backup-Erstellung fehlgeschlagen: %s", e, exc_info=True)
+            return templates.TemplateResponse(
+                "admin_settings.html",
+                _admin_settings_ctx(request, user, backup_error=str(e)),
+            )
+
+    @app.get("/admin/settings/backups/{filename}")
+    async def admin_backup_download(filename: str, request: Request):
+        user = get_session_user(request)
+        if not user or not user.get("is_admin"):
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from backup_manager import resolve_backup_path
+            path = resolve_backup_path(filename)
+        except Exception:
+            return RedirectResponse("/admin/settings", status_code=302)
+        return FileResponse(path, filename=path.name, media_type="application/zip")
+
+    @app.post("/admin/settings/backup/restore", response_class=HTMLResponse)
+    async def admin_backup_restore(
+        request: Request,
+        backup_zip: UploadFile = File(...),
+    ):
+        user = get_session_user(request)
+        if not user or not user.get("is_admin"):
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        _ = tc["_"]
+        if not backup_zip.filename or not backup_zip.filename.lower().endswith(".zip"):
+            return templates.TemplateResponse(
+                "admin_settings.html",
+                _admin_settings_ctx(request, user, backup_error=_("backup_restore_invalid_file")),
+            )
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix="printix-restore-", suffix=".zip", delete=False) as tmp:
+                tmp_path = tmp.name
+                tmp.write(await backup_zip.read())
+            from backup_manager import restore_backup
+            result = restore_backup(tmp_path)
+            return templates.TemplateResponse(
+                "admin_settings.html",
+                _admin_settings_ctx(request, user, restore_success=result),
+            )
+        except Exception as e:
+            logger.error("Backup-Restore fehlgeschlagen: %s", e, exc_info=True)
+            return templates.TemplateResponse(
+                "admin_settings.html",
+                _admin_settings_ctx(request, user, backup_error=str(e)),
+            )
+        finally:
+            try:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+            except Exception:
+                pass
 
 
     # ─── Logs ────────────────────────────────────────────────────────────────────
@@ -2100,6 +2441,168 @@ def create_app(session_secret: str) -> FastAPI:
             shared_client_secret=tenant.get("shared_client_secret") or None,
         )
 
+    def _paged_items(data, *keys: str) -> list[dict]:
+        if not isinstance(data, dict):
+            return []
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+        content = data.get("content")
+        return content if isinstance(content, list) else []
+
+    def _extract_resource_id(item: dict) -> str:
+        if not isinstance(item, dict):
+            return ""
+        rid = item.get("id")
+        if rid:
+            return str(rid)
+        href = ((item.get("_links") or {}).get("self") or {}).get("href", "")
+        return href.rstrip("/").split("/")[-1] if href else ""
+
+    def _clean_optional(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    def _split_csv(value: Optional[str]) -> list[str]:
+        if not value:
+            return []
+        return [part.strip() for part in value.split(",") if part.strip()]
+
+    def _extract_printer_queue_pairs(raw_items: list[dict]) -> list[dict]:
+        import re as _re
+        pairs: list[dict] = []
+        for item in raw_items if isinstance(raw_items, list) else []:
+            href = (item.get("_links") or {}).get("self", {}).get("href", "")
+            match = _re.search(r"/printers/([^/]+)/queues/([^/?]+)", href)
+            printer_id = match.group(1) if match else item.get("id", "")
+            queue_id = match.group(2) if match else ""
+            vendor = item.get("vendor", "")
+            model = item.get("model", "")
+            printer_name = f"{vendor} {model}".strip() if (vendor or model) else item.get("name", "")
+            pairs.append({
+                "raw": item,
+                "printer_id": printer_id,
+                "queue_id": queue_id,
+                "queue_name": item.get("name", ""),
+                "printer_name": printer_name or item.get("name", ""),
+                "vendor": vendor,
+                "model": model,
+                "location": item.get("location", ""),
+                "status": item.get("connectionStatus", ""),
+                "printerSignId": item.get("printerSignId", ""),
+                "type": item.get("type", item.get("queueType", "")),
+            })
+        return pairs
+
+    @app.get("/tenant", response_class=HTMLResponse)
+    async def tenant_overview(request: Request):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        stats = {
+            "printer_count": 0,
+            "queue_count": 0,
+            "user_count": 0,
+            "guest_count": 0,
+            "workstation_count": 0,
+            "active_workstation_count": 0,
+        }
+        status = {
+            "print_api": {"enabled": False, "state": "missing"},
+            "card_api": {"enabled": False, "state": "missing"},
+            "workstation_api": {"enabled": False, "state": "missing"},
+            "sql": {"enabled": False, "state": "missing"},
+        }
+        warnings: list[str] = []
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if not tenant:
+                warnings.append("common_no_tenant")
+            else:
+                status["print_api"]["enabled"] = bool(tenant.get("print_client_id") or tenant.get("shared_client_id"))
+                status["card_api"]["enabled"] = bool(tenant.get("card_client_id") or tenant.get("shared_client_id"))
+                status["workstation_api"]["enabled"] = bool(tenant.get("ws_client_id") or tenant.get("shared_client_id"))
+                status["sql"]["enabled"] = bool(tenant.get("sql_server"))
+                status["print_api"]["state"] = "configured" if status["print_api"]["enabled"] else "missing"
+                status["card_api"]["state"] = "configured" if status["card_api"]["enabled"] else "missing"
+                status["workstation_api"]["state"] = "configured" if status["workstation_api"]["enabled"] else "missing"
+                status["sql"]["state"] = "configured" if status["sql"]["enabled"] else "missing"
+                if status["print_api"]["enabled"] or status["card_api"]["enabled"] or status["workstation_api"]["enabled"]:
+                    client = _make_printix_client(tenant)
+                    if status["print_api"]["enabled"]:
+                        try:
+                            printers_data = client.list_printers(size=100)
+                            raw_printers = printers_data.get("printers", printers_data.get("content", []))
+                            import re as _re
+                            printer_ids = set()
+                            queue_ids = set()
+                            for p in raw_printers if isinstance(raw_printers, list) else []:
+                                href = (p.get("_links") or {}).get("self", {}).get("href", "")
+                                m = _re.search(r"/printers/([^/]+)/queues/([^/?]+)", href)
+                                pid = m.group(1) if m else p.get("id", "")
+                                qid = m.group(2) if m else ""
+                                if pid:
+                                    printer_ids.add(pid)
+                                if qid:
+                                    queue_ids.add(qid)
+                            stats["printer_count"] = len(printer_ids)
+                            stats["queue_count"] = len(queue_ids)
+                        except Exception as e:
+                            logger.warning("tenant_overview printers unavailable: %s", e)
+                            warnings.append("tenant_overview_warn_print")
+                    if status["card_api"]["enabled"]:
+                        try:
+                            regular = client.list_users(role="USER", page_size=200)
+                            guests = client.list_users(role="GUEST_USER", page_size=200)
+                            reg_users = regular.get("users", regular.get("content", []))
+                            guest_users = guests.get("users", guests.get("content", []))
+                            stats["user_count"] = len(reg_users) if isinstance(reg_users, list) else 0
+                            stats["guest_count"] = len(guest_users) if isinstance(guest_users, list) else 0
+                        except Exception as e:
+                            logger.warning("tenant_overview users unavailable: %s", e)
+                            warnings.append("tenant_overview_warn_users")
+                    if status["workstation_api"]["enabled"]:
+                        try:
+                            workstations_data = client.list_workstations(size=200)
+                            raw_workstations = workstations_data.get("workstations", workstations_data.get("content", []))
+                            if isinstance(raw_workstations, list):
+                                stats["workstation_count"] = len(raw_workstations)
+                                stats["active_workstation_count"] = sum(1 for ws in raw_workstations if ws.get("active"))
+                        except Exception as e:
+                            logger.warning("tenant_overview workstations unavailable: %s", e)
+                            warnings.append("tenant_overview_warn_workstations")
+                if status["sql"]["enabled"]:
+                    try:
+                        from reporting.sql_client import set_config_from_tenant, query_fetchone
+                        set_config_from_tenant(tenant)
+                        probe = query_fetchone("SELECT 1 AS ok")
+                        status["sql"]["state"] = "connected" if probe else "configured"
+                    except Exception as e:
+                        msg = str(e).lower()
+                        if "40615" in msg or "not allowed to access the server" in msg or "firewall" in msg:
+                            status["sql"]["state"] = "blocked"
+                            warnings.append("tenant_overview_warn_sql_firewall")
+                        else:
+                            status["sql"]["state"] = "issue"
+                            warnings.append("tenant_overview_warn_sql_issue")
+        except Exception as e:
+            logger.error("tenant_overview error: %s", e)
+            warnings.append(str(e))
+        return templates.TemplateResponse("tenant_overview.html", {
+            "request": request,
+            "user": user,
+            "stats": stats,
+            "status": status,
+            "warnings": warnings,
+            "active_tab": "overview",
+            **tc,
+        })
+
     @app.get("/tenant/printers", response_class=HTMLResponse)
     async def tenant_printers(request: Request, search: str = ""):
         user = require_login(request)
@@ -2113,31 +2616,27 @@ def create_app(session_secret: str) -> FastAPI:
             if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
                 client = _make_printix_client(tenant)
                 data = client.list_printers(search=search or None, size=100)
-                import re as _re
-                raw = data.get("printers", data.get("content", []))
+                raw = _paged_items(data, "printers")
                 # Deduplizieren nach printer_id – jedes Item im API-Response ist ein
                 # Printer-Queue-Paar. Queues desselben Druckers werden gruppiert.
                 printer_map = {}
-                for p in raw:
-                    href = (p.get("_links") or {}).get("self", {}).get("href", "")
-                    m = _re.search(r"/printers/([^/]+)/queues/([^/?]+)", href)
-                    pid = m.group(1) if m else p.get("id", "")
-                    qid = m.group(2) if m else ""
+                for p in _extract_printer_queue_pairs(raw):
+                    pid = p.get("printer_id", "")
+                    qid = p.get("queue_id", "")
                     if pid not in printer_map:
-                        vendor = p.get("vendor", "")
-                        model  = p.get("model", "")
                         printer_map[pid] = {
                             "printer_id":    pid,
-                            "name":          f"{vendor} {model}".strip() if (vendor or model) else p.get("name", ""),
-                            "vendor":        vendor,
+                            "name":          p.get("printer_name", ""),
+                            "vendor":        p.get("vendor", ""),
                             "location":      p.get("location", ""),
-                            "status":        p.get("connectionStatus", ""),
+                            "status":        p.get("status", ""),
                             "printerSignId": p.get("printerSignId", ""),
                             "queues":        [],
                         }
                     printer_map[pid]["queues"].append({
-                        "name":     p.get("name", ""),
+                        "name":     p.get("queue_name", ""),
                         "queue_id": qid,
+                        "detail_url": f"/tenant/queues/{pid}/{qid}" if pid and qid else "",
                     })
                 printers = list(printer_map.values())
             elif not tenant:
@@ -2166,26 +2665,16 @@ def create_app(session_secret: str) -> FastAPI:
             if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
                 client = _make_printix_client(tenant)
                 data = client.list_printers(search=search or None, size=100)
-                raw = data.get("printers", data.get("content", []))
-                import re as _re
-                for p in raw:
-                    # Printix API: jedes Item ist ein Printer-Queue-Paar.
-                    # _links.self.href = /printers/{printer_id}/queues/{queue_id}
-                    href = (p.get("_links") or {}).get("self", {}).get("href", "")
-                    m = _re.search(r"/printers/([^/]+)/queues/([^/?]+)", href)
-                    printer_id = m.group(1) if m else ""
-                    queue_id   = m.group(2) if m else p.get("id", "")
-                    vendor = p.get("vendor", "")
-                    model  = p.get("model", "")
-                    printer_name = f"{vendor} {model}".strip() if (vendor or model) else p.get("name", "")
+                raw = _paged_items(data, "printers")
+                for p in _extract_printer_queue_pairs(raw):
                     queues.append({
-                        "queue_name":   p.get("name", ""),
-                        "queue_id":     queue_id,
-                        "printer_name": printer_name,
-                        "printer_id":   printer_id,
+                        "queue_name":   p.get("queue_name", ""),
+                        "queue_id":     p.get("queue_id", ""),
+                        "printer_name": p.get("printer_name", ""),
+                        "printer_id":   p.get("printer_id", ""),
                         "location":     p.get("location", ""),
-                        "status":       p.get("connectionStatus", ""),
-                        "queue_type":   p.get("type", p.get("queueType", "")),
+                        "status":       p.get("status", ""),
+                        "queue_type":   p.get("type", ""),
                     })
             elif not tenant:
                 error = "no_tenant"
@@ -2199,6 +2688,711 @@ def create_app(session_secret: str) -> FastAPI:
             "queues": queues, "search": search, "error": error,
             "active_tab": "queues", **tc,
         })
+
+    @app.get("/tenant/printers/{printer_id}", response_class=HTMLResponse)
+    async def tenant_printer_detail(request: Request, printer_id: str, queue_id: str = ""):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        printer = None
+        detail = None
+        recent_jobs = []
+        error = None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                raw_pairs = _extract_printer_queue_pairs(_paged_items(client.list_printers(size=200), "printers"))
+                printer_pairs = [pair for pair in raw_pairs if pair.get("printer_id") == printer_id]
+                if not printer_pairs:
+                    error = "tenant_printer_not_found"
+                else:
+                    selected_queue_id = queue_id or printer_pairs[0].get("queue_id", "")
+                    if selected_queue_id:
+                        detail_raw = client.get_printer(printer_id, selected_queue_id)
+                        detail_items = _paged_items(detail_raw, "printers")
+                        detail = detail_items[0] if detail_items else detail_raw
+                        try:
+                            jobs_data = client.list_print_jobs(queue_id=selected_queue_id, size=8)
+                            recent_jobs = _paged_items(jobs_data, "jobs")
+                        except Exception as jobs_error:
+                            logger.warning("tenant_printer_detail jobs unavailable: %s", jobs_error)
+                    primary = printer_pairs[0]
+                    printer = {
+                        "printer_id": printer_id,
+                        "name": primary.get("printer_name", ""),
+                        "vendor": primary.get("vendor", ""),
+                        "model": primary.get("model", ""),
+                        "location": primary.get("location", ""),
+                        "status": primary.get("status", ""),
+                        "printerSignId": primary.get("printerSignId", ""),
+                        "selected_queue_id": selected_queue_id,
+                        "queues": [
+                            {
+                                "queue_id": pair.get("queue_id", ""),
+                                "name": pair.get("queue_name", ""),
+                                "status": pair.get("status", ""),
+                                "detail_url": f"/tenant/queues/{printer_id}/{pair.get('queue_id', '')}",
+                            }
+                            for pair in printer_pairs
+                        ],
+                    }
+            elif not tenant:
+                error = "no_tenant"
+            else:
+                error = "no_print_creds"
+        except Exception as e:
+            logger.error("tenant_printer_detail error: %s", e)
+            error = str(e)
+        return templates.TemplateResponse("tenant_printer_detail.html", {
+            "request": request,
+            "user": user,
+            "printer": printer,
+            "detail": detail,
+            "detail_json": json.dumps(detail or {}, indent=2, ensure_ascii=False),
+            "recent_jobs": recent_jobs,
+            "error": error,
+            "active_tab": "printers",
+            **tc,
+        })
+
+    @app.get("/tenant/queues/{printer_id}/{queue_id}", response_class=HTMLResponse)
+    async def tenant_queue_detail(request: Request, printer_id: str, queue_id: str):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        queue = None
+        detail = None
+        recent_jobs = []
+        error = None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                raw_pairs = _extract_printer_queue_pairs(_paged_items(client.list_printers(size=200), "printers"))
+                queue_pair = next((pair for pair in raw_pairs if pair.get("printer_id") == printer_id and pair.get("queue_id") == queue_id), None)
+                if not queue_pair:
+                    error = "tenant_queue_not_found"
+                else:
+                    detail_raw = client.get_printer(printer_id, queue_id)
+                    detail_items = _paged_items(detail_raw, "printers")
+                    detail = detail_items[0] if detail_items else detail_raw
+                    queue = {
+                        "printer_id": printer_id,
+                        "queue_id": queue_id,
+                        "name": queue_pair.get("queue_name", ""),
+                        "printer_name": queue_pair.get("printer_name", ""),
+                        "vendor": queue_pair.get("vendor", ""),
+                        "model": queue_pair.get("model", ""),
+                        "location": queue_pair.get("location", ""),
+                        "status": queue_pair.get("status", ""),
+                        "queue_type": queue_pair.get("type", ""),
+                        "printer_detail_url": f"/tenant/printers/{printer_id}?queue_id={queue_id}",
+                    }
+                    try:
+                        jobs_data = client.list_print_jobs(queue_id=queue_id, size=8)
+                        recent_jobs = _paged_items(jobs_data, "jobs")
+                    except Exception as jobs_error:
+                        logger.warning("tenant_queue_detail jobs unavailable: %s", jobs_error)
+            elif not tenant:
+                error = "no_tenant"
+            else:
+                error = "no_print_creds"
+        except Exception as e:
+            logger.error("tenant_queue_detail error: %s", e)
+            error = str(e)
+        return templates.TemplateResponse("tenant_queue_detail.html", {
+            "request": request,
+            "user": user,
+            "queue": queue,
+            "detail": detail,
+            "detail_json": json.dumps(detail or {}, indent=2, ensure_ascii=False),
+            "recent_jobs": recent_jobs,
+            "error": error,
+            "active_tab": "queues",
+            **tc,
+        })
+
+    @app.get("/tenant/sites", response_class=HTMLResponse)
+    async def tenant_sites(request: Request, search: str = "", flash: str = ""):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        sites = []
+        error = None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                data = client.list_sites(search=search or None, size=200)
+                for site in _paged_items(data, "sites"):
+                    site["site_id"] = _extract_resource_id(site)
+                    site["network_count"] = len(site.get("networkIds", []) or [])
+                    site["admin_group_count"] = len(site.get("adminGroupIds", []) or [])
+                    sites.append(site)
+            elif not tenant:
+                error = "no_tenant"
+            else:
+                error = "no_print_creds"
+        except Exception as e:
+            logger.error("tenant_sites error: %s", e)
+            error = str(e)
+        return templates.TemplateResponse("tenant_sites.html", {
+            "request": request, "user": user,
+            "sites": sites, "search": search, "flash": flash, "error": error,
+            "active_tab": "sites", **tc,
+        })
+
+    @app.get("/tenant/sites/create", response_class=HTMLResponse)
+    async def tenant_site_create_get(request: Request):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        groups = []
+        networks = []
+        error = None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                groups = _paged_items(client.list_groups(size=200), "groups")
+                networks = _paged_items(client.list_networks(size=200), "networks")
+                for item in groups + networks:
+                    item["id"] = _extract_resource_id(item)
+            else:
+                error = "no_print_creds"
+        except Exception as e:
+            logger.error("tenant_site_create_get error: %s", e)
+            error = str(e)
+        return templates.TemplateResponse("tenant_site_detail.html", {
+            "request": request, "user": user, "site": None,
+            "groups": groups, "networks": networks,
+            "selected_admin_group_ids": [], "selected_network_ids": [],
+            "flash": "", "error": error, "active_tab": "sites", **tc,
+        })
+
+    @app.post("/tenant/sites/create")
+    async def tenant_site_create_post(
+        request: Request,
+        name: str = Form(...),
+        path: str = Form(...),
+        admin_group_ids: list[str] = Form([]),
+        network_ids: list[str] = Form([]),
+    ):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        from urllib.parse import quote_plus as _qp
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            client = _make_printix_client(tenant)
+            created = client.create_site(
+                name=name.strip(),
+                path=path.strip(),
+                admin_group_ids=[x for x in admin_group_ids if x],
+                network_ids=[x for x in network_ids if x],
+            )
+            site_id = _extract_resource_id(created)
+            target = f"/tenant/sites/{site_id}?flash=created" if site_id else "/tenant/sites?flash=created"
+            return RedirectResponse(target, status_code=302)
+        except Exception as e:
+            return RedirectResponse(f"/tenant/sites?flash=error&errmsg={_qp(str(e)[:160])}", status_code=302)
+
+    @app.get("/tenant/sites/{site_id}", response_class=HTMLResponse)
+    async def tenant_site_detail(request: Request, site_id: str, flash: str = "", errmsg: str = ""):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        site = None
+        groups = []
+        networks = []
+        error = errmsg or None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                site = client.get_site(site_id)
+                if isinstance(site, dict):
+                    site["site_id"] = _extract_resource_id(site)
+                groups = _paged_items(client.list_groups(size=200), "groups")
+                networks = _paged_items(client.list_networks(size=200), "networks")
+                for item in groups + networks:
+                    item["id"] = _extract_resource_id(item)
+            elif not tenant:
+                error = "no_tenant"
+            else:
+                error = "no_print_creds"
+        except Exception as e:
+            logger.error("tenant_site_detail error: %s", e)
+            error = str(e)
+        return templates.TemplateResponse("tenant_site_detail.html", {
+            "request": request, "user": user,
+            "site": site, "groups": groups, "networks": networks,
+            "selected_admin_group_ids": (site or {}).get("adminGroupIds", []) or [],
+            "selected_network_ids": (site or {}).get("networkIds", []) or [],
+            "selected_admin_group_names": [
+                item.get("name") or item.get("id")
+                for item in groups
+                if item.get("id") in ((site or {}).get("adminGroupIds", []) or [])
+            ],
+            "selected_network_names": [
+                item.get("name") or item.get("id")
+                for item in networks
+                if item.get("id") in ((site or {}).get("networkIds", []) or [])
+            ],
+            "detail_json": json.dumps(site or {}, indent=2, ensure_ascii=False),
+            "flash": flash, "error": error, "active_tab": "sites", **tc,
+        })
+
+    @app.post("/tenant/sites/{site_id}")
+    async def tenant_site_update_post(
+        request: Request,
+        site_id: str,
+        name: str = Form(...),
+        path: str = Form(...),
+        admin_group_ids: list[str] = Form([]),
+        network_ids: list[str] = Form([]),
+    ):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        from urllib.parse import quote_plus as _qp
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            client = _make_printix_client(tenant)
+            client.update_site(
+                site_id,
+                name=name.strip(),
+                path=path.strip(),
+                admin_group_ids=[x for x in admin_group_ids if x],
+                network_ids=[x for x in network_ids if x],
+            )
+            return RedirectResponse(f"/tenant/sites/{site_id}?flash=updated", status_code=302)
+        except Exception as e:
+            return RedirectResponse(f"/tenant/sites/{site_id}?flash=error&errmsg={_qp(str(e)[:160])}", status_code=302)
+
+    @app.post("/tenant/sites/{site_id}/delete")
+    async def tenant_site_delete_post(request: Request, site_id: str):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            client = _make_printix_client(tenant)
+            client.delete_site(site_id)
+            return RedirectResponse("/tenant/sites?flash=deleted", status_code=302)
+        except Exception as e:
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(f"/tenant/sites?flash=error&errmsg={_qp(str(e)[:160])}", status_code=302)
+
+    @app.get("/tenant/networks", response_class=HTMLResponse)
+    async def tenant_networks(request: Request, site_id: str = "", flash: str = ""):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        networks = []
+        sites = []
+        error = None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                sites = _paged_items(client.list_sites(size=200), "sites")
+                for site in sites:
+                    site["site_id"] = _extract_resource_id(site)
+                data = client.list_networks(site_id=site_id or None, size=200)
+                for network in _paged_items(data, "networks"):
+                    network["network_id"] = _extract_resource_id(network)
+                    networks.append(network)
+            elif not tenant:
+                error = "no_tenant"
+            else:
+                error = "no_print_creds"
+        except Exception as e:
+            logger.error("tenant_networks error: %s", e)
+            error = str(e)
+        return templates.TemplateResponse("tenant_networks.html", {
+            "request": request, "user": user,
+            "networks": networks, "sites": sites, "site_filter": site_id, "flash": flash, "error": error,
+            "active_tab": "networks", **tc,
+        })
+
+    @app.get("/tenant/networks/create", response_class=HTMLResponse)
+    async def tenant_network_create_get(request: Request):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        sites = []
+        error = None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                sites = _paged_items(client.list_sites(size=200), "sites")
+                for site in sites:
+                    site["site_id"] = _extract_resource_id(site)
+            else:
+                error = "no_print_creds"
+        except Exception as e:
+            error = str(e)
+        return templates.TemplateResponse("tenant_network_detail.html", {
+            "request": request, "user": user, "network": None,
+            "sites": sites, "flash": "", "error": error,
+            "detail_json": json.dumps({}, indent=2, ensure_ascii=False),
+            "active_tab": "networks", **tc,
+        })
+
+    @app.post("/tenant/networks/create")
+    async def tenant_network_create_post(
+        request: Request,
+        name: str = Form(...),
+        site_id: str = Form(""),
+        gateway_mac: str = Form(""),
+        gateway_ip: str = Form(""),
+        client_migrate_print_queues: str = Form("GLOBAL_SETTING"),
+        home_office: Optional[str] = Form(None),
+        air_print: Optional[str] = Form(None),
+    ):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        from urllib.parse import quote_plus as _qp
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            client = _make_printix_client(tenant)
+            created = client.create_network(
+                name=name.strip(),
+                home_office=bool(home_office),
+                client_migrate_print_queues=(client_migrate_print_queues or "GLOBAL_SETTING").strip().upper(),
+                air_print=bool(air_print),
+                site_id=_clean_optional(site_id),
+                gateway_mac=_clean_optional(gateway_mac),
+                gateway_ip=_clean_optional(gateway_ip),
+            )
+            network_id = _extract_resource_id(created)
+            target = f"/tenant/networks/{network_id}?flash=created" if network_id else "/tenant/networks?flash=created"
+            return RedirectResponse(target, status_code=302)
+        except Exception as e:
+            return RedirectResponse(f"/tenant/networks?flash=error&errmsg={_qp(str(e)[:160])}", status_code=302)
+
+    @app.get("/tenant/networks/{network_id}", response_class=HTMLResponse)
+    async def tenant_network_detail(request: Request, network_id: str, flash: str = "", errmsg: str = ""):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        network = None
+        sites = []
+        error = errmsg or None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                network = client.get_network(network_id)
+                if isinstance(network, dict):
+                    network["network_id"] = _extract_resource_id(network)
+                sites = _paged_items(client.list_sites(size=200), "sites")
+                for site in sites:
+                    site["site_id"] = _extract_resource_id(site)
+            elif not tenant:
+                error = "no_tenant"
+            else:
+                error = "no_print_creds"
+        except Exception as e:
+            logger.error("tenant_network_detail error: %s", e)
+            error = str(e)
+        return templates.TemplateResponse("tenant_network_detail.html", {
+            "request": request, "user": user,
+            "network": network, "sites": sites,
+            "network_site_name": next(
+                (
+                    site.get("name") or site.get("site_id")
+                    for site in sites
+                    if site.get("site_id") == ((network or {}).get("siteId") or "")
+                ),
+                "",
+            ),
+            "detail_json": json.dumps(network or {}, indent=2, ensure_ascii=False),
+            "flash": flash, "error": error, "active_tab": "networks", **tc,
+        })
+
+    @app.post("/tenant/networks/{network_id}")
+    async def tenant_network_update_post(
+        request: Request,
+        network_id: str,
+        name: str = Form(...),
+        subnet: str = Form(""),
+        site_id: str = Form(""),
+        client_migrate_print_queues: str = Form("GLOBAL_SETTING"),
+        home_office: Optional[str] = Form(None),
+        air_print: Optional[str] = Form(None),
+    ):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        from urllib.parse import quote_plus as _qp
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            client = _make_printix_client(tenant)
+            client.update_network(
+                network_id,
+                name=name.strip(),
+                subnet=_clean_optional(subnet),
+                home_office=bool(home_office),
+                client_migrate_print_queues=(client_migrate_print_queues or "GLOBAL_SETTING").strip().upper(),
+                air_print=bool(air_print),
+                site_id=_clean_optional(site_id),
+            )
+            return RedirectResponse(f"/tenant/networks/{network_id}?flash=updated", status_code=302)
+        except Exception as e:
+            return RedirectResponse(f"/tenant/networks/{network_id}?flash=error&errmsg={_qp(str(e)[:160])}", status_code=302)
+
+    @app.post("/tenant/networks/{network_id}/delete")
+    async def tenant_network_delete_post(request: Request, network_id: str):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            client = _make_printix_client(tenant)
+            client.delete_network(network_id)
+            return RedirectResponse("/tenant/networks?flash=deleted", status_code=302)
+        except Exception as e:
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(f"/tenant/networks?flash=error&errmsg={_qp(str(e)[:160])}", status_code=302)
+
+    @app.get("/tenant/snmp", response_class=HTMLResponse)
+    async def tenant_snmp_list(request: Request, flash: str = ""):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        snmp_configs = []
+        error = None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                data = client.list_snmp_configs(size=200)
+                for config in _paged_items(data, "snmp", "snmpConfigurations"):
+                    config["snmp_id"] = _extract_resource_id(config)
+                    snmp_configs.append(config)
+            elif not tenant:
+                error = "no_tenant"
+            else:
+                error = "no_print_creds"
+        except Exception as e:
+            logger.error("tenant_snmp_list error: %s", e)
+            error = str(e)
+        return templates.TemplateResponse("tenant_snmp.html", {
+            "request": request, "user": user,
+            "snmp_configs": snmp_configs, "flash": flash, "error": error,
+            "active_tab": "snmp", **tc,
+        })
+
+    @app.get("/tenant/snmp/create", response_class=HTMLResponse)
+    async def tenant_snmp_create_get(request: Request):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        networks = []
+        error = None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                networks = _paged_items(client.list_networks(size=200), "networks")
+                for network in networks:
+                    network["network_id"] = _extract_resource_id(network)
+            else:
+                error = "no_print_creds"
+        except Exception as e:
+            error = str(e)
+        return templates.TemplateResponse("tenant_snmp_detail.html", {
+            "request": request, "user": user, "snmp_config": None,
+            "networks": networks, "selected_network_ids": [],
+            "detail_json": json.dumps({}, indent=2, ensure_ascii=False),
+            "flash": "", "error": error, "active_tab": "snmp", **tc,
+        })
+
+    @app.post("/tenant/snmp/create")
+    async def tenant_snmp_create_post(
+        request: Request,
+        name: str = Form(...),
+        version: str = Form("V2C"),
+        get_community_name: str = Form(""),
+        set_community_name: str = Form(""),
+        tenant_default: Optional[str] = Form(None),
+        security_level: str = Form(""),
+        username: str = Form(""),
+        context_name: str = Form(""),
+        authentication: str = Form(""),
+        authentication_key: str = Form(""),
+        privacy: str = Form(""),
+        privacy_key: str = Form(""),
+        network_ids: list[str] = Form([]),
+    ):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        from urllib.parse import quote_plus as _qp
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            client = _make_printix_client(tenant)
+            created = client.create_snmp_config(
+                name=name.strip(),
+                get_community_name=_clean_optional(get_community_name),
+                set_community_name=_clean_optional(set_community_name),
+                tenant_default=bool(tenant_default),
+                security_level=_clean_optional(security_level.upper() if security_level else security_level),
+                version=(version or "V2C").strip().upper(),
+                username=_clean_optional(username),
+                context_name=_clean_optional(context_name),
+                authentication=_clean_optional(authentication.upper() if authentication else authentication),
+                authentication_key=_clean_optional(authentication_key),
+                privacy=_clean_optional(privacy.upper() if privacy else privacy),
+                privacy_key=_clean_optional(privacy_key),
+                network_ids=[x for x in network_ids if x],
+            )
+            snmp_id = _extract_resource_id(created)
+            target = f"/tenant/snmp/{snmp_id}?flash=created" if snmp_id else "/tenant/snmp?flash=created"
+            return RedirectResponse(target, status_code=302)
+        except Exception as e:
+            return RedirectResponse(f"/tenant/snmp?flash=error&errmsg={_qp(str(e)[:160])}", status_code=302)
+
+    @app.get("/tenant/snmp/{config_id}", response_class=HTMLResponse)
+    async def tenant_snmp_detail(request: Request, config_id: str, flash: str = "", errmsg: str = ""):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        tc = t_ctx(request)
+        snmp_config = None
+        networks = []
+        error = errmsg or None
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if tenant and (tenant.get("print_client_id") or tenant.get("shared_client_id")):
+                client = _make_printix_client(tenant)
+                snmp_config = client.get_snmp_config(config_id)
+                if isinstance(snmp_config, dict):
+                    snmp_config["snmp_id"] = _extract_resource_id(snmp_config)
+                networks = _paged_items(client.list_networks(size=200), "networks")
+                for network in networks:
+                    network["network_id"] = _extract_resource_id(network)
+            elif not tenant:
+                error = "no_tenant"
+            else:
+                error = "no_print_creds"
+        except Exception as e:
+            logger.error("tenant_snmp_detail error: %s", e)
+            error = str(e)
+        selected_network_ids = []
+        if snmp_config:
+            selected_network_ids = list(snmp_config.get("networkIds", []) or [])
+            if not selected_network_ids:
+                for link in ((snmp_config.get("_links") or {}).get("networks") or []):
+                    href = link.get("href", "")
+                    if href:
+                        selected_network_ids.append(href.rstrip("/").split("/")[-1])
+        return templates.TemplateResponse("tenant_snmp_detail.html", {
+            "request": request, "user": user,
+            "snmp_config": snmp_config, "networks": networks,
+            "selected_network_ids": selected_network_ids,
+            "selected_network_names": [
+                network.get("name") or network.get("network_id")
+                for network in networks
+                if network.get("network_id") in selected_network_ids
+            ],
+            "detail_json": json.dumps(snmp_config or {}, indent=2, ensure_ascii=False),
+            "flash": flash, "error": error, "active_tab": "snmp", **tc,
+        })
+
+    @app.post("/tenant/snmp/{config_id}")
+    async def tenant_snmp_update_post(
+        request: Request,
+        config_id: str,
+        name: str = Form(...),
+        version: str = Form("V2C"),
+        get_community_name: str = Form(""),
+        set_community_name: str = Form(""),
+        tenant_default: Optional[str] = Form(None),
+        security_level: str = Form(""),
+        username: str = Form(""),
+        context_name: str = Form(""),
+        authentication: str = Form(""),
+        authentication_key: str = Form(""),
+        privacy: str = Form(""),
+        privacy_key: str = Form(""),
+        network_ids: list[str] = Form([]),
+    ):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        from urllib.parse import quote_plus as _qp
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            client = _make_printix_client(tenant)
+            client.update_snmp_config(
+                config_id,
+                name=name.strip(),
+                get_community_name=_clean_optional(get_community_name),
+                set_community_name=_clean_optional(set_community_name),
+                tenant_default=bool(tenant_default),
+                security_level=_clean_optional(security_level.upper() if security_level else security_level),
+                version=(version or "V2C").strip().upper(),
+                username=_clean_optional(username),
+                context_name=_clean_optional(context_name),
+                authentication=_clean_optional(authentication.upper() if authentication else authentication),
+                authentication_key=_clean_optional(authentication_key),
+                privacy=_clean_optional(privacy.upper() if privacy else privacy),
+                privacy_key=_clean_optional(privacy_key),
+                network_ids=[x for x in network_ids if x],
+            )
+            return RedirectResponse(f"/tenant/snmp/{config_id}?flash=updated", status_code=302)
+        except Exception as e:
+            return RedirectResponse(f"/tenant/snmp/{config_id}?flash=error&errmsg={_qp(str(e)[:160])}", status_code=302)
+
+    @app.post("/tenant/snmp/{config_id}/delete")
+    async def tenant_snmp_delete_post(request: Request, config_id: str):
+        user = require_login(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        try:
+            from db import get_tenant_full_by_user_id
+            tenant = get_tenant_full_by_user_id(user["id"])
+            client = _make_printix_client(tenant)
+            client.delete_snmp_config(config_id)
+            return RedirectResponse("/tenant/snmp?flash=deleted", status_code=302)
+        except Exception as e:
+            from urllib.parse import quote_plus as _qp
+            return RedirectResponse(f"/tenant/snmp?flash=error&errmsg={_qp(str(e)[:160])}", status_code=302)
 
     @app.get("/tenant/users", response_class=HTMLResponse)
     async def tenant_users(request: Request, search: str = "", page: int = 0):
@@ -2308,7 +3502,7 @@ def create_app(session_secret: str) -> FastAPI:
         if user is None: return RedirectResponse("/login", status_code=302)
         tc = t_ctx(request)
         return templates.TemplateResponse("tenant_user_create.html", {
-            "request": request, "user": user, "error": None, **tc,
+            "request": request, "user": user, "error": None, "active_tab": "users", **tc,
         })
 
     @app.post("/tenant/users/create", response_class=HTMLResponse)
@@ -2326,7 +3520,7 @@ def create_app(session_secret: str) -> FastAPI:
             tenant = get_tenant_full_by_user_id(user["id"])
             if not tenant or not (tenant.get("card_client_id") or tenant.get("shared_client_id")):
                 return templates.TemplateResponse("tenant_user_create.html", {
-                    "request": request, "user": user, "error": "no_card_creds", **tc,
+                    "request": request, "user": user, "error": "no_card_creds", "active_tab": "users", **tc,
                 })
             client = _make_printix_client(tenant)
             result = client.create_user(
@@ -2342,7 +3536,7 @@ def create_app(session_secret: str) -> FastAPI:
         except Exception as e:
             logger.error("tenant_user_create error: %s", e)
             return templates.TemplateResponse("tenant_user_create.html", {
-                "request": request, "user": user, "error": str(e), **tc,
+                "request": request, "user": user, "error": str(e), "active_tab": "users", **tc,
             })
 
     @app.get("/tenant/users/{printix_user_id}", response_class=HTMLResponse)
@@ -2405,6 +3599,7 @@ def create_app(session_secret: str) -> FastAPI:
             "px_user": px_user, "cards": cards, "profiles": profiles,
             "printix_user_id": printix_user_id,
             "flash": flash, "error": error,
+            "active_tab": "users",
             **tc,
         })
 
@@ -3060,12 +4255,15 @@ def create_app(session_secret: str) -> FastAPI:
         user = require_login(request)
         if user is None: return RedirectResponse("/login", status_code=302)
         from cards.store import init_cards_tables, save_mapping
+        from cards.transform import decode_printix_secret_value, transform_card_value
+        from cards.profiles import get_builtin_profiles
         init_cards_tables()
         tenant = _cards_tenant_for_user(user)
         tid = tenant.get("id", "")
         client = _make_printix_client(tenant)
         imported = 0
         id_only = 0
+        builtin_profiles = {p.get("id"): p for p in get_builtin_profiles()}
         for role in ("USER", "GUEST_USER"):
             try:
                 users_data = client.list_users(role=role, page=0, page_size=200)
@@ -3086,17 +4284,25 @@ def create_app(session_secret: str) -> FastAPI:
                         continue
                     raw_secret = c.get("secret") or c.get("cardNumber") or c.get("number") or ""
                     local_value = ""
+                    profile_hint = ""
                     if raw_secret:
-                        try:
-                            import base64 as _b64
-                            local_value = _b64.b64decode(raw_secret).decode("utf-8")
-                        except Exception:
-                            local_value = raw_secret
+                        decoded = decode_printix_secret_value(raw_secret)
+                        local_value = decoded.get("decoded_text", "") or ""
+                        profile_hint = decoded.get("profile_hint", "") or ""
                     if local_value and local_value != cid:
+                        preview = {
+                            "raw": local_value,
+                            "normalized": local_value,
+                            "final_submit_value": raw_secret or local_value,
+                            "printix_secret_value": raw_secret or "",
+                        }
+                        if profile_hint and profile_hint in builtin_profiles:
+                            rules = builtin_profiles[profile_hint].get("rules_json", {}) or {}
+                            preview = transform_card_value(local_value, **rules)
                         save_mapping(
                             tid, uid, cid, local_value, raw_secret or local_value, local_value,
-                            "printix_import", "", preview={"raw": local_value, "normalized": local_value,
-                            "final_submit_value": local_value}, printix_secret_value=raw_secret or ""
+                            "printix_import", "", profile_hint,
+                            preview=preview, printix_secret_value=raw_secret or ""
                         )
                         imported += 1
                     else:

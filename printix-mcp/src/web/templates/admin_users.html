@@ -9,6 +9,7 @@
         <div class="section-sub">{{ _('admin_users_sub') }}</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <a href="/admin/users/invite" class="btn btn-success btn-sm">✉️ {{ _('admin_invite_user') }}</a>
         <a href="/admin/users/create" class="btn btn-primary btn-sm">+ {{ _('admin_create_user') }}</a>
         <a href="/admin" class="btn btn-secondary btn-sm">← {{ _('admin_title') }}</a>
       </div>
@@ -21,8 +22,9 @@
         <tr>
           <th>{{ _('reg_username') }}</th>
           <th>{{ _('admin_email') }}</th>
+          <th>{{ _('admin_role') }}</th>
           <th>{{ _('admin_status') }}</th>
-          <th>{{ _('admin_is_admin') }}</th>
+          <th>{{ _('admin_invitation') }}</th>
           <th>{{ _('common_created') }}</th>
           <th>{{ _('common_actions') }}</th>
         </tr>
@@ -33,6 +35,15 @@
           <td><strong>{{ u.username }}</strong></td>
           <td>{{ u.email or '—' }}</td>
           <td>
+            {% if u.role_type == 'admin' %}
+              <span class="badge badge-blue">{{ _('role_admin') }}</span>
+            {% elif u.role_type == 'employee' %}
+              <span class="badge badge-yellow">{{ _('role_employee') }}</span>
+            {% else %}
+              <span style="color:#6b7280; font-size:.85em;">{{ _('role_user') }}</span>
+            {% endif %}
+          </td>
+          <td>
             {% if u.status == 'approved' %}
               <span class="badge badge-green">✓ {{ _('admin_status_active') }}</span>
             {% elif u.status == 'pending' %}
@@ -42,8 +53,10 @@
             {% endif %}
           </td>
           <td>
-            {% if u.is_admin %}
-              <span class="badge badge-blue">{{ _('admin_badge_admin') }}</span>
+            {% if u.invitation_sent_at and u.invitation_accepted_at %}
+              <span class="badge badge-green">✓ {{ _('admin_invitation_accepted') }}</span>
+            {% elif u.invitation_sent_at %}
+              <span class="badge badge-yellow">✉️ {{ _('admin_invitation_open') }}</span>
             {% else %}
               <span style="color:#6b7280; font-size:.85em;">—</span>
             {% endif %}

@@ -109,9 +109,9 @@ BUILTIN_PROFILES = [
             "strip_separators": True,
             "input_mode": "text",
             "submit_mode": "base64_text",
-            "append_char": "ÿ",
-            "append_count": 8,
-            "base64_source": "working",
+            "base64_source": "raw",
+            "base64_suffix_hex": "FF",
+            "base64_suffix_count": 8,
         },
     },
     {

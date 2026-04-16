@@ -53,11 +53,13 @@
         </select>
       </div>
       <div class="form-group">
-        <div class="check-row">
-          <input type="checkbox" name="is_admin" value="1" id="is_admin_cb"
-                 {% if target and target.is_admin %}checked{% endif %}>
-          <label for="is_admin_cb" style="margin-bottom:0;">{{ _('admin_is_admin') }}</label>
-        </div>
+        <label>{{ _('admin_role') }}</label>
+        <select name="role_type">
+          <option value="user" {% if target and target.role_type == 'user' %}selected{% endif %}>{{ _('role_user') }}</option>
+          <option value="employee" {% if target and target.role_type == 'employee' %}selected{% endif %}>{{ _('role_employee') }}</option>
+          <option value="admin" {% if target and target.role_type == 'admin' %}selected{% endif %}>{{ _('role_admin') }}</option>
+        </select>
+        <small class="hint">{{ _('admin_role_hint') }}</small>
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <button type="submit" class="btn btn-primary">{{ _('admin_save') }}</button>

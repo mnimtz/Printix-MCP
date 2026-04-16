@@ -2,14 +2,6 @@
 {% block title %}{{ _('tenant_tab_users') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block extra_head %}
 <style>
-  .tenant-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid #e5e7eb; padding-bottom:0; }
-  .tenant-tab {
-    padding:8px 18px; font-size:.9em; font-weight:600; text-decoration:none;
-    color:#6b7280; border-radius:6px 6px 0 0; border:1px solid transparent;
-    border-bottom:none; margin-bottom:-2px;
-  }
-  .tenant-tab.active { background:#fff; border-color:#e5e7eb; border-bottom-color:#fff; color:#1e3a5f; }
-  .tenant-tab:hover:not(.active) { color:#374151; background:#f8fafc; }
   .search-bar { display:flex; gap:8px; margin-bottom:16px; }
   .search-bar input { flex:1; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:.9em; }
   .search-bar button { padding:8px 16px; background:#2563eb; color:#fff; border:none; border-radius:8px; cursor:pointer; font-size:.9em; font-weight:600; }
@@ -35,113 +27,106 @@
 </style>
 {% endblock %}
 {% block content %}
-<div class="container" style="max-width:1000px;">
-  <div class="card">
-    <h2 class="section-title" style="margin-bottom:16px;">🖨️ {{ _('nav_tenant') }}</h2>
+<div class="container" style="max-width:1480px;">
+  <div class="tenant-shell">
+    {% include "_tenant_sidebar.html" %}
+    <section class="tenant-main">
+      <div class="card tenant-main-card">
+        <h2 class="section-title" style="margin-bottom:16px;">👤 {{ _('tenant_tab_users') }}</h2>
 
-    <div class="tenant-tabs">
-      <a href="/tenant/printers" class="tenant-tab {% if active_tab == 'printers' %}active{% endif %}">🖨️ {{ _('tenant_tab_printers') }}</a>
-      <a href="/tenant/queues" class="tenant-tab {% if active_tab == 'queues' %}active{% endif %}">📋 {{ _('tenant_tab_queues') }}</a>
-      <a href="/tenant/users" class="tenant-tab {% if active_tab == 'users' %}active{% endif %}">👤 {{ _('tenant_tab_users') }}</a>
-      <a href="/tenant/workstations" class="tenant-tab {% if active_tab == 'workstations' %}active{% endif %}">💻 {{ _('tenant_tab_workstations') }}</a>
-      <a href="/tenant/demo" class="tenant-tab {% if active_tab == 'demo' %}active{% endif %}">🗄️ {{ _('tenant_tab_demo') }}</a>
-    </div>
-
-    {% if request.query_params.get('flash') == 'deleted' %}
-    <div class="flash-ok">✅ {{ _('user_deleted_ok') }}</div>
-    {% elif request.query_params.get('flash') == 'created' %}
-    <div class="flash-ok">✅ {{ _('user_card_added_ok') }}</div>
-    {% endif %}
-
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
-      <form class="search-bar" method="get" action="/tenant/users" style="flex:1;min-width:200px;margin:0;">
-        <input type="text" name="search" value="{{ search }}" placeholder="{{ _('tenant_search_name_email') }}">
-        <button type="submit">🔍</button>
-      </form>
-      <a href="/tenant/users{% if search %}?search={{ search }}{% endif %}" class="btn btn-secondary" title="{{ _('common_reload_printix') }}">🔄 {{ _('common_refresh') }}</a>
-      <a href="/tenant/users/create" class="btn btn-primary">➕ {{ _('user_new_btn') }}</a>
-    </div>
-
-    <div class="hint-box">
-      {{ _('tenant_users_hint') | safe }}
-    </div>
-
-    {% if error == "no_card_creds" %}
-    <div class="alert alert-warning">⚠️ {{ _('tenant_no_card_creds') }}</div>
-    {% elif error == "no_tenant" %}
-    <div class="alert alert-warning">⚠️ {{ _('common_no_tenant') }}</div>
-    {% elif error %}
-    <div class="alert alert-error">❌ {{ error }}</div>
-    {% elif users %}
-    <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">
-      {{ _('tenant_users_count', count=total_count) }}{% if total_pages > 1 %} — Seite {{ page + 1 }} / {{ total_pages }}{% endif %}
-    </p>
-    <div style="overflow-x:auto;">
-      <table>
-        <thead>
-          <tr>
-            <th>{{ _('tenant_col_name') }}</th>
-            <th>{{ _('tenant_col_email') }}</th>
-            <th>{{ _('tenant_col_cards') }}</th>
-            <th>{{ _('tenant_role') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for u in users %}
-          {% set display = u.get('displayName') or u.get('fullName') or u.get('name') or '?' %}
-          {% set email   = u.get('email', '–') %}
-          {% set card_count = u.get('_card_count', 0) %}
-          {% set role    = u.get('role', '') %}
-          {% set uid     = u.get('id', '') %}
-          <tr class="clickable" onclick="location.href='/tenant/users/{{ uid }}'">
-            <td>
-              <div style="display:flex;align-items:center;gap:10px;">
-                <div class="avatar">{{ display[:1] }}</div>
-                <span style="font-weight:600;color:#2563eb;text-decoration:underline;">{{ display }}</span>
-              </div>
-            </td>
-            <td style="color:#6b7280;font-size:.88em;">{{ email }}</td>
-            <td>
-              <span class="card-count {% if card_count == 0 %}zero{% endif %}">🃏 {{ card_count }}</span>
-            </td>
-            <td>
-              {% if role %}
-                <span class="role-badge {% if role == 'GUEST_USER' %}guest{% endif %}">{{ role | replace('_', ' ') }}</span>
-              {% else %}–{% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    {% if total_pages > 1 %}
-    <div style="display:flex;justify-content:center;gap:6px;margin-top:16px;align-items:center;">
-      {% if page > 0 %}
-        <a href="/tenant/users?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}" class="btn btn-secondary" style="padding:6px 14px;font-size:.85em;">← Zurück</a>
-      {% endif %}
-      {% for p in range(total_pages) %}
-        {% if p == page %}
-          <span style="display:inline-block;padding:6px 12px;font-size:.85em;font-weight:700;background:#2563eb;color:#fff;border-radius:6px;">{{ p + 1 }}</span>
-        {% elif (p - page)|abs <= 2 or p == 0 or p == total_pages - 1 %}
-          <a href="/tenant/users?page={{ p }}{% if search %}&search={{ search }}{% endif %}" style="display:inline-block;padding:6px 12px;font-size:.85em;color:#2563eb;text-decoration:none;border:1px solid #d1d5db;border-radius:6px;">{{ p + 1 }}</a>
-        {% elif (p - page)|abs == 3 %}
-          <span style="color:#9ca3af;font-size:.85em;">…</span>
+        {% if request.query_params.get('flash') == 'deleted' %}
+        <div class="flash-ok">✅ {{ _('user_deleted_ok') }}</div>
+        {% elif request.query_params.get('flash') == 'created' %}
+        <div class="flash-ok">✅ {{ _('user_card_added_ok') }}</div>
         {% endif %}
-      {% endfor %}
-      {% if page < total_pages - 1 %}
-        <a href="/tenant/users?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}" class="btn btn-secondary" style="padding:6px 14px;font-size:.85em;">Weiter →</a>
-      {% endif %}
-    </div>
-    {% endif %}
 
-    {% else %}
-    <div class="alert alert-info">{{ _('tenant_no_users') }}</div>
-    {% endif %}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+          <form class="search-bar" method="get" action="/tenant/users" style="flex:1;min-width:200px;margin:0;">
+            <input type="text" name="search" value="{{ search }}" placeholder="{{ _('tenant_search_name_email') }}">
+            <button type="submit">🔍</button>
+          </form>
+          <a href="/tenant/users{% if search %}?search={{ search }}{% endif %}" class="btn btn-secondary" title="{{ _('common_reload_printix') }}">🔄 {{ _('common_refresh') }}</a>
+          <a href="/tenant/users/create" class="btn btn-primary">➕ {{ _('user_new_btn') }}</a>
+        </div>
 
-    <div style="margin-top:20px;">
-      <a href="/dashboard" class="btn btn-secondary">← {{ _('nav_dashboard') }}</a>
-    </div>
+        <div class="hint-box">
+          {{ _('tenant_users_hint') | safe }}
+        </div>
+
+        {% if error == "no_card_creds" %}
+        <div class="alert alert-warning">⚠️ {{ _('tenant_no_card_creds') }}</div>
+        {% elif error == "no_tenant" %}
+        <div class="alert alert-warning">⚠️ {{ _('common_no_tenant') }}</div>
+        {% elif error %}
+        <div class="alert alert-error">❌ {{ error }}</div>
+        {% elif users %}
+        <p style="font-size:.82em;color:#6b7280;margin-bottom:10px;">
+          {{ _('tenant_users_count', count=total_count) }}{% if total_pages > 1 %} — Seite {{ page + 1 }} / {{ total_pages }}{% endif %}
+        </p>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>{{ _('tenant_col_name') }}</th>
+                <th>{{ _('tenant_col_email') }}</th>
+                <th>{{ _('tenant_col_cards') }}</th>
+                <th>{{ _('tenant_role') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in users %}
+              {% set display = u.get('displayName') or u.get('fullName') or u.get('name') or '?' %}
+              {% set email   = u.get('email', '–') %}
+              {% set card_count = u.get('_card_count', 0) %}
+              {% set role    = u.get('role', '') %}
+              {% set uid     = u.get('id', '') %}
+              <tr class="clickable" onclick="location.href='/tenant/users/{{ uid }}'">
+                <td>
+                  <div style="display:flex;align-items:center;gap:10px;">
+                    <div class="avatar">{{ display[:1] }}</div>
+                    <span style="font-weight:600;color:#2563eb;text-decoration:underline;">{{ display }}</span>
+                  </div>
+                </td>
+                <td style="color:#6b7280;font-size:.88em;">{{ email }}</td>
+                <td>
+                  <span class="card-count {% if card_count == 0 %}zero{% endif %}">🃏 {{ card_count }}</span>
+                </td>
+                <td>
+                  {% if role %}
+                    <span class="role-badge {% if role == 'GUEST_USER' %}guest{% endif %}">{{ role | replace('_', ' ') }}</span>
+                  {% else %}–{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {% if total_pages > 1 %}
+        <div style="display:flex;justify-content:center;gap:6px;margin-top:16px;align-items:center;">
+          {% if page > 0 %}
+            <a href="/tenant/users?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}" class="btn btn-secondary" style="padding:6px 14px;font-size:.85em;">← {{ _('reg_back') }}</a>
+          {% endif %}
+          {% for p in range(total_pages) %}
+            {% if p == page %}
+              <span style="display:inline-block;padding:6px 12px;font-size:.85em;font-weight:700;background:#2563eb;color:#fff;border-radius:6px;">{{ p + 1 }}</span>
+            {% elif (p - page)|abs <= 2 or p == 0 or p == total_pages - 1 %}
+              <a href="/tenant/users?page={{ p }}{% if search %}&search={{ search }}{% endif %}" style="display:inline-block;padding:6px 12px;font-size:.85em;color:#2563eb;text-decoration:none;border:1px solid #d1d5db;border-radius:6px;">{{ p + 1 }}</a>
+            {% elif (p - page)|abs == 3 %}
+              <span style="color:#9ca3af;font-size:.85em;">…</span>
+            {% endif %}
+          {% endfor %}
+          {% if page < total_pages - 1 %}
+            <a href="/tenant/users?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}" class="btn btn-secondary" style="padding:6px 14px;font-size:.85em;">{{ _('reg_next') }} →</a>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="alert alert-info">{{ _('tenant_no_users') }}</div>
+        {% endif %}
+      </div>
+    </section>
   </div>
 </div>
 {% endblock %}

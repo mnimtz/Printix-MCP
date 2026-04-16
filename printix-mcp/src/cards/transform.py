@@ -8,6 +8,45 @@ def _safe_b64_text(s: str) -> str:
     except Exception:
         return ""
 
+def _safe_b64_bytes(data: bytes) -> str:
+    try:
+        return base64.b64encode(data or b"").decode("ascii")
+    except Exception:
+        return ""
+
+def decode_printix_secret_value(secret_value: str) -> dict:
+    result = {
+        "secret_value": secret_value or "",
+        "decoded_text": "",
+        "decoded_bytes_hex": "",
+        "profile_hint": "",
+    }
+    if not secret_value:
+        return result
+    try:
+        raw_bytes = base64.b64decode(secret_value, validate=True)
+    except Exception:
+        return result
+
+    result["decoded_bytes_hex"] = raw_bytes.hex().upper()
+    if not raw_bytes:
+        return result
+
+    # Straight ASCII / keyboard-style readers
+    if all(32 <= b <= 126 for b in raw_bytes):
+        result["decoded_text"] = raw_bytes.decode("ascii", errors="ignore")
+        return result
+
+    # YSoft / Konica workflows append literal FF bytes after the visible ASCII value
+    stripped = raw_bytes.rstrip(b"\xff")
+    suffix = raw_bytes[len(stripped):]
+    if stripped and suffix and all(32 <= b <= 126 for b in stripped) and set(suffix) == {0xFF}:
+        result["decoded_text"] = stripped.decode("ascii", errors="ignore")
+        result["profile_hint"] = "builtin-ysoft-konica-mifare"
+        return result
+
+    return result
+
 def _hex_to_decimal(hex_value: str) -> str:
     try:
         return str(int(hex_value, 16)) if hex_value else ""
@@ -58,6 +97,26 @@ def _apply_char_removals(value: str, remove_chars) -> str:
         return value
     return "".join(ch for ch in value if ch not in chars)
 
+def _build_base64_source_bytes(source_value: str, byte_suffix_hex: str = "", byte_suffix_count: int = 0, encoding: str = "utf-8") -> bytes:
+    base_value = source_value or ""
+    try:
+        if encoding == "latin-1":
+            data = base_value.encode("latin-1", errors="ignore")
+        else:
+            data = base_value.encode("utf-8")
+    except Exception:
+        data = b""
+
+    suffix_hex = (byte_suffix_hex or "").strip().replace(" ", "")
+    if suffix_hex:
+        try:
+            suffix = bytes.fromhex(suffix_hex)
+            if suffix:
+                data += suffix * max(0, int(byte_suffix_count or 0))
+        except Exception:
+            pass
+    return data
+
 def transform_card_value(
     raw_value: str,
     strip_separators: bool = True,
@@ -76,6 +135,9 @@ def transform_card_value(
     pad_even_hex: bool = True,
     lowercase: bool = False,
     double_base64: bool = False,
+    base64_encoding: str = "utf-8",
+    base64_suffix_hex: str = "",
+    base64_suffix_count: int = 0,
 ):
     raw = (raw_value or "").strip()
     normalized = raw
@@ -147,7 +209,13 @@ def transform_card_value(
         "decimal_reversed": decimal_reversed,
     }
     base64_input_value = base64_candidates.get(base64_source or "raw", raw)
-    base64_text = _safe_b64_text(base64_input_value)
+    base64_bytes = _build_base64_source_bytes(
+        base64_input_value,
+        byte_suffix_hex=base64_suffix_hex,
+        byte_suffix_count=base64_suffix_count,
+        encoding=base64_encoding or "utf-8",
+    )
+    base64_text = _safe_b64_bytes(base64_bytes)
     if double_base64 and base64_text:
         base64_text = _safe_b64_text(base64_text)
 
@@ -177,6 +245,7 @@ def transform_card_value(
         "decimal_reversed": decimal_reversed,
         "base64_text": base64_text,
         "base64_source_value": base64_input_value,
+        "base64_source_bytes_hex": base64_bytes.hex().upper(),
         "final_submit_value": final_value,
         "input_mode_resolved": mode,
     }

@@ -1,3 +1,159 @@
+## 5.10.11 (2026-04-16) — Builder Upload Analysis Hotfix
+
+### Fixed
+- Removed a broken JavaScript translation call in the Clientless / Zero Trust Package Builder that caused `Network error: t is not defined` during ZIP upload analysis.
+
+## 5.10.10 (2026-04-16) — Card Conversion Consistency Fixes
+
+### Fixed
+- Unified the browser and server-side card transformation order so previews and stored values no longer diverge on replace/remove/lowercase/leading-zero rules.
+- Corrected the YSoft Konica profile to Base64-encode real `FF` bytes, matching the documented Logic App examples instead of UTF-8 text encoding.
+
+## 5.10.9 (2026-04-16) — Shared Nav And Content Width
+
+### Changed
+- Unified the top navigation and page content on the same shared workspace width so the page layout now follows the same horizontal rhythm as the register bar.
+- Moved the shared width and gutter values into central CSS variables for easier future tuning.
+
+## 5.10.8 (2026-04-16) — Wider Main Workspace Layout
+
+### Changed
+- Increased the shared page container width in the base layout so the app no longer leaves excessive unused space on large screens.
+- Expanded the main working views such as Printix, Druckerflotte and Karten & Codes to use the wider layout more consistently.
+
+## 5.10.7 (2026-04-16) — Wider Printix Overview
+
+### Changed
+- Increased the usable page width on the Printix overview so the content no longer leaves so much unused space on large screens.
+- Restored the section card helper text with a 3-column card grid and tighter text clamping for a more informative but still compact layout.
+
+## 5.10.6 (2026-04-16) — Printix Overview Layout Rebalance
+
+### Changed
+- Rebalanced the Printix overview so the `Bereiche` section gets more width and the readiness panel no longer squeezes the cards unnecessarily.
+- Removed the section card helper text on the overview cards to keep the page visible with less vertical scrolling.
+
+## 5.10.5 (2026-04-16) — Curated Detail Summaries
+
+### Changed
+- Added curated summary panels for Sites, Networks and SNMP so useful metadata remains visible after removing raw API payload blocks.
+- Resolved linked names such as assigned networks, admin groups and site names into readable UI summaries.
+
+## 5.10.4 (2026-04-16) — Printix Detail View Cleanup
+
+### Changed
+- Removed raw API payload panels from Printix object detail pages so printer, queue, site, network and SNMP views stay focused on the curated information.
+- Expanded the remaining edit/detail cards to use the freed space more effectively.
+
+## 5.10.3 (2026-04-16) — Fluid Printix Overview Cards
+
+### Changed
+- Made the Printix overview section cards scale fluidly with available width so card size, icon size and typography shrink and expand together.
+- Improved handling of longer labels such as `Workstations` to reduce awkward wrapping on medium viewport sizes.
+
+## 5.10.2 (2026-04-16) — Printix Overview Card Compaction
+
+### Changed
+- Reworked the `Bereiche` card grid on the Printix overview into a denser, more square layout to reduce unnecessary scrolling.
+- Reduced visible card copy with tighter typography and line clamping so the overview stays compact even as more sections are added.
+
+## 5.10.1 (2026-04-16) — Dashboard Version Badge
+
+### Changed
+- Added the current add-on version as a dashboard badge, sourced from the shared VERSION file so UI and package metadata stay in sync.
+
+## 5.10.0 (2026-04-16) — Printix Deep Object Views & Infrastructure Registers
+
+### Changed
+- Added dedicated detail views for printers and queues, including capabilities, queue pairing and recent jobs.
+- Expanded the Printix navigation with Sites, Networks and SNMP, including list and detail views plus create, update and delete flows backed by the existing API client.
+- Extended the Printix overview with direct entry cards for Sites, Networks and SNMP and added complete i18n coverage for the new structure.
+
+## 5.9.11 (2026-04-16) — Printix Sidebar Final Alignment & i18n Cleanup
+
+### Changed
+- Reworked the compact Printix sidebar rows so icon and label stay truly left-aligned while the numeric badge anchors on the far right, even for longer labels.
+- Removed the last hardcoded pagination labels in the Printix user list and switched them to shared translations.
+
+## 5.9.10 (2026-04-16) — Printix Sidebar Row Alignment
+
+### Changed
+- Adjusted the compact Printix sidebar rows so icon and label stay truly left-aligned while the numeric badge stays right-aligned
+
+## 5.9.9 (2026-04-16) — Printix Sidebar Alignment Tweak
+
+### Changed
+- Widened the Printix sidebar slightly and tightened label/number alignment so longer entries like `Users & Cards` stay visually balanced
+
+## 5.9.8 (2026-04-16) — Printix UI Polish & Nav Order
+
+### Changed
+- Compact, simplified the Printix left navigation to stay scalable as more sub-sections are added
+- Improved the Printix readiness panel with translated state labels and clearer SQL status messaging
+- Moved the main `Logs` register to directly follow `Capture Store` in the primary navigation
+
+## 5.9.7 (2026-04-16) — Reporting Dependency Fix
+
+### Fixed
+- Added the missing `python-dateutil` dependency so dashboard forecasting no longer fails with `No module named 'dateutil'`
+
+## 5.9.6 (2026-04-16) — Printix Overview Landing
+
+### Changed
+- Added a dedicated Printix overview landing page with KPI cards, readiness states and direct section entry points
+- Upgraded the shared Printix sidebar with descriptive sublabels and a first-class overview entry
+- Switched the main Printix navigation entry to open the new overview instead of jumping straight into printers
+
+## 5.9.5 (2026-04-16) — Printix Navigation Layout Refresh
+
+### Changed
+- Reworked the Printix area into a shared left-side navigation shell for printers, queues, users, workstations and demo data
+- Improved future extensibility for additional Printix sub-sections by centralizing the sub-navigation in one reusable template
+- Updated the main Printix content views to render in a clearer master-detail layout with the active section shown in the main content area
+
+## 5.9.4 (2026-04-15) — Employee Role & Partner Portal Prep
+
+### Added
+- New user role `Employee` prepared alongside `User` and `Admin`
+- New protected `Partner Portal` section visible for admins and employees
+- Role selection in admin user creation, editing and invitation flows
+
+### Changed
+- User management now stores a normalized role type in addition to legacy admin compatibility flags
+
+## 5.9.3 (2026-04-15) — Fleet Builder Translation Fix
+
+### Fixed
+- Fixed the Fleet Monitor shortcut card for `Clientless / Zero Trust Package Builder` so both title and description are translated correctly instead of staying hardcoded in German
+
+## 5.9.2 (2026-04-15) — Full Backup & Restore
+
+### Added
+- Full local backup and restore flow under `Administration > Server Settings`, covering users, password hashes, tenant credentials, card/SQL-related local state, demo data, report templates and the local encryption key
+- Backup ZIP export to the add-on backup directory with download list in the admin UI
+- Restore flow from uploaded backup ZIP with explicit restart notice after restore
+
+## 5.9.1 (2026-04-15) — Session Middleware Hotfix
+
+### Fixed
+- Fixed a startup/runtime error in the invitation activation middleware by ensuring session middleware is registered in the correct order and by safely handling requests without an initialized session scope
+
+## 5.9.0 (2026-04-15) — User Invitations
+
+### Added
+- New admin flow `Benutzer einladen` under `Administration > Benutzer` to create a user, generate a temporary password automatically and send a localized invitation email
+- Invitation emails in all supported main languages with login link, credentials and a localized “top 5 highlights” overview of the platform
+- User invitation tracking in the admin user list so admins can see whether an invitation is still open or has already been accepted
+- Forced first-login activation flow that requires invited users to set their own password before they can continue into the console
+
+### Changed
+- Extended the user schema with invitation metadata and first-login password-change enforcement for invitation-based onboarding
+
+## 5.8.6 (2026-04-15) — Dashboard Link Trim
+
+### Changed
+- Removed the feedback quick link from the dashboard side panel to reduce the landing page height and help keep the full start page visible without scrolling
+
 ## 5.8.5 (2026-04-15) — Adaptive Dashboard Fit
 
 ### Changed

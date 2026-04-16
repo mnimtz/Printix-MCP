@@ -107,6 +107,7 @@ def _mapping_public(row):
     data["hex_reversed_value"] = preview.get("hex_reversed", "")
     data["decimal_value"] = preview.get("decimal", "")
     data["decimal_reversed_value"] = preview.get("decimal_reversed", "")
+    data["base64_source_bytes_hex"] = preview.get("base64_source_bytes_hex", "")
     return data
 
 

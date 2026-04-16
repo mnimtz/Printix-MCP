@@ -1,0 +1,14 @@
+Printix MCP Server v5.9.0
+
+Focus of this update:
+1. Open `Administration > Benutzer` and confirm a new `Benutzer einladen` action is visible.
+2. Send an invitation in at least one non-DE language and confirm the email uses the selected language.
+3. Confirm the invitation email contains:
+   - login URL
+   - username
+   - temporary password
+   - five platform highlights
+4. Log in with the invited user and confirm the account is redirected to the activation page before any normal dashboard access.
+5. Set a new password and confirm the user can continue into the dashboard afterwards.
+6. Re-open `Administration > Benutzer` and confirm the invitation state changes from open to accepted.
+7. Confirm runtime/banner/add-on version shows `v5.9.0`.

@@ -2,14 +2,6 @@
 {% block title %}{{ _('user_create_title') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block extra_head %}
 <style>
-  .tenant-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid #e5e7eb; padding-bottom:0; }
-  .tenant-tab {
-    padding:8px 18px; font-size:.9em; font-weight:600; text-decoration:none;
-    color:#6b7280; border-radius:6px 6px 0 0; border:1px solid transparent;
-    border-bottom:none; margin-bottom:-2px;
-  }
-  .tenant-tab.active { background:#fff; border-color:#e5e7eb; border-bottom-color:#fff; color:#1e3a5f; }
-  .tenant-tab:hover:not(.active) { color:#374151; background:#f8fafc; }
   .form-group { margin-bottom:16px; }
   .form-group label { display:block; font-size:.88em; font-weight:600; color:#374151; margin-bottom:4px; }
   .form-group input { width:100%; padding:9px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:.92em; box-sizing:border-box; }
@@ -17,51 +9,47 @@
 </style>
 {% endblock %}
 {% block content %}
-<div class="container" style="max-width:580px;">
-  <div class="card">
-    <h2 class="section-title" style="margin-bottom:16px;">🖨️ {{ _('nav_tenant') }}</h2>
+<div class="container" style="max-width:1480px;">
+  <div class="tenant-shell">
+    {% include "_tenant_sidebar.html" %}
+    <section class="tenant-main">
+      <div class="card tenant-main-card" style="max-width:580px;">
+        <h2 style="font-size:1.05em;font-weight:700;margin-bottom:16px;">➕ {{ _('user_create_title') }}</h2>
 
-    <!-- Sub-Tabs -->
-    <div class="tenant-tabs">
-      <a href="/tenant/printers" class="tenant-tab">🖨️ {{ _('tenant_tab_printers') }}</a>
-      <a href="/tenant/queues"   class="tenant-tab">📋 {{ _('tenant_tab_queues') }}</a>
-      <a href="/tenant/users"    class="tenant-tab active">👤 {{ _('tenant_tab_users') }}</a>
-    </div>
+        <div class="alert" style="background:#ede9fe;color:#4c1d95;border:1px solid #c4b5fd;border-radius:8px;padding:10px 14px;margin-bottom:18px;font-size:.85em;">
+          ℹ️ {{ _('user_create_guest_only') | safe }}
+        </div>
 
-    <h3 style="font-size:1.05em;font-weight:700;margin-bottom:16px;">➕ {{ _('user_create_title') }}</h3>
+        {% if error == "no_card_creds" %}
+        <div class="alert alert-warning">⚠️ {{ _('tenant_no_card_creds') }}</div>
+        {% elif error %}
+        <div class="alert alert-error">❌ {{ error }}</div>
+        {% endif %}
 
-    <div class="alert" style="background:#ede9fe;color:#4c1d95;border:1px solid #c4b5fd;border-radius:8px;padding:10px 14px;margin-bottom:18px;font-size:.85em;">
-      ℹ️ {{ _('user_create_guest_only') | safe }}
-    </div>
+        <form method="post" action="/tenant/users/create">
+          <div class="form-group">
+            <label for="email">{{ _('user_create_email') }} *</label>
+            <input type="email" id="email" name="email" required placeholder="user@example.com">
+          </div>
 
-    {% if error == "no_card_creds" %}
-    <div class="alert alert-warning">⚠️ {{ _('tenant_no_card_creds') }}</div>
-    {% elif error %}
-    <div class="alert alert-error">❌ {{ error }}</div>
-    {% endif %}
+          <div class="form-group">
+            <label for="display_name">{{ _('user_create_name') }} *</label>
+            <input type="text" id="display_name" name="display_name" required placeholder="Max Mustermann">
+          </div>
 
-    <form method="post" action="/tenant/users/create">
-      <div class="form-group">
-        <label for="email">{{ _('user_create_email') }} *</label>
-        <input type="email" id="email" name="email" required placeholder="user@example.com">
+          <div class="form-group">
+            <label for="pin">{{ _('user_create_pin') }}</label>
+            <input type="text" id="pin" name="pin" placeholder="1234" pattern="[0-9]*" maxlength="8">
+            <div class="hint">{{ _('user_create_pin_hint') }}</div>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:8px;">
+            <button type="submit" class="btn btn-primary">✅ {{ _('user_create_btn') }}</button>
+            <a href="/tenant/users" class="btn btn-secondary">← {{ _('user_detail_back') }}</a>
+          </div>
+        </form>
       </div>
-
-      <div class="form-group">
-        <label for="display_name">{{ _('user_create_name') }} *</label>
-        <input type="text" id="display_name" name="display_name" required placeholder="Max Mustermann">
-      </div>
-
-      <div class="form-group">
-        <label for="pin">{{ _('user_create_pin') }}</label>
-        <input type="text" id="pin" name="pin" placeholder="1234" pattern="[0-9]*" maxlength="8">
-        <div class="hint">{{ _('user_create_pin_hint') }}</div>
-      </div>
-
-      <div style="display:flex;gap:10px;margin-top:8px;">
-        <button type="submit" class="btn btn-primary">✅ {{ _('user_create_btn') }}</button>
-        <a href="/tenant/users" class="btn btn-secondary">← {{ _('user_detail_back') }}</a>
-      </div>
-    </form>
+    </section>
   </div>
 </div>
 {% endblock %}

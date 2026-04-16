@@ -74,7 +74,7 @@
 </style>
 {% endblock %}
 {% block content %}
-<div class="container" style="max-width:1280px;">
+<div class="container" style="max-width:1480px;">
   {% set flash = request.query_params.get('flash', '') %}
   <div class="cards-hero">
     <h2 class="section-title">🃏 {{ _('cards_title') }}</h2>
@@ -625,6 +625,35 @@
     try { return btoa(unescape(encodeURIComponent(str))); } catch (e) { return ''; }
   }
 
+  function encBase64Bytes(bytes) {
+    try {
+      let binary = '';
+      bytes.forEach(function (b) { binary += String.fromCharCode(b); });
+      return btoa(binary);
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function textToBytes(value, encoding) {
+    try {
+      if ((encoding || 'utf-8') === 'latin-1') {
+        return Array.from(value || '', function (ch) { return ch.charCodeAt(0) & 0xFF; });
+      }
+      return Array.from(new TextEncoder().encode(value || ''));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function hexToBytes(value) {
+    const normalized = String(value || '').replace(/\s+/g, '');
+    if (!normalized || normalized.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(normalized)) return [];
+    const bytes = [];
+    for (let i = 0; i < normalized.length; i += 2) bytes.push(parseInt(normalized.slice(i, i + 2), 16));
+    return bytes;
+  }
+
   function isHexString(value) {
     return !!value && /^[0-9a-fA-F]+$/.test(value);
   }
@@ -869,21 +898,26 @@
     profileEl.dataset.appendChar = rules.append_char || '';
     profileEl.dataset.appendCount = String(rules.append_count || 0);
     profileEl.dataset.base64Source = rules.base64_source || 'raw';
+    profileEl.dataset.base64Encoding = rules.base64_encoding || 'utf-8';
+    profileEl.dataset.base64SuffixHex = rules.base64_suffix_hex || '';
+    profileEl.dataset.base64SuffixCount = String(rules.base64_suffix_count || 0);
   }
 
   function compute() {
-    const raw = rawEl.value || '';
-    const normalizedBase = normalizeRaw(raw);
-    let normalized = normalizedBase;
+    const raw = (rawEl.value || '').trim();
+    let normalized = applyPrefixSuffixRules(raw).trim();
     let replaceMap = {};
     try { replaceMap = JSON.parse(profileEl.dataset.replaceMap || '{}'); } catch (e) { replaceMap = {}; }
     Object.keys(replaceMap).forEach(function (key) {
       normalized = normalized.split(key).join(String(replaceMap[key] || ''));
     });
+    if (stripEl.checked) normalized = normalized.replace(/[\s:\-]/g, '');
     const removeChars = profileEl.dataset.removeChars || '';
     if (removeChars) {
       normalized = normalized.split('').filter(function (ch) { return !removeChars.includes(ch); }).join('');
     }
+    if (lowercaseEl.checked) normalized = normalized.toLowerCase();
+    normalized = applyLeadingZeroRule(normalized);
     const prependText = profileEl.dataset.prependText || '';
     const appendText = profileEl.dataset.appendText || '';
     const appendChar = profileEl.dataset.appendChar || '';
@@ -908,7 +942,7 @@
     }
 
     const base64Sources = {
-      raw: raw.trim(),
+      raw: raw,
       normalized: normalized,
       working: working,
       hex: hex,
@@ -916,12 +950,21 @@
       decimal: dec,
       decimal_reversed: hexToDecimalString(reverseHexBytes(hex))
     };
-    b64 = encBase64(base64Sources[profileEl.dataset.base64Source || 'raw'] || raw.trim());
+    const base64Input = base64Sources[profileEl.dataset.base64Source || 'raw'] || raw;
+    let base64Bytes = textToBytes(base64Input, profileEl.dataset.base64Encoding || 'utf-8');
+    const suffixBytes = hexToBytes(profileEl.dataset.base64SuffixHex || '');
+    const suffixCount = Number(profileEl.dataset.base64SuffixCount || '0') || 0;
+    if (suffixBytes.length && suffixCount > 0) {
+      const extra = [];
+      for (let i = 0; i < suffixCount; i += 1) extra.push.apply(extra, suffixBytes);
+      base64Bytes = base64Bytes.concat(extra);
+    }
+    b64 = encBase64Bytes(base64Bytes);
     if (doubleBase64El.checked && b64) b64 = encBase64(b64);
 
     const hexRev = reverseHexBytes(hex);
     const decRev = hexToDecimalString(hexRev);
-    let finalValue = raw.trim();
+    let finalValue = raw;
     if (submitModeEl.value === 'normalized') finalValue = normalized;
     if (submitModeEl.value === 'working') finalValue = working;
     if (submitModeEl.value === 'hex') finalValue = hex;

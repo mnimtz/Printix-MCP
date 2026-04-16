@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ _('nav_partner_portal') }} — {{ _('brand_console_name') }}{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card" style="max-width:760px;margin:40px auto;">
+    <div class="section-title">{{ _('partner_portal_title') }}</div>
+    <p class="section-sub" style="margin-bottom:18px;">{{ _('partner_portal_sub') }}</p>
+
+    <div class="alert alert-info" style="margin-bottom:18px;">
+      <strong>{{ _('partner_portal_ready_title') }}</strong><br>
+      {{ _('partner_portal_ready_body') }}
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">
+      <div style="border:1px solid #e5e7eb;border-radius:14px;padding:16px;background:#f8fafc;">
+        <strong>{{ _('partner_portal_module_accounts') }}</strong>
+        <div style="font-size:.88em;color:#6b7280;margin-top:6px;">{{ _('partner_portal_module_accounts_sub') }}</div>
+      </div>
+      <div style="border:1px solid #e5e7eb;border-radius:14px;padding:16px;background:#f8fafc;">
+        <strong>{{ _('partner_portal_module_projects') }}</strong>
+        <div style="font-size:.88em;color:#6b7280;margin-top:6px;">{{ _('partner_portal_module_projects_sub') }}</div>
+      </div>
+      <div style="border:1px solid #e5e7eb;border-radius:14px;padding:16px;background:#f8fafc;">
+        <strong>{{ _('partner_portal_module_reports') }}</strong>
+        <div style="font-size:.88em;color:#6b7280;margin-top:6px;">{{ _('partner_portal_module_reports_sub') }}</div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="/dashboard" class="btn btn-primary">{{ _('nav_dashboard') }}</a>
+      <a href="/admin/users" class="btn btn-secondary">{% if user.is_admin %}{{ _('admin_users') }}{% else %}{{ _('nav_settings') }}{% endif %}</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

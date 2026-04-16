@@ -1,6 +1,6 @@
 # Printix MCP Server — Home Assistant Add-on
 
-**Version 5.8.5** · Multi-Tenant MCP Server for the Printix Cloud Print API
+**Version 5.10.11** · Multi-Tenant MCP Server for the Printix Cloud Print API
 
 A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix Cloud Print API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Manage printers, users, print jobs, and generate detailed reports — all through natural language in your AI chat.
 
@@ -112,6 +112,18 @@ Each user manages their own Printix OAuth2 credentials independently. Multiple t
 
 See [CHANGELOG.md](CHANGELOG.md) for a full version history.
 
+**v5.10.0** — Deep object views for printers and queues plus new Sites, Networks and SNMP infrastructure registers
+**v5.9.10** — True left/right alignment for compact Printix sidebar rows
+**v5.9.9** — Slightly wider Printix sidebar with cleaner label and badge alignment
+**v5.9.8** — Compact Printix sidebar, clearer translated status labels and Logs reordered after Capture
+**v5.9.7** — Missing `python-dateutil` dependency fixed for dashboard reporting/forecast loading
+**v5.9.6** — Printix overview landing page, descriptive sidebar labels and overview-first register entry
+**v5.9.5** — Shared left-side navigation shell for the Printix workspace and cleaner subsection layout
+**v5.9.4** — Employee role preparation plus Partner Portal visibility and role-based user management
+**v5.9.3** — Fleet shortcut translation fix for the Clientless / Zero Trust Package Builder card
+**v5.9.2** — Full backup and restore for local add-on state, including encryption key and demo data
+**v5.9.1** — Session middleware hotfix for the invitation activation flow
+**v5.9.0** — User invitation flow with localized emails, temporary passwords and invitation acceptance tracking
 **v5.8.5** — Adaptive dashboard scaling for large and short desktop viewports, denser landing-page fit
 **v5.8.4** — Dashboard tile translation fix for additional languages
 **v5.8.3** — Dashboard tile balance and compact environmental tile layout

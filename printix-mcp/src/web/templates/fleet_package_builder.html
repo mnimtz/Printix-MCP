@@ -367,7 +367,7 @@ function renderAnalysis(structure) {
 
   let html = "";
   if (structure.package_version) {
-    html += `<div class="found-item">📦 ${esc(t('fleet_builder_js_package_version'))}: <strong>${esc(structure.package_version)}</strong></div>`;
+    html += `<div class="found-item">📦 {{ _('fleet_builder_js_package_version') | e }}: <strong>${esc(structure.package_version)}</strong></div>`;
   }
   (structure.found_files || []).forEach(f => {
     html += `<div class="found-item">✅ ${esc(f)}</div>`;

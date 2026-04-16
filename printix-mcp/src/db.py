@@ -29,6 +29,13 @@ logger = logging.getLogger(__name__)
 DB_PATH = os.environ.get("DB_PATH", "/data/printix_multi.db")
 
 
+def _normalize_role_type(role_type: str | None, is_admin: bool = False) -> str:
+    value = (role_type or "").strip().lower()
+    if value in ("admin", "employee", "user"):
+        return value
+    return "admin" if is_admin else "user"
+
+
 # ─── Datenbankverbindung ──────────────────────────────────────────────────────
 
 @contextmanager
@@ -62,7 +69,13 @@ def init_db() -> None:
                 company      TEXT NOT NULL DEFAULT '',
                 password_hash TEXT NOT NULL,
                 is_admin     INTEGER NOT NULL DEFAULT 0,
+                role_type    TEXT NOT NULL DEFAULT 'user',
                 status       TEXT NOT NULL DEFAULT 'pending',
+                must_change_password INTEGER NOT NULL DEFAULT 0,
+                invited_by_user_id TEXT NOT NULL DEFAULT '',
+                invitation_language TEXT NOT NULL DEFAULT '',
+                invitation_sent_at TEXT NOT NULL DEFAULT '',
+                invitation_accepted_at TEXT NOT NULL DEFAULT '',
                 created_at   TEXT NOT NULL
             );
             -- Safe migration: add new columns if they don't exist yet
@@ -131,10 +144,24 @@ def init_db() -> None:
     # Sichere Migration: neue Spalten hinzufügen falls nicht vorhanden
     with _conn() as conn:
         existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "role_type" not in existing_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN role_type TEXT NOT NULL DEFAULT 'user'")
+            conn.execute("UPDATE users SET role_type='admin' WHERE is_admin=1")
+            conn.execute("UPDATE users SET role_type='user' WHERE role_type=''")
         if "full_name" not in existing_cols:
             conn.execute("ALTER TABLE users ADD COLUMN full_name TEXT NOT NULL DEFAULT ''")
         if "company" not in existing_cols:
             conn.execute("ALTER TABLE users ADD COLUMN company TEXT NOT NULL DEFAULT ''")
+        if "must_change_password" not in existing_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
+        if "invited_by_user_id" not in existing_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN invited_by_user_id TEXT NOT NULL DEFAULT ''")
+        if "invitation_language" not in existing_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN invitation_language TEXT NOT NULL DEFAULT ''")
+        if "invitation_sent_at" not in existing_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN invitation_sent_at TEXT NOT NULL DEFAULT ''")
+        if "invitation_accepted_at" not in existing_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN invitation_accepted_at TEXT NOT NULL DEFAULT ''")
         # v4.1.0: Entra ID (Azure AD) SSO — Object-ID für User-Zuordnung
         if "entra_oid" not in existing_cols:
             conn.execute("ALTER TABLE users ADD COLUMN entra_oid TEXT NOT NULL DEFAULT ''")
@@ -406,12 +433,13 @@ def create_user(username: str, password: str, email: str = "", is_first: bool = 
     now = _now()
     status = "approved" if is_first else "pending"
     is_admin = 1 if is_first else 0
+    role_type = _normalize_role_type("admin" if is_first else "user", bool(is_admin))
     pw_hash = hash_password(password)
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO users (id, username, email, full_name, company, password_hash, is_admin, status, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?)",
-            (uid, username.strip(), email.strip(), full_name.strip(), company.strip(), pw_hash, is_admin, status, now),
+            "INSERT INTO users (id, username, email, full_name, company, password_hash, is_admin, role_type, status, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (uid, username.strip(), email.strip(), full_name.strip(), company.strip(), pw_hash, is_admin, role_type, status, now),
         )
     return get_user_by_id(uid)
 
@@ -421,6 +449,7 @@ def create_user_admin(
     password: str,
     email: str = "",
     is_admin: bool = False,
+    role_type: str = "",
     status: str = "approved",
     full_name: str = "",
     company: str = "",
@@ -433,15 +462,63 @@ def create_user_admin(
     from crypto import hash_password
     uid = str(uuid.uuid4())
     now = _now()
+    normalized_role = _normalize_role_type(role_type, is_admin)
     pw_hash = hash_password(password)
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO users (id, username, email, full_name, company, password_hash, is_admin, status, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?)",
-            (uid, username.strip(), email.strip(), full_name.strip(), company.strip(), pw_hash, 1 if is_admin else 0, status, now),
+            "INSERT INTO users (id, username, email, full_name, company, password_hash, is_admin, role_type, status, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (uid, username.strip(), email.strip(), full_name.strip(), company.strip(), pw_hash, 1 if normalized_role == 'admin' else 0, normalized_role, status, now),
         )
     # Leeren Tenant anlegen damit OAuth/Bearer sofort verfügbar sind
     _create_empty_tenant(uid, username)
+    return get_user_by_id(uid)
+
+
+def create_invited_user(
+    username: str,
+    password: str,
+    email: str,
+    full_name: str = "",
+    company: str = "",
+    invited_by_user_id: str = "",
+    invitation_language: str = "de",
+    is_admin: bool = False,
+    role_type: str = "",
+) -> dict:
+    """
+    Legt einen Benutzer per Einladungs-Flow an.
+    Der Benutzer ist freigeschaltet, muss aber beim ersten Login sein Passwort ändern.
+    """
+    from crypto import hash_password
+    uid = str(uuid.uuid4())
+    now = _now()
+    normalized_role = _normalize_role_type(role_type, is_admin)
+    pw_hash = hash_password(password)
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO users ("
+            "id, username, email, full_name, company, password_hash, is_admin, role_type, status, "
+            "must_change_password, invited_by_user_id, invitation_language, invitation_sent_at, created_at"
+            ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                uid,
+                username.strip(),
+                email.strip(),
+                full_name.strip(),
+                company.strip(),
+                pw_hash,
+                1 if normalized_role == 'admin' else 0,
+                normalized_role,
+                "approved",
+                1,
+                invited_by_user_id.strip(),
+                invitation_language.strip(),
+                now,
+                now,
+            ),
+        )
+    _create_empty_tenant(uid, full_name.strip() or company.strip() or username.strip())
     return get_user_by_id(uid)
 
 
@@ -529,6 +606,7 @@ def update_user(
     username: Optional[str] = None,
     email: Optional[str] = None,
     is_admin: Optional[bool] = None,
+    role_type: Optional[str] = None,
     status: Optional[str] = None,
     full_name: Optional[str] = None,
     company: Optional[str] = None,
@@ -543,8 +621,13 @@ def update_user(
         parts.append("full_name=?"); params.append(full_name.strip())
     if company is not None:
         parts.append("company=?"); params.append(company.strip())
+    normalized_role = None
+    if role_type is not None or is_admin is not None:
+        normalized_role = _normalize_role_type(role_type, bool(is_admin))
+    if normalized_role is not None:
+        parts.append("role_type=?"); params.append(normalized_role)
     if is_admin is not None:
-        parts.append("is_admin=?"); params.append(1 if is_admin else 0)
+        parts.append("is_admin=?"); params.append(1 if normalized_role == "admin" else 0)
     if status is not None:
         parts.append("status=?"); params.append(status)
     if not parts:
@@ -564,6 +647,18 @@ def reset_user_password(user_id: str, new_password: str) -> bool:
     return cur.rowcount > 0
 
 
+def complete_invitation_password_change(user_id: str, new_password: str) -> bool:
+    """Setzt ein neues Passwort und markiert die Einladung als angenommen."""
+    from crypto import hash_password
+    pw_hash = hash_password(new_password)
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE users SET password_hash=?, must_change_password=0, invitation_accepted_at=? WHERE id=?",
+            (pw_hash, _now(), user_id),
+        )
+    return cur.rowcount > 0
+
+
 def delete_user(user_id: str) -> bool:
     """
     Löscht einen Benutzer und seinen zugehörigen Tenant.
@@ -577,6 +672,7 @@ def delete_user(user_id: str) -> bool:
 
 def _user_public(user: dict) -> dict:
     """Gibt ein User-Dict ohne password_hash zurück."""
+    role_type = _normalize_role_type(user.get("role_type", ""), bool(user["is_admin"]))
     return {
         "id":         user["id"],
         "username":   user["username"],
@@ -584,7 +680,15 @@ def _user_public(user: dict) -> dict:
         "full_name":  user.get("full_name", ""),
         "company":    user.get("company", ""),
         "is_admin":   bool(user["is_admin"]),
+        "role_type":  role_type,
+        "is_employee": role_type == "employee",
+        "can_access_partner_portal": role_type in ("admin", "employee"),
         "status":     user["status"],
+        "must_change_password": bool(user.get("must_change_password", 0)),
+        "invited_by_user_id": user.get("invited_by_user_id", ""),
+        "invitation_language": user.get("invitation_language", ""),
+        "invitation_sent_at": user.get("invitation_sent_at", ""),
+        "invitation_accepted_at": user.get("invitation_accepted_at", ""),
         "created_at": user.get("created_at", ""),
         "entra_oid":  user.get("entra_oid", ""),
     }
@@ -657,10 +761,10 @@ def get_or_create_entra_user(
         conn.execute(
             "INSERT INTO users "
             "(id, username, email, full_name, company, password_hash, "
-            " is_admin, status, created_at, entra_oid) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " is_admin, role_type, status, created_at, entra_oid) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (uid, username, email.strip(), display_name, "",
-             pw_hash, 0, status, now, entra_oid),
+             pw_hash, 0, "user", status, now, entra_oid),
         )
 
     # Leeren Tenant anlegen

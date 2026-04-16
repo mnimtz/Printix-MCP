@@ -364,6 +364,7 @@
         <span class="landing-badge">{% if has_api %}🔌 {{ _('dash_badge_api_ok') }}{% else %}⚠️ {{ _('dash_badge_api_missing') }}{% endif %}</span>
         <span class="landing-badge">{% if has_sql %}🗄️ {{ _('dash_badge_sql_ok') }}{% else %}ℹ️ {{ _('dash_badge_sql_optional') }}{% endif %}</span>
         <span class="landing-badge">👤 {{ user.full_name or user.username }}</span>
+        <span class="landing-badge">🏷️ {{ _('dash_badge_version') }} {{ app_version }}</span>
       </div>
     </section>
 
@@ -508,13 +509,6 @@
             <div>
               <strong>{{ _('dash_link_help_title') }}</strong>
               <small>{{ _('dash_link_help_sub') }}</small>
-            </div>
-            <span class="landing-arrow">→</span>
-          </a>
-          <a class="landing-link" href="/feedback">
-            <div>
-              <strong>{{ _('dash_link_feedback_title') }}</strong>
-              <small>{{ _('dash_link_feedback_sub') }}</small>
             </div>
             <span class="landing-arrow">→</span>
           </a>

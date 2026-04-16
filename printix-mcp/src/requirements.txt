@@ -20,6 +20,7 @@ aiohttp>=3.9.0
 pyodbc>=5.1.0
 pymssql>=2.3.0
 APScheduler>=3.10.0
+python-dateutil>=2.9.0
 
 # Reporting — Ausgabeformate (v3.1)
 fpdf2>=2.7.0
