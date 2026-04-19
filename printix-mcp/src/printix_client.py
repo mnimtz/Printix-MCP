@@ -97,6 +97,9 @@ class PrintixClient:
         # Workstation Monitoring credentials
         ws_client_id: Optional[str] = None,
         ws_client_secret: Optional[str] = None,
+        # User Management credentials
+        um_client_id: Optional[str] = None,
+        um_client_secret: Optional[str] = None,
         # Shared fallback credentials (used if area-specific ones are missing)
         shared_client_id: Optional[str] = None,
         shared_client_secret: Optional[str] = None,
@@ -114,6 +117,7 @@ class PrintixClient:
         self._print_tm = _tm(print_client_id, print_client_secret, "Print API")
         self._card_tm = _tm(card_client_id, card_client_secret, "Card Management")
         self._ws_tm = _tm(ws_client_id, ws_client_secret, "Workstation Monitoring")
+        self._um_tm = _tm(um_client_id, um_client_secret, "User Management")
 
     def _require_tm(self, tm: Optional[_TokenManager], area: str) -> _TokenManager:
         if tm is None:
@@ -123,6 +127,29 @@ class PrintixClient:
                 f"Please set the corresponding environment variables.",
             )
         return tm
+
+    def _user_lookup_tm(self) -> _TokenManager:
+        """Best-effort credentials for read-only user lookups.
+
+        Prefer User Management (new, broadest scope), then Card Management,
+        then Print API so LPR/cloud-print flows can still resolve owner hints.
+        """
+        return self._require_tm(
+            self._um_tm or self._card_tm or self._print_tm,
+            "User Management, Card Management or Print API",
+        )
+
+    def _user_management_tm(self) -> _TokenManager:
+        """Credentials for write user operations (create/delete regular USER).
+
+        Prefer User Management API when available — it supports role=USER
+        create/delete. Falls back to Card Management which historically
+        only supported GUEST_USER.
+        """
+        return self._require_tm(
+            self._um_tm or self._card_tm,
+            "User Management or Card Management",
+        )
 
     def _headers(self, tm: _TokenManager, extra: Optional[dict] = None) -> dict:
         headers = {
@@ -144,8 +171,12 @@ class PrintixClient:
         if not resp.ok:
             try:
                 err = resp.json()
-                msg = err.get("description", resp.text)
-                err_id = err.get("errorId", "")
+                # v4.6.8: Printix uses errorText/message, not description
+                msg = (err.get("errorText")
+                       or err.get("message")
+                       or err.get("description")
+                       or resp.text)
+                err_id = err.get("printix-errorId") or err.get("errorId") or ""
             except Exception:
                 msg = resp.text
                 err_id = ""
@@ -214,6 +245,24 @@ class PrintixClient:
 
     # ─── Print Jobs ────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _normalize_submit_pdl(pdl: Optional[str]) -> Optional[str]:
+        """Map MIME-style format detection to the Printix submit PDL enum."""
+        if not pdl:
+            return None
+        normalized = pdl.strip().upper()
+        mime_map = {
+            "APPLICATION/PDF": "PDF",
+            "APPLICATION/POSTSCRIPT": "POSTSCRIPT",
+            "APPLICATION/VND.HP-PCL": "PCL5",
+            "APPLICATION/PCL": "PCL5",
+            "APPLICATION/PCLXL": "PCLXL",
+            "APPLICATION/VND.HP-PCLXL": "PCLXL",
+            "TEXT/PLAIN": "TEXT",
+            "APPLICATION/OCTET-STREAM": None,
+        }
+        return mime_map.get(normalized, normalized)
+
     def submit_print_job(self, printer_id: str, queue_id: str, title: str,
                           user: Optional[str] = None,
                           pdl: Optional[str] = None,
@@ -237,8 +286,9 @@ class PrintixClient:
         params: dict = {"title": title, "releaseImmediately": str(release_immediately).lower()}
         if user:
             params["user"] = user
-        if pdl:
-            params["PDL"] = pdl
+        normalized_pdl = self._normalize_submit_pdl(pdl)
+        if normalized_pdl:
+            params["PDL"] = normalized_pdl
         body: dict = {}
         if color is not None:
             body["color"] = color
@@ -252,22 +302,26 @@ class PrintixClient:
             body["page_orientation"] = orientation
         if scaling:
             body["scaling"] = scaling
-        extra_headers = {"version": "1.1"}
+        extra_headers = {"version": "1.1", "Content-Type": "application/json"}
         resp = self._session.post(
             self._url(f"/printers/{printer_id}/queues/{queue_id}/submit"),
             headers=self._headers(tm, extra_headers),
             params=params,
-            json=body if body else None,
+            json=body if body else {},
             timeout=60,
         )
         return self._handle_response(resp)
 
     def upload_file_to_url(self, upload_url: str, file_bytes: bytes,
-                            content_type: str = "application/pdf") -> Any:
+                            content_type: str = "application/pdf",
+                            extra_headers: Optional[dict] = None) -> Any:
         """Upload a file to the cloud storage URL returned from submit_print_job.
         Note: This call goes directly to cloud storage, NOT the Printix API."""
+        headers = {"Content-Type": content_type}
+        if extra_headers:
+            headers.update({k: str(v) for k, v in extra_headers.items() if v is not None})
         resp = requests.put(upload_url, data=file_bytes,
-                            headers={"Content-Type": content_type}, timeout=120)
+                            headers=headers, timeout=120)
         if not resp.ok:
             raise PrintixAPIError(resp.status_code, f"File upload failed: {resp.text}")
         return {"success": True}
@@ -278,6 +332,35 @@ class PrintixClient:
         tm = self._require_tm(self._print_tm, "Print API")
         return self._post(tm, f"/jobs/{job_id}/completeUpload",
                           content_type="application/x-www-form-urlencoded")
+
+    def change_job_owner(self, job_id: str, user_email: str) -> Any:
+        """v6.7.15: Ownership eines gesubmitteten Print-Jobs auf einen anderen
+        User übertragen.
+
+        Hintergrund: Der `user=`-Parameter beim `submit_print_job` wird von
+        Printix IGNORIERT — jeder via OAuth-App gesubmittete Job bekommt
+        automatisch den App-Owner (typisch: System-Manager) als ownerId.
+        Um Delegate-Print / Cloud Print Port sinnvoll zu machen, muss der
+        Owner nach dem Submit explizit gewechselt werden via separatem
+        Endpoint:
+          POST /jobs/{job_id}/changeOwner?userEmail=<email>
+
+        Das lief als `changeOwner`-Link im jedem Submit-Response (templated).
+
+        Args:
+            job_id:     Printix-Job-UUID (aus submit-Response)
+            user_email: Ziel-Email (muss ein registrierter Printix-User sein)
+        """
+        tm = self._require_tm(self._print_tm, "Print API")
+        extra_headers = {"version": "1.1", "Content-Type": "application/json"}
+        resp = self._session.post(
+            self._url(f"/jobs/{job_id}/changeOwner"),
+            headers=self._headers(tm, extra_headers),
+            params={"userEmail": user_email},
+            json={},
+            timeout=30,
+        )
+        return self._handle_response(resp)
 
     def list_print_jobs(self, queue_id: Optional[str] = None,
                          page: int = 0, size: int = 50) -> Any:
@@ -375,27 +458,72 @@ class PrintixClient:
         return self._delete(tm, f"/cards/{card_id}")
 
     # ─── User Management ───────────────────────────────────────────────────────
-    # Uses Card credentials (user management is part of card / identity domain)
+    # Prefers the new User Management API credentials when set (role=USER
+    # create/delete, list both roles), falls back to Card Management which
+    # historically only supported GUEST_USER.
+    #
+    # Verified against the live API (Printix Tenant bee07…):
+    #   list: role=USER,GUEST_USER (comma-separated) returns both in one call
+    #   create: response is {"users":[{"id":…,"pin":…,"idCode":…,"password":…}]}
+    #   delete: POST /users/{id}/delete (NOT DELETE verb — that returns 405)
+    #   roles beyond USER/GUEST_USER are rejected with "Invalid role: …"
+    #   GET /users/{id} returns 404 with UM creds — needs Card Management
+
+    _ROLE_ALL = "USER,GUEST_USER"
 
     def create_user(self, email: str, display_name: str,
+                     role: str = "GUEST_USER",
                      pin: Optional[str] = None,
                      password: Optional[str] = None,
                      expiration_timestamp: Optional[str] = None,
-                     send_welcome_email: bool = False) -> Any:
-        """Create a guest user account.
-        Endpoint: POST /users/create  (note: not /users)
-        Requires: Printix Premium + Cloud Print API guest user feature enabled."""
-        tm = self._require_tm(self._card_tm, "Card Management")
+                     send_welcome_email: bool = False,
+                     send_expiration_email: bool = False,
+                     id_code: Optional[str] = None) -> Any:
+        """Create a user account.
+
+        role:
+            'USER'       — regular e-mail user (needs User Management creds).
+            'GUEST_USER' — guest with expiration (default, works with Card Mgmt).
+
+        Endpoint: POST /users/create
+
+        The API auto-generates pin/idCode/password if not supplied. The
+        generated values are ONLY returned in this create response — they
+        cannot be retrieved later. Callers should persist them if needed.
+
+        Response shape (live API):
+            {
+              "tenantId": "...",
+              "success": true,
+              "message": "OK",
+              "users": [
+                {"id": "...", "email": "...", "fullName": "...", "role": "USER",
+                 "pin": "4963", "idCode": "723132", "password": "Vi8s3pas",
+                 "sendWelcomeEmail": false, "sendExpirationEmail": false}
+              ],
+              "page": {"size": 1, "totalElements": 1, ...}
+            }
+
+        Note: Entra-ID / federated-user creation is NOT supported via this
+        endpoint — extra fields like identityProvider/externalId are silently
+        dropped by the API and a plain local user is created.
+        """
+        tm = self._user_management_tm()
+        role_upper = (role or "GUEST_USER").upper()
         payload: dict = {
             "email": email,
             "fullName": display_name,
-            "role": "GUEST_USER",
-            "sendWelcomeEmail": send_welcome_email,
+            "role": role_upper,
+            "sendWelcomeEmail": bool(send_welcome_email),
         }
+        if send_expiration_email:
+            payload["sendExpirationEmail"] = True
         if pin:
             payload["pin"] = pin
         if password:
             payload["password"] = password
+        if id_code:
+            payload["idCode"] = id_code
         if expiration_timestamp:
             payload["expirationTimestamp"] = expiration_timestamp
         return self._post(tm, "/users/create", json=payload)
@@ -404,33 +532,108 @@ class PrintixClient:
                     query: Optional[str] = None,
                     page: int = 0, page_size: int = 50) -> Any:
         """List users.
-        role: 'USER' (normal users) or 'GUEST_USER' (guest users). Default per API: GUEST_USER.
-        To see all users call twice — once with role=USER, once with role=GUEST_USER.
-        Requires: Printix Premium + Cloud Print API guest user feature enabled."""
-        tm = self._require_tm(self._card_tm, "Card Management")
+
+        role:
+            None          — returns BOTH USER and GUEST_USER in one call
+                            (sends role=USER,GUEST_USER which the API accepts).
+            'USER'        — only regular users.
+            'GUEST_USER'  — only guests (what the raw API default returns).
+            'USER,GUEST_USER' — explicit combined listing.
+
+        Only USER and GUEST_USER are accepted; system/site/kiosk manager
+        accounts are not exposed through this API (API returns 400 for other
+        role values).
+
+        query: server-side name/email substring match (NOT card data).
+
+        Prefers User Management creds when available.
+        """
+        tm = self._user_lookup_tm()
         params: dict = {"page": page, "pageSize": page_size}
-        if role:
-            params["role"] = role
+        # Default: list both roles via comma-list so a single call returns
+        # every user the API can see — matches what the Printix admin UI shows
+        # for USER and GUEST filters combined.
+        params["role"] = role if role else self._ROLE_ALL
         if query:
             params["query"] = query
         return self._get(tm, "/users", params=params)
 
+    def list_all_users(self, query: Optional[str] = None,
+                        page_size: int = 200,
+                        max_pages: int = 20) -> list[dict]:
+        """Fetches every user across all pages in a single flat list.
+
+        Uses the combined role=USER,GUEST_USER listing and walks pages until
+        fewer than page_size items come back (or max_pages is reached as a
+        safety net). Returns the raw user dicts as provided by the API.
+        """
+        out: list[dict] = []
+        seen: set[str] = set()
+        for pg in range(max_pages):
+            data = self.list_users(query=query, page=pg, page_size=page_size)
+            users = []
+            if isinstance(data, dict):
+                users = data.get("users") or data.get("content") or []
+                if not isinstance(users, list):
+                    users = []
+            for u in users:
+                uid = u.get("id", "")
+                if uid and uid not in seen:
+                    seen.add(uid)
+                    out.append(u)
+            if len(users) < page_size:
+                break
+        return out
+
     def get_user(self, user_id: str) -> Any:
-        """Get details of a specific user."""
-        tm = self._require_tm(self._card_tm, "Card Management")
+        """Get details of a specific user.
+
+        Note: with User Management credentials this endpoint returns 404 for
+        existing users — the API scope is list-only for the UM application.
+        Card Management credentials (self._card_tm) must be used instead for
+        detail lookups. We keep preferring Card Management here.
+        """
+        tm = self._require_tm(
+            self._card_tm or self._um_tm or self._print_tm,
+            "Card Management, User Management or Print API",
+        )
         return self._get(tm, f"/users/{user_id}")
 
     def delete_user(self, user_id: str) -> Any:
-        """Delete a guest user account.
-        Endpoint: POST /users/{user_id}/delete  (POST with /delete suffix, not DELETE verb)"""
-        tm = self._require_tm(self._card_tm, "Card Management")
+        """Delete a user (USER or GUEST_USER).
+        Endpoint: POST /users/{user_id}/delete  (POST — DELETE verb returns 405)
+
+        With the new User Management API this works for regular users too,
+        not just guests. System/Site/Kiosk managers cannot be deleted
+        through the API (they are not listable either)."""
+        tm = self._user_management_tm()
         return self._post(tm, f"/users/{user_id}/delete")
 
     def generate_id_code(self, user_id: str) -> Any:
         """Generate a new 6-digit ID code for a user.
         Endpoint: POST /users/{user_id}/idCode  (camelCase — case-sensitive)"""
-        tm = self._require_tm(self._card_tm, "Card Management")
+        tm = self._require_tm(
+            self._card_tm or self._um_tm,
+            "Card Management or User Management",
+        )
         return self._post(tm, f"/users/{user_id}/idCode")
+
+    @staticmethod
+    def extract_created_user(create_response: Any) -> dict:
+        """Unwrap the user object from a /users/create response.
+
+        The create endpoint returns a page-wrapper shape:
+            {"users": [{...}], "success": true, "page": {...}}
+        This helper picks the first user dict, or returns {} if not found.
+        """
+        if not isinstance(create_response, dict):
+            return {}
+        users = create_response.get("users")
+        if isinstance(users, list) and users:
+            first = users[0]
+            if isinstance(first, dict):
+                return first
+        return {}
 
     # ─── Group Management ──────────────────────────────────────────────────────
 

@@ -34,8 +34,17 @@ except ImportError:
 def _get_fernet() -> "Fernet":
     key = os.environ.get("FERNET_KEY", "")
     if not key:
+        # Fallback: direkt aus /data/fernet.key lesen (z.B. bei manuellem Neustart via docker exec)
+        try:
+            with open("/data/fernet.key", "r") as _f:
+                key = _f.read().strip()
+            if key:
+                os.environ["FERNET_KEY"] = key  # für spätere Aufrufe cachen
+        except Exception:
+            pass
+    if not key:
         raise RuntimeError(
-            "FERNET_KEY nicht gesetzt. run.sh muss den Key aus mcp_secrets.json laden."
+            "FERNET_KEY nicht gesetzt. run.sh muss den Key aus /data/fernet.key laden."
         )
     return Fernet(key.encode())
 

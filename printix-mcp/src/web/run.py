@@ -7,8 +7,21 @@ Wird von run.sh im Hintergrund gestartet (vor dem MCP-Server).
 """
 
 import os
+import sys
 import secrets
 import logging
+
+# Logging zentral einrichten BEVOR irgendein Modul Logger holt — sonst landen
+# printix.web Logs (inkl. Demo-Job-Lifecycle) im Vakuum, weil run.py sonst
+# keinen StreamHandler an stdout setzt und _WebTenantDBHandler nur in die SQL
+# tenant_logs-Tabelle schreibt (was bei SQL-Hangs ebenfalls haengt).
+logging.basicConfig(
+    level=os.environ.get("MCP_LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,
+    force=True,
+)
 
 logger = logging.getLogger("printix.web")
 
@@ -30,7 +43,6 @@ def _get_or_create_session_key() -> str:
 
 if __name__ == "__main__":
     import uvicorn
-    import sys
 
     # sys.path so anpassen dass /app Module gefunden werden
     app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

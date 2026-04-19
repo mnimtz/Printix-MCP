@@ -54,9 +54,14 @@ def _build_cron_trigger(schedule: dict) -> Any:
         return CronTrigger(day=day, hour=hour, minute=minute)
 
 
-def _load_tenant_mail_credentials(owner_user_id: str) -> tuple[str, str]:
+def _load_tenant_mail_credentials(owner_user_id: str) -> tuple[str, str, str]:
+    """v6.7.25: 3-stufige Fallback-Resolution (Tenant → Global-Admin → Env).
+
+    Wenn der Tenant keine eigenen Mail-Credentials hinterlegt hat, fallen wir
+    auf die im Admin-Settings hinterlegten globalen Credentials zurück.
+    """
     if not owner_user_id:
-        return "", ""
+        return "", "", ""
     try:
         import sys
         if "/app" not in sys.path:
@@ -65,11 +70,20 @@ def _load_tenant_mail_credentials(owner_user_id: str) -> tuple[str, str]:
         tenant = get_tenant_full_by_user_id(owner_user_id)
         if not tenant:
             logger.warning("Kein Tenant fuer owner_user_id=%s gefunden", owner_user_id)
-            return "", ""
-        return tenant.get("mail_api_key", ""), tenant.get("mail_from", "")
+            tenant = {}
+
+        from reporting.notify_helper import resolve_mail_credentials
+        creds = resolve_mail_credentials(tenant)
+        logger.debug("Mail-Credentials für %s aufgelöst via source=%s",
+                     owner_user_id, creds.get("source"))
+        return (
+            creds.get("api_key", ""),
+            creds.get("mail_from", ""),
+            creds.get("mail_from_name", ""),
+        )
     except Exception as e:
         logger.error("Fehler beim Laden der Tenant-Mail-Credentials: %s", e)
-        return "", ""
+        return "", "", ""
 
 
 def _resolve_subject(subject: str, params: dict) -> str:
@@ -214,28 +228,34 @@ def _run_report_job(report_id: str) -> None:
     formats       = template.get("output_formats", ["html"])
     owner_user_id = template.get("owner_user_id", "")
 
-    mail_api_key, mail_from = _load_tenant_mail_credentials(owner_user_id)
+    mail_api_key, mail_from, mail_from_name = _load_tenant_mail_credentials(owner_user_id)
     if not mail_api_key:
         logger.warning("Report '%s': kein mail_api_key — Mail nicht versendet", template.get("name"))
 
     params = _resolve_dynamic_dates(params)
 
     try:
-        query_fn = {
-            "print_stats":   query_tools.query_print_stats,
-            "cost_report":   query_tools.query_cost_report,
-            "top_users":     query_tools.query_top_users,
-            "top_printers":  query_tools.query_top_printers,
-            "anomalies":     query_tools.query_anomalies,
-            "trend":         query_tools.query_trend,
-        }.get(query_type)
-
-        if not query_fn:
-            logger.error("Unbekannter Query-Typ: %s", query_type)
+        # v3.7.9: run_query dispatcht Stufe 1 + Stufe 2 (17 Query-Typen).
+        # Vorher waren nur 6 Typen hardcoded, Schedules f\u00fcr Stufe-2-Reports
+        # (service_desk, workstation_*, printer_history \u2026) sind still gescheitert.
+        try:
+            data = query_tools.run_query(query_type=query_type, **params)
+        except ValueError as ve:
+            logger.error("Unbekannter Query-Typ im Schedule: %s", ve)
             return
-
-        data = query_fn(**params)
         period = f"{params.get('start_date','?')} - {params.get('end_date','?')}"
+
+        # v6.5.0: Sprache + rpt_eng_*-Labels aus i18n laden damit
+        # Titel nicht als roher Key durchrutschen.
+        _sched_lang = layout.get("language") or "en"
+        try:
+            from web.i18n import TRANSLATIONS as _SCH_TR
+            _sched_labels = {
+                k: v for k, v in (_SCH_TR.get(_sched_lang) or _SCH_TR.get("en") or {}).items()
+                if k.startswith("rpt_eng_")
+            }
+        except Exception:
+            _sched_labels = None
 
         outputs = generate_report(
             query_type=query_type,
@@ -244,6 +264,9 @@ def _run_report_job(report_id: str) -> None:
             layout=layout,
             output_formats=formats,
             currency=layout.get("currency", "EUR"),
+            query_params=params,
+            lang=_sched_lang,
+            labels=_sched_labels,
         )
 
         html_body   = outputs.get("html", "<p>Report generiert.</p>")
@@ -257,6 +280,7 @@ def _run_report_job(report_id: str) -> None:
                 html_body=html_body,
                 api_key=mail_api_key,
                 mail_from=mail_from,
+                mail_from_name=mail_from_name,
                 attachments=attachments if attachments else None,
             )
             logger.info("Report '%s' versendet an: %s (%d Anhaenge)",
@@ -360,22 +384,24 @@ def run_report_now(
 
     if not mail_api_key:
         owner_user_id = template.get("owner_user_id", "")
-        mail_api_key, mail_from = _load_tenant_mail_credentials(owner_user_id)
+        mail_api_key, mail_from, mail_from_name = _load_tenant_mail_credentials(owner_user_id)
 
-    query_fn = {
-        "print_stats":  query_tools.query_print_stats,
-        "cost_report":  query_tools.query_cost_report,
-        "top_users":    query_tools.query_top_users,
-        "top_printers": query_tools.query_top_printers,
-        "anomalies":    query_tools.query_anomalies,
-        "trend":        query_tools.query_trend,
-    }.get(query_type)
-
-    if not query_fn:
-        raise ValueError(f"Unbekannter Query-Typ: {query_type}")
-
-    data   = query_fn(**params)
+    # v3.7.9: run_query dispatcht Stufe 1 + Stufe 2 (17 Query-Typen).
+    # Vorher waren nur 6 Typen hardcoded; "Jetzt senden" f\u00fcr Stufe-2-Reports
+    # (service_desk, workstation_*, printer_history \u2026) brach vorher ab.
+    data   = query_tools.run_query(query_type=query_type, **params)
     period = f"{params.get('start_date','?')} - {params.get('end_date','?')}"
+
+    # v6.5.0: Labels + lang auch beim Sofort-Senden
+    _now_lang = layout.get("language") or "en"
+    try:
+        from web.i18n import TRANSLATIONS as _NOW_TR
+        _now_labels = {
+            k: v for k, v in (_NOW_TR.get(_now_lang) or _NOW_TR.get("en") or {}).items()
+            if k.startswith("rpt_eng_")
+        }
+    except Exception:
+        _now_labels = None
 
     outputs = generate_report(
         query_type=query_type,
@@ -384,6 +410,9 @@ def run_report_now(
         layout=layout,
         output_formats=formats,
         currency=layout.get("currency", "EUR"),
+        query_params=params,
+        lang=_now_lang,
+        labels=_now_labels,
     )
 
     mail_sent = False

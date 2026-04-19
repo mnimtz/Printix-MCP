@@ -1,0 +1,14 @@
+Printix MCP Server v5.7.1
+=========================
+
+Focus
+- Extended i18n coverage for navigation, cards, reports and capture pages
+- Version consistency update above v5.7.0
+
+Quick checks
+1. Open the UI and switch between DE and EN.
+2. Verify `/cards` uses translated labels in Card Lab, preview table and profile editor.
+3. Verify `/tenant/users/<id>` uses translated advanced card options and preview labels.
+4. Verify `/capture` and `/capture/<id>/edit` use translated warnings, copy button and metadata/security labels.
+5. Verify `/reports` and `/reports/new` use translated preset badge, table header and logo upload warnings.
+6. Confirm banner/runtime version shows `v5.7.1`.

@@ -15,12 +15,74 @@ Event-Typen (in notify_events JSON-Array):
 
 import json
 import logging
+import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 # Standard-Ereignisse die immer aktiv sind (wenn Mail konfiguriert)
 DEFAULT_EVENTS: list[str] = ["log_error"]
+
+
+# v6.7.25: Zentrale Mail-Credential-Resolution mit 3-stufigem Fallback.
+# Wird von send_event_notification, send_employee_invitation, Reports etc.
+# genutzt. Damit kann der Global-Admin im Addon einen Fallback-API-Key
+# hinterlegen (`/admin/settings` → „Global Mail Fallback"), den alle Tenants
+# mit-benutzen die selbst keinen hinterlegt haben.
+def resolve_mail_credentials(tenant: Optional[dict]) -> dict:
+    """Liefert `{api_key, mail_from, mail_from_name, source}` mit Fallback-Kette:
+      1. Tenant-eigene Credentials aus der `tenants`-Tabelle
+      2. Globaler Admin-Fallback aus `settings`-Tabelle
+         (`global_mail_api_key`, `global_mail_from`, `global_mail_from_name`)
+      3. Environment-Variablen `MAIL_API_KEY` / `MAIL_FROM`
+
+    `source` gibt zurück wo die Credentials gefunden wurden: 'tenant',
+    'global', 'env' oder 'none'. Nützlich für Logging.
+
+    Api-Key ist in der DB verschlüsselt — wir entschlüsseln hier via db._dec.
+    """
+    tenant = tenant or {}
+
+    # 1) Tenant-eigene Mail-Config
+    t_key  = (tenant.get("mail_api_key") or "").strip()
+    t_from = (tenant.get("mail_from") or "").strip()
+    if t_key and t_from:
+        return {
+            "api_key": t_key,
+            "mail_from": t_from,
+            "mail_from_name": (tenant.get("mail_from_name") or "").strip(),
+            "source": "tenant",
+        }
+
+    # 2) Globaler Admin-Fallback
+    try:
+        from db import get_setting, _dec
+        g_key_enc = get_setting("global_mail_api_key", "")
+        g_from    = (get_setting("global_mail_from", "") or "").strip()
+        g_fromn   = (get_setting("global_mail_from_name", "") or "").strip()
+        g_key = _dec(g_key_enc) if g_key_enc else ""
+        if g_key and g_from:
+            return {
+                "api_key": g_key,
+                "mail_from": g_from,
+                "mail_from_name": g_fromn,
+                "source": "global",
+            }
+    except Exception as _ge:
+        logger.debug("Global-Mail-Fallback Resolution failed: %s", _ge)
+
+    # 3) Env-Var-Fallback
+    e_key  = (os.environ.get("MAIL_API_KEY") or "").strip()
+    e_from = (os.environ.get("MAIL_FROM") or "").strip()
+    if e_key and e_from:
+        return {
+            "api_key": e_key,
+            "mail_from": e_from,
+            "mail_from_name": (os.environ.get("MAIL_FROM_NAME") or "").strip(),
+            "source": "env",
+        }
+
+    return {"api_key": "", "mail_from": "", "mail_from_name": "", "source": "none"}
 
 
 def get_enabled_events(tenant: dict) -> list[str]:
@@ -74,14 +136,12 @@ def send_event_notification(
         logger.debug("Kein alert_recipients konfiguriert für Ereignis '%s'", event_type)
         return False
 
-    # Mail-Credentials vorhanden?
-    api_key   = tenant.get("mail_api_key", "") or ""
-    mail_from = tenant.get("mail_from", "") or ""
-    if not api_key or not mail_from:
-        logger.debug("Keine Mail-Credentials für Ereignis '%s'", event_type)
+    # v6.7.25: Mail-Credentials via 3-stufiger Fallback-Resolution
+    creds = resolve_mail_credentials(tenant)
+    if not creds["api_key"] or not creds["mail_from"]:
+        logger.debug("Keine Mail-Credentials (Kette: tenant → global → env) "
+                     "für Ereignis '%s'", event_type)
         return False
-
-    mail_from_name = tenant.get("mail_from_name", "") or ""
 
     try:
         from reporting.mail_client import send_report
@@ -89,11 +149,12 @@ def send_event_notification(
             recipients=recipients,
             subject=subject,
             html_body=html_body,
-            api_key=api_key,
-            mail_from=mail_from,
-            mail_from_name=mail_from_name,
+            api_key=creds["api_key"],
+            mail_from=creds["mail_from"],
+            mail_from_name=creds["mail_from_name"],
         )
-        logger.info("Ereignis-Benachrichtigung '%s' versendet → %s", event_type, ", ".join(recipients))
+        logger.info("Ereignis-Benachrichtigung '%s' versendet (source=%s) → %s",
+                    event_type, creds["source"], ", ".join(recipients))
         return True
     except Exception as e:
         logger.error("Ereignis-Benachrichtigung '%s' fehlgeschlagen: %s", event_type, e)
@@ -168,3 +229,109 @@ def html_user_registered(username: str, email: str, company: str = "") -> str:
       Bitte in der Admin-Oberfläche prüfen und genehmigen oder ablehnen.
     </p>"""
     return _base_html("Neuer Benutzer registriert", "#fef3c7", "🔔", body)
+
+
+# v6.7.13: Willkommens-Mail für neu angelegte Printix-User mit MCP-Mirror
+def html_employee_invitation(
+    full_name: str,
+    username: str,
+    password: str,
+    login_url: str,
+    admin_name: str = "",
+    admin_company: str = "",
+) -> str:
+    """Willkommens-Mail für einen frisch angelegten Printix-User, der
+    zugleich einen MCP-Self-Service-Account bekommen hat."""
+    from_who = admin_name or admin_company or "dein Printix-Administrator"
+    company_line = (f"<p style='margin:4px 0;color:#6b7280;font-size:.9em;'>"
+                    f"{admin_company}</p>" if admin_company else "")
+    body = f"""
+    <p style="margin:4px 0 12px;color:#1f2937;">
+      Hallo {full_name or username},
+    </p>
+    <p style="margin:4px 0;color:#1f2937;">
+      {from_who} hat für dich einen Zugang zum <strong>Printix MCP Self-Service-Portal</strong>
+      angelegt. Hier kannst du deine Cloud-Print-Jobs einsehen, Delegationen verwalten
+      und deine Druck-Berechtigungen pflegen.
+    </p>
+
+    <div style="background:#f3f4f6;border-radius:8px;padding:14px 16px;margin:16px 0;">
+      <div style="margin:4px 0;">
+        <strong style="color:#6b7280;font-size:.85em;">Login-URL</strong><br>
+        <a href="{login_url}" style="color:#2563eb;">{login_url}</a>
+      </div>
+      <div style="margin:10px 0 4px;">
+        <strong style="color:#6b7280;font-size:.85em;">Benutzername</strong><br>
+        <code style="font-size:1em;">{username}</code>
+      </div>
+      <div style="margin:10px 0 4px;">
+        <strong style="color:#6b7280;font-size:.85em;">Initial-Passwort</strong><br>
+        <code style="font-size:1em;">{password}</code><br>
+        <small style="color:#6b7280;">Bitte beim ersten Login ändern.</small>
+      </div>
+    </div>
+
+    <p style="margin:12px 0 4px;color:#374151;font-size:.9em;">
+      Deine Druckaufträge landen in deiner persönlichen Queue — freigeben kannst
+      du sie an jedem Printix-Drucker deiner Organisation, egal wo du bist.
+    </p>
+    {company_line}
+    """
+    return _base_html("Dein Printix-Portal-Zugang", "#dbeafe", "👋", body)
+
+
+def send_employee_invitation(
+    tenant: dict,
+    recipient_email: str,
+    full_name: str,
+    username: str,
+    password: str,
+    login_url: str,
+    admin_name: str = "",
+) -> bool:
+    """Versendet die Willkommens-Mail für einen neu angelegten MCP-Employee.
+
+    Läuft NICHT über den Event-Gating-Mechanismus (`notify_events`) — das ist
+    eine Einladung, keine Admin-Alert-Mail. Empfänger ist der frische User
+    selbst (nicht `alert_recipients`).
+
+    Returns True bei Versand-Erfolg, False wenn Mail nicht konfiguriert war
+    oder Versand-Fehler auftrat. In beiden Fällen bleibt der Aufrufer
+    verantwortlich das Passwort alternativ anzuzeigen (Flash-UI etc.).
+    """
+    # v6.7.25: Mail-Credentials via 3-stufiger Fallback-Resolution
+    creds = resolve_mail_credentials(tenant)
+    api_key        = creds["api_key"]
+    mail_from      = creds["mail_from"]
+    mail_from_name = creds["mail_from_name"]
+    if not api_key or not mail_from or not recipient_email:
+        logger.debug(
+            "Employee-Invite skip — source=%s mail=%s from=%s recipient=%s",
+            creds["source"], bool(api_key), bool(mail_from), bool(recipient_email),
+        )
+        return False
+    company = (tenant.get("company") or "").strip()
+    html = html_employee_invitation(
+        full_name=full_name,
+        username=username,
+        password=password,
+        login_url=login_url,
+        admin_name=admin_name,
+        admin_company=company,
+    )
+    subject = f"Willkommen beim Printix-Portal{f' — {company}' if company else ''}"
+    try:
+        from reporting.mail_client import send_report
+        send_report(
+            recipients=[recipient_email],
+            subject=subject,
+            html_body=html,
+            api_key=api_key,
+            mail_from=mail_from,
+            mail_from_name=mail_from_name,
+        )
+        logger.info("Employee-Invite versendet → %s", recipient_email)
+        return True
+    except Exception as e:
+        logger.error("Employee-Invite fehlgeschlagen (%s): %s", recipient_email, e)
+        return False

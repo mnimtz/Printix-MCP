@@ -1,0 +1,17 @@
+Printix MCP Server v5.8.2
+
+Focus of this update:
+1. Verify login and navigation branding now show `Printix Management Console` instead of `Printix MCP Admin`.
+2. Verify browser page titles use the new console branding across the touched web pages.
+3. Upload the sample Ricoh ZIP and confirm analysis succeeds without crashing.
+4. Patch the Ricoh ZIP and confirm the output ZIP still contains:
+   - `printix-go-ricoh-2025.4.0.118/`
+   - `printix-go-ricoh-2025.4.0.118/printix-go-ricoh.apk`
+   - `printix-go-ricoh-2025.4.0.118/printix-go-ricoh.dalp`
+5. Open the patched DALP and confirm these tags exist in `<app-extension>`:
+   - `EnableRegistration`
+   - `ClientID`
+   - `ClientSecret`
+   - `TenantId`
+   - `TenantUrl`
+6. Confirm runtime/banner/add-on version shows `v5.8.2`.

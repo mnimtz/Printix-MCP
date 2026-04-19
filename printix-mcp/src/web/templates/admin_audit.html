@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Audit-Log — Printix MCP{% endblock %}
+{% block title %}Audit-Log — {{ _('brand_console_name') }}{% endblock %}
 {% block content %}
 <div class="container">
   <div class="card">
@@ -12,6 +12,7 @@
     </div>
 
     {% if entries %}
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
     <table>
       <thead>
         <tr>
@@ -38,6 +39,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <div class="alert alert-info">Noch keine Einträge im Audit-Log.</div>
     {% endif %}

@@ -15,11 +15,14 @@ Kompatibel mit:
   - ChatGPT MCP Connector (SSE /sse)
 """
 
+import html as _html
 import json
 import logging
 import os
 import secrets
 import time
+from urllib.parse import urlencode, urlparse
+from app_version import APP_VERSION
 
 logger = logging.getLogger("printix.oauth")
 
@@ -38,6 +41,78 @@ def _cleanup_codes():
             del _auth_codes[k]
 
 
+# ─── Redirect-URI Whitelist (RFC 6749 §3.1.2) ─────────────────────────────────
+#
+# Verhindert Open-Redirect-Angriffe: nur bekannte OAuth-Client-Hostnames sind
+# als Ziel für Authorization-Code-Redirects zugelassen. Die Defaults decken
+# claude.ai und ChatGPT als primäre MCP-Clients ab; weitere Hosts können
+# per Environment-Variable OAUTH_ALLOWED_REDIRECT_HOSTS (Komma-separiert)
+# ergänzt werden, ohne Code-Änderung.
+
+_DEFAULT_ALLOWED_REDIRECT_HOSTS = (
+    "claude.ai",
+    "chat.openai.com",
+    "chatgpt.com",
+    "localhost",
+    "127.0.0.1",
+    "::1",
+)
+
+
+def _allowed_redirect_hosts() -> set:
+    """Default-Whitelist vereint mit OAUTH_ALLOWED_REDIRECT_HOSTS (env)."""
+    hosts = set(_DEFAULT_ALLOWED_REDIRECT_HOSTS)
+    extra = os.environ.get("OAUTH_ALLOWED_REDIRECT_HOSTS", "").strip()
+    if extra:
+        for h in extra.split(","):
+            h = h.strip().lower()
+            if h:
+                hosts.add(h)
+    return hosts
+
+
+def _is_allowed_redirect_uri(uri: str) -> bool:
+    """
+    Prüft, ob eine redirect_uri ein sicheres Ziel für den OAuth-Redirect ist.
+
+    Regeln (RFC 6749 §3.1.2 + Defense-in-Depth):
+      - Scheme muss https sein (oder http nur für Loopback)
+      - Host muss in der Whitelist stehen
+      - Keine userinfo ("user:pass@host")
+      - Kein Fragment
+    """
+    if not uri:
+        return False
+    try:
+        p = urlparse(uri)
+    except Exception:
+        return False
+    if p.fragment:
+        return False
+    if "@" in (p.netloc or ""):
+        return False
+    host = (p.hostname or "").lower()
+    if not host:
+        return False
+    allowed = _allowed_redirect_hosts()
+    if p.scheme == "https":
+        return host in allowed
+    if p.scheme == "http":
+        return host in ("localhost", "127.0.0.1", "::1")
+    return False
+
+
+def _build_redirect(redirect_uri: str, params: dict) -> str:
+    """
+    Hängt sauber URL-encodierte Query-Parameter an redirect_uri an.
+    Bewahrt eine bereits vorhandene Query-String.
+    """
+    if not params:
+        return redirect_uri
+    sep = "&" if "?" in redirect_uri else "?"
+    return f"{redirect_uri}{sep}{urlencode(params)}"
+
+
 # ─── HTML Authorize-Seite ──────────────────────────────────────────────────────
 
 _AUTHORIZE_HTML = """<!DOCTYPE html>
@@ -45,7 +120,7 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Printix MCP – Zugriff erlauben</title>
+  <title>Printix Management Console – Zugriff erlauben</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
@@ -80,10 +155,10 @@ _AUTHORIZE_HTML = """<!DOCTYPE html>
 </head>
 <body>
   <div class="card">
-    <div class="logo">🖨️</div>
-    <h1>Printix MCP Server</h1>
+    <div class="logo">Printix</div>
+    <h1>Printix Management Console</h1>
     <p class="sub">
-      Eine externe App möchte auf deinen Printix MCP Server zugreifen
+      Eine externe App möchte auf deine Printix Management Console zugreifen
       und Printix-Ressourcen in deinem Namen verwalten.
     </p>
     <div class="tenant-box">Tenant: {tenant_name}<br><small>App: {client_id}</small></div>
@@ -189,7 +264,11 @@ class OAuthMiddleware:
         await send({"type": "http.response.body", "body": b""})
 
     async def _health(self, send):
-        body = b'{"status":"ok","service":"printix-mcp"}'
+        body = json.dumps({
+            "status": "ok",
+            "service": "printix-mcp",
+            "version": APP_VERSION,
+        }).encode()
         await send({"type": "http.response.start", "status": 200,
                     "headers": [[b"content-type", b"application/json"],
                                  [b"content-length", str(len(body)).encode()]]})
@@ -246,18 +325,29 @@ class OAuthMiddleware:
                                           "error_description": "client_id und redirect_uri erforderlich"})
             return
 
+        # redirect_uri VOR jedem weiteren Schritt gegen Whitelist prüfen.
+        # Kein 302-Redirect an eine ungültige URI — JSON-Fehler direkt zurück,
+        # damit wir keinen Open-Redirect-Vektor öffnen.
+        if not _is_allowed_redirect_uri(redirect_uri):
+            logger.warning("OAuth: redirect_uri abgelehnt (authorize GET): %s", redirect_uri)
+            await self._json(send, 400, {"error": "invalid_request",
+                                          "error_description": "redirect_uri nicht erlaubt"})
+            return
+
         # Tenant anhand client_id finden
         tenant = self._lookup_tenant_by_client(client_id)
         tenant_name = tenant.get("name", client_id) if tenant else client_id
 
         logger.info("OAuth: Authorize-Anfrage von client_id=%s (Tenant: %s)", client_id, tenant_name)
-        html = _AUTHORIZE_HTML.format(
-            client_id=client_id,
-            redirect_uri=redirect_uri,
-            state=state,
-            tenant_name=tenant_name,
+        # WICHTIG: Alle Werte HTML-escapen, bevor sie ins Template gehen —
+        # sonst reflected XSS in hidden-Input-Feldern (value="...").
+        html_body = _AUTHORIZE_HTML.format(
+            client_id=_html.escape(client_id, quote=True),
+            redirect_uri=_html.escape(redirect_uri, quote=True),
+            state=_html.escape(state, quote=True),
+            tenant_name=_html.escape(tenant_name, quote=True),
         )
-        body = html.encode("utf-8")
+        body = html_body.encode("utf-8")
         await send({"type": "http.response.start", "status": 200,
                     "headers": [[b"content-type", b"text/html; charset=utf-8"],
                                  [b"content-length", str(len(body)).encode()]]})
@@ -273,15 +363,28 @@ class OAuthMiddleware:
         state        = params.get("state", "")
         approved     = params.get("approved", "false") == "true"
 
+        # redirect_uri VOR jedem Redirect gegen Whitelist prüfen (wie oben).
+        if not _is_allowed_redirect_uri(redirect_uri):
+            logger.warning("OAuth: redirect_uri abgelehnt (authorize POST): %s", redirect_uri)
+            await self._json(send, 400, {"error": "invalid_request",
+                                          "error_description": "redirect_uri nicht erlaubt"})
+            return
+
         if not approved:
             logger.info("OAuth: Zugriff abgelehnt für client_id=%s", client_id)
-            await self._redirect(send, f"{redirect_uri}?error=access_denied&state={state}")
+            await self._redirect(
+                send,
+                _build_redirect(redirect_uri, {"error": "access_denied", "state": state}),
+            )
             return
 
         tenant = self._lookup_tenant_by_client(client_id)
         if not tenant:
             logger.warning("OAuth: Unbekannte client_id=%s", client_id)
-            await self._redirect(send, f"{redirect_uri}?error=unauthorized_client&state={state}")
+            await self._redirect(
+                send,
+                _build_redirect(redirect_uri, {"error": "unauthorized_client", "state": state}),
+            )
             return
 
         # Authorization Code generieren (gültig 10 Min.)
@@ -295,7 +398,10 @@ class OAuthMiddleware:
         _cleanup_codes()
 
         logger.info("OAuth: Code ausgestellt für client_id=%s (Tenant: %s)", client_id, tenant.get("name", "?"))
-        await self._redirect(send, f"{redirect_uri}?code={code}&state={state}")
+        await self._redirect(
+            send,
+            _build_redirect(redirect_uri, {"code": code, "state": state}),
+        )
 
     async def _token(self, scope, receive, send):
         """Tauscht Authorization Code gegen den Tenant-Bearer-Token."""
@@ -359,6 +465,28 @@ class OAuthMiddleware:
             logger.warning("OAuth: Code gehört zu anderem Tenant")
             await self._json(send, 400, {"error": "invalid_grant",
                                           "error_description": "Code ungültig"})
+            return
+
+        # RFC 6749 §4.1.3: "ensure that the authorization code was issued to the
+        # authenticated confidential client". Defense-in-depth zusätzlich zum
+        # Tenant-Check, falls die client_id→tenant Zuordnung jemals nicht-1:1 wird.
+        if code_data.get("client_id") != client_id:
+            logger.warning("OAuth: Code wurde für andere client_id ausgestellt")
+            await self._json(send, 400, {"error": "invalid_grant",
+                                          "error_description": "Code ungültig"})
+            return
+
+        # RFC 6749 §4.1.3: redirect_uri im Token-Request MUSS identisch zu der
+        # im Authorization-Request sein. Sonst kann ein Angreifer einen fremden
+        # Code via anderer redirect_uri einlösen.
+        token_redirect_uri = params.get("redirect_uri", "")
+        if token_redirect_uri != code_data.get("redirect_uri", ""):
+            logger.warning(
+                "OAuth: redirect_uri-Mismatch beim Token-Tausch (client_id=%s)",
+                client_id,
+            )
+            await self._json(send, 400, {"error": "invalid_grant",
+                                          "error_description": "redirect_uri mismatch"})
             return
 
         logger.info("OAuth: Access Token ausgestellt für Tenant '%s'", tenant.get("name", "?"))

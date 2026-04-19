@@ -21,6 +21,8 @@ from typing import Optional
 
 import requests
 
+from .email_parser import validate_recipients
+
 logger = logging.getLogger(__name__)
 
 RESEND_API_URL = "https://api.resend.com/emails"
@@ -122,11 +124,24 @@ def send_report(
     if not recipients:
         raise ValueError("Keine Empfänger angegeben.")
 
+    # Pre-Validierung: Resend lehnt ungültige Adressen mit 422 ab.
+    # Besser ist ein klarer Fehler VOR dem API-Call, damit der User weiß,
+    # welcher Empfänger-Eintrag kaputt ist.
+    valid_recipients, errors = validate_recipients(recipients)
+    if errors:
+        raise ValueError(
+            "Ungültige Empfänger-Adresse(n): "
+            + "; ".join(errors)
+            + ". Erwartetes Format: 'name@firma.de' oder 'Max Mustermann <name@firma.de>'."
+        )
+    if not valid_recipients:
+        raise ValueError("Keine gültigen Empfänger nach Validierung.")
+
     from_header = _build_from_header(_mail_from, _mail_from_name)
 
     payload: dict = {
         "from":    from_header,
-        "to":      recipients,
+        "to":      valid_recipients,
         "subject": subject,
         "html":    html_body,
     }
@@ -135,7 +150,7 @@ def send_report(
         payload["attachments"] = attachments
 
     att_names = [a.get("filename","?") for a in (attachments or [])]
-    logger.info("Sende Mail: '%s' -> %s (from: %s) | Anhaenge (%d): %s", subject, ", ".join(recipients), from_header, len(att_names), ", ".join(att_names))
+    logger.info("Sende Mail: '%s' -> %s (from: %s) | Anhaenge (%d): %s", subject, ", ".join(valid_recipients), from_header, len(att_names), ", ".join(att_names))
 
     try:
         response = requests.post(

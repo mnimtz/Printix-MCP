@@ -140,6 +140,8 @@ def _poll_tenant(uid: str, get_tenant_fn, update_state_fn) -> None:
             card_client_secret=tenant.get("card_client_secret") or None,
             ws_client_id=tenant.get("ws_client_id") or None,
             ws_client_secret=tenant.get("ws_client_secret") or None,
+            um_client_id=tenant.get("um_client_id") or None,
+            um_client_secret=tenant.get("um_client_secret") or None,
             shared_client_id=tenant.get("shared_client_id") or None,
             shared_client_secret=tenant.get("shared_client_secret") or None,
         )

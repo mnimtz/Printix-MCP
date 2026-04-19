@@ -169,14 +169,6 @@ ChatGPT → **Mein GPT → Neue App → Authentifizierung: OAuth**
 - `printix_update_snmp_config` — SNMP-Konfiguration aktualisieren
 - `printix_delete_snmp_config` — SNMP-Konfiguration löschen
 
-### E-Mail & Reporting
-- `printix_send_test_email` — Test-E-Mail senden um die Mail-Konfiguration zu prüfen
-- `printix_reporting_status` — Status des Reporting-Moduls prüfen
-- `printix_run_report_now` — Report sofort ausführen und per Mail versenden
-- `printix_save_report_template` — Report-Template speichern
-- `printix_schedule_report` — Report automatisch einplanen
-- `printix_list_report_templates` — Alle Report-Templates auflisten
-
 ---
 
 ## Bekannte Verhaltensweisen
@@ -210,6 +202,9 @@ Google Workspace). Ohne Directory schlägt der Aufruf fehl.
 
 ---
 
+
+---
+
 ## E-Mail Benachrichtigungen (v2.13.0+)
 
 Der MCP-Server kann E-Mails über die **Resend API** versenden.
@@ -239,6 +234,14 @@ Konfiguration in der Web-Oberfläche unter **Einstellungen → E-Mail**.
 | 👤 **Neuer Gast-Benutzer** | Neuer Gast-Benutzer in Printix erkannt | 30 Minuten |
 | 📊 **Report versendet** | Bestätigung nach jedem automatischen Report | Bei Versand |
 | 🔔 **Neuer MCP-Benutzer** | Admin-Benachrichtigung wenn sich ein neuer Benutzer registriert | Sofort |
+
+### MCP-Tools für E-Mail
+
+| Tool | Beschreibung |
+|------|-------------|
+| `printix_send_test_email` | Test-E-Mail senden um die Konfiguration zu prüfen |
+| `printix_run_report_now` | Report sofort ausführen und per Mail versenden |
+| `printix_reporting_status` | Status des Reporting-Moduls prüfen |
 
 ---
 
@@ -275,27 +278,28 @@ Das Formular ist in 4 Abschnitte unterteilt:
 
 ### Preset-Bibliothek
 
-Die Preset-Bibliothek enthält 18 vordefinierte Vorlagen basierend auf dem offiziellen Printix PowerBI-Template (v2025.4). Presets sind nach Kategorien gruppiert:
+Die Preset-Bibliothek enthält 18 vordefinierte Vorlagen basierend auf dem offiziellen
+Printix PowerBI-Template (v2025.4). **Alle 18 Presets sind sofort ausführbar** (seit v3.7.0):
 
-| Kategorie | Presets (✅ = sofort verfügbar) |
-|-----------|------|
+| Kategorie | Presets |
+|-----------|---------|
 | Überblick | ✅ Monatlicher Drucküberblick |
 | Trend | ✅ Wöchentlicher Drucktrend |
-| Drucker | ✅ Drucker-Übersicht, Drucker-Verlauf (v3.1) |
+| Drucker | ✅ Drucker-Übersicht, ✅ Drucker-Verlauf |
 | Standort | ✅ Standort-Übersicht |
-| Benutzer | ✅ Benutzer-Übersicht, Druckdetails (v3.1), Kopier-Details (v3.1), Scan-Details (v3.1) |
+| Benutzer | ✅ Benutzer-Übersicht, ✅ Druckdetails, ✅ Kopier-Details, ✅ Scan-Details |
 | Kosten | ✅ Monatliche Kostenanalyse |
 | Analyse | ✅ Anomalie-Erkennung |
-| Service | Drucker Service-Status (v3.1), Service Desk (v3.1) |
-| Infrastruktur | Workstation-Übersicht (v3.1), Workstation-Details (v3.1) |
-| Nachhaltigkeit | Tree-O-Meter (v3.1) |
-| Verwaltung | Druckregeln-Übersicht (v3.1) |
-| Jobs | Job-Verlauf (v3.1) |
+| Service | ✅ Drucker Service-Status, ✅ Service Desk |
+| Infrastruktur | ✅ Workstation-Übersicht, ✅ Workstation-Details |
+| Nachhaltigkeit | ✅ Tree-O-Meter |
+| Verwaltung | ✅ Druckregeln-Übersicht |
+| Jobs | ✅ Job-Verlauf |
 
 ### Voraussetzungen
 
-- **BI-Datenbank**: Für die Report-Ausführung wird eine Printix BI SQL Server-Verbindung benötigt.
-- **E-Mail**: Für den Versand ist ein Resend API-Key erforderlich.
+- **BI-Datenbank**: Für die Report-Ausführung wird eine Printix BI SQL Server-Verbindung benötigt. Ohne SQL-Verbindung können Templates gespeichert, aber nicht ausgeführt werden.
+- **E-Mail**: Für den Versand ist ein Resend API-Key erforderlich. Ohne Mail-Konfiguration werden Reports generiert, aber nicht versendet.
 
 ### MCP-Tools für Reports
 
@@ -348,6 +352,6 @@ POST /mcp        GET /sse
      Printix Cloud Print API
 ```
 
-**Persistente Daten:** `/data/printix_multi.db` — Multi-Tenant SQLite DB (Credentials, Reporting, Benachrichtigungen)
-**Port MCP:** 8765 · **Port Web-UI:** 8080
+**Persistente Daten:** `/data/mcp_secrets.json` — Bearer Token + OAuth-Credentials
+**Port:** 8765
 **MCP-Version:** 2025-11-25

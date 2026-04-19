@@ -1,5 +1,5 @@
 """
-Printix MCP Server — Home Assistant Add-on v2.1.0 (Multi-Tenant)
+Printix MCP Server — Home Assistant Add-on (Multi-Tenant)
 =================================================================
 Model Context Protocol server for the Printix Cloud Print API.
 
@@ -25,11 +25,13 @@ import sys
 import json
 import logging
 from typing import Optional
+from collections import OrderedDict
 
 from mcp.server.fastmcp import FastMCP
 from printix_client import PrintixClient, PrintixAPIError
 from auth import BearerAuthMiddleware, current_tenant
 from oauth import OAuthMiddleware
+from app_version import APP_VERSION
 
 
 # ─── Logging Setup ────────────────────────────────────────────────────────────
@@ -51,9 +53,13 @@ for _noisy in (
     "urllib3.connectionpool",
     "httpx",
     "httpcore",
-    "uvicorn.access",
+    "python_multipart",
+    "python_multipart.multipart",
 ):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+# uvicorn.access bleibt auf INFO — wichtig für Debugging eingehender Requests
+# (v4.4.9: war vorher auf WARNING unterdrückt → Webhooks unsichtbar)
 
 logger = logging.getLogger("printix.mcp")
 logger.info("Log-Level: %s", LOG_LEVEL)
@@ -132,6 +138,8 @@ def client() -> PrintixClient:
         card_client_secret=tenant.get("card_client_secret") or None,
         ws_client_id=tenant.get("ws_client_id") or None,
         ws_client_secret=tenant.get("ws_client_secret") or None,
+        um_client_id=tenant.get("um_client_id") or None,
+        um_client_secret=tenant.get("um_client_secret") or None,
         shared_client_id=tenant.get("shared_client_id") or None,
         shared_client_secret=tenant.get("shared_client_secret") or None,
     )
@@ -149,6 +157,130 @@ def _err(e: PrintixAPIError) -> str:
         "message": e.message,
         "error_id": e.error_id,
     }, ensure_ascii=False, indent=2)
+
+
+def _extract_resource_id_from_href(href: str) -> str:
+    href = (href or "").strip().rstrip("/")
+    return href.split("/")[-1] if href else ""
+
+
+def _extract_card_id_from_api(card_obj: dict) -> str:
+    if not isinstance(card_obj, dict):
+        return ""
+    return (
+        _extract_resource_id_from_href((((card_obj.get("_links") or {}).get("self") or {}).get("href", "")))
+        or card_obj.get("cardId", "")
+        or card_obj.get("card_id", "")
+        or card_obj.get("id", "")
+    )
+
+
+def _card_items(data) -> list[dict]:
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        for key in ("cards", "content", "items"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _extract_owner_id_from_card(card_obj: dict) -> str:
+    owner_link = (((card_obj.get("_links") or {}).get("owner") or {}).get("href", ""))
+    owner_obj = card_obj.get("owner") if isinstance(card_obj.get("owner"), dict) else {}
+    return (
+        _extract_resource_id_from_href(owner_link)
+        or owner_obj.get("id", "")
+        or owner_obj.get("userId", "")
+        or card_obj.get("userId", "")
+        or card_obj.get("ownerId", "")
+    )
+
+
+def _merge_mapping_hits(*mapping_lists) -> list[dict]:
+    merged = OrderedDict()
+    for items in mapping_lists:
+        for item in items or []:
+            mid = item.get("id")
+            key = f"id:{mid}" if mid is not None else json.dumps(item, sort_keys=True, ensure_ascii=False)
+            merged[key] = item
+    return list(merged.values())
+
+
+def _enrich_card_with_local_data(card_obj: dict, tenant_id: str, printix_user_id: str = "", requested_card_number: str = "") -> dict:
+    if not isinstance(card_obj, dict):
+        return {"raw": card_obj}
+
+    enriched = dict(card_obj)
+    card_id = _extract_card_id_from_api(enriched)
+    owner_id = _extract_owner_id_from_card(enriched) or (printix_user_id or "")
+    secret_value = (
+        enriched.get("secret")
+        or enriched.get("cardNumber")
+        or enriched.get("number")
+        or requested_card_number
+        or ""
+    )
+    enriched["card_id"] = card_id
+    enriched["owner_id"] = owner_id
+
+    local_mapping = None
+    local_matches = []
+    decoded_secret = None
+    try:
+        from cards.store import get_mapping_by_card, search_mappings
+        from cards.transform import decode_printix_secret_value
+
+        if owner_id and card_id:
+            local_mapping = get_mapping_by_card(tenant_id, owner_id, card_id)
+
+        queries = []
+        for candidate in (card_id, secret_value, requested_card_number, enriched.get("secret", ""), enriched.get("cardNumber", "")):
+            candidate = (candidate or "").strip()
+            if candidate and candidate not in queries:
+                queries.append(candidate)
+
+        all_hits = []
+        for candidate in queries:
+            hits = search_mappings(tenant_id, candidate)
+            if owner_id:
+                hits = [m for m in hits if not m.get("printix_user_id") or m.get("printix_user_id") == owner_id]
+            all_hits.append(hits)
+        local_matches = _merge_mapping_hits(*all_hits)
+
+        if not local_mapping and local_matches:
+            local_mapping = next(
+                (m for m in local_matches if m.get("printix_card_id") == card_id and (not owner_id or m.get("printix_user_id") == owner_id)),
+                local_matches[0],
+            )
+
+        if secret_value:
+            decoded_secret = decode_printix_secret_value(secret_value)
+    except Exception as enrich_err:
+        enriched["local_enrichment_error"] = str(enrich_err)
+
+    if local_mapping:
+        enriched["local_mapping"] = local_mapping
+    enriched["local_mappings"] = local_matches
+    enriched["local_mappings_count"] = len(local_matches)
+    if decoded_secret:
+        enriched["decoded_secret"] = decoded_secret
+    return enriched
+
+
+def _extract_printer_queue_ids(printer_obj: dict) -> tuple[str, str]:
+    href = (((printer_obj.get("_links") or {}).get("self") or {}).get("href", ""))
+    parts = [p for p in (href or "").split("/") if p]
+    printer_id = printer_obj.get("printerId", "") or printer_obj.get("printer_id", "")
+    queue_id = printer_obj.get("queueId", "") or printer_obj.get("queue_id", "") or printer_obj.get("id", "")
+    if "printers" in parts and "queues" in parts:
+        try:
+            printer_id = printer_id or parts[parts.index("printers") + 1]
+            queue_id = queue_id or parts[parts.index("queues") + 1]
+        except Exception:
+            pass
+    return str(printer_id or ""), str(queue_id or "")
 
 
 # ─── Status / Info ────────────────────────────────────────────────────────────
@@ -375,7 +507,16 @@ def printix_list_cards(user_id: str) -> str:
     """
     try:
         logger.debug("list_cards(user_id=%s)", user_id)
-        return _ok(client().list_user_cards(user_id=user_id))
+        c = client()
+        data = c.list_user_cards(user_id=user_id)
+        tenant_id = _get_card_tenant_id()
+        cards = [_enrich_card_with_local_data(card, tenant_id, printix_user_id=user_id) for card in _card_items(data)]
+        return _ok({
+            "user_id": user_id,
+            "cards": cards,
+            "count": len(cards),
+            "raw": data,
+        })
     except PrintixAPIError as e:
         return _err(e)
 
@@ -392,8 +533,10 @@ def printix_search_card(card_id: str = "", card_number: str = "") -> str:
     """
     try:
         logger.debug("search_card(card_id=%s, card_number=%s)", card_id, card_number or "***")
-        return _ok(client().search_card(card_id=card_id or None,
-                                        card_number=card_number or None))
+        api_card = client().search_card(card_id=card_id or None,
+                                        card_number=card_number or None)
+        enriched = _enrich_card_with_local_data(api_card, _get_card_tenant_id(), requested_card_number=card_number)
+        return _ok(enriched)
     except (PrintixAPIError, ValueError) as e:
         return _ok({"error": str(e)})
 
@@ -1345,6 +1488,17 @@ def printix_save_report_template(
     footer_text: str = "",
     created_prompt: str = "",
     report_id: str = "",
+    logo_base64: str = "",
+    logo_mime: str = "image/png",
+    logo_url: str = "",
+    theme_id: str = "",
+    chart_type: str = "",
+    header_variant: str = "",
+    density: str = "",
+    font_family: str = "",
+    currency: str = "",
+    show_env_impact: str = "",
+    logo_position: str = "",
 ) -> str:
     """
     Speichert eine vollständige Report-Definition als wiederverwendbares Template.
@@ -1353,13 +1507,21 @@ def printix_save_report_template(
     Query-Parameter, Layout, Schedule und Empfänger.
     Bei Angabe einer report_id wird ein bestehendes Template überschrieben.
 
+    TIPP: Nutze zuerst printix_list_design_options() um verfügbare Themes,
+    Chart-Typen, Fonts etc. zu sehen. Mit printix_preview_report() kannst
+    du das Design testen bevor du es als Template speicherst.
+
     Args:
         name:               Lesbarer Name, z.B. "Monatlicher Kostenreport Controlling"
-        query_type:         print_stats | cost_report | top_users | top_printers | anomalies | trend
+        query_type:         print_stats | cost_report | top_users | top_printers | anomalies | trend | hour_dow_heatmap
+                            sowie Stufe-2-Typen: printer_history | device_readings | job_history |
+                            user_activity | sensitive_documents | dept_comparison | waste_analysis |
+                            color_vs_bw | duplex_analysis | paper_size | service_desk |
+                            fleet_utilization | sustainability | peak_hours | cost_allocation
         query_params:       JSON-String mit Query-Parametern, z.B. '{"start_date":"last_month_start","end_date":"last_month_end","group_by":"month"}'
         recipients:         Kommagetrennte E-Mail-Adressen, z.B. "controller@firma.de,cfo@firma.de"
         mail_subject:       Betreffzeile, z.B. "Druckkosten {month} {year}"
-        output_formats:     Kommagetrennte Formate: html,csv,json (default: html)
+        output_formats:     Kommagetrennte Formate: html,csv,json,pdf,xlsx (default: html)
         schedule_frequency: Leer = kein Schedule | monthly | weekly | daily
         schedule_day:       Bei monthly: Tag 1-28. Bei weekly: 0=Mo...6=So (default: 1)
         schedule_time:      Uhrzeit der Ausführung HH:MM (default: 08:00)
@@ -1368,6 +1530,21 @@ def printix_save_report_template(
         footer_text:        Optionaler Fußzeilentext
         created_prompt:     Ursprüngliche Nutzeranfrage (für spätere Regenerierung)
         report_id:          Optional — vorhandene ID zum Überschreiben
+        logo_base64:        Optional — Base64-Kodierung (ohne data:-Prefix) eines Logo-Bildes
+                            für den Report-Header. Max. 1 MB Rohgröße. Hat Vorrang vor logo_url.
+        logo_mime:          MIME-Type des Base64-Logos, z.B. image/png, image/jpeg (default: image/png)
+        logo_url:           Alternativ: externe URL zu einem Logo-Bild (nur wenn logo_base64 leer)
+        theme_id:           Design-Theme: corporate_blue | modern_teal | executive_slate |
+                            warm_sunset | forest_green | royal_purple | minimalist_gray
+                            (leer = corporate_blue). Setzt automatisch passende Farben.
+        chart_type:         Bevorzugter Chart-Typ: bar | line | donut | heatmap | sparkline
+                            (leer = automatische Wahl je nach Report-Typ)
+        header_variant:     Header-Stil: left | center | banner (default: left)
+        density:            Tabellen-Dichte: compact | normal | comfortable (default: normal)
+        font_family:        Schriftart: arial | helvetica | verdana | georgia | courier (default: arial)
+        currency:           Währung: EUR | USD | GBP | CHF (default: EUR)
+        show_env_impact:    Umwelt-Impact-Sektion anzeigen: true | false (default: false)
+        logo_position:      Logo-Position im Header: left | right | center (default: right)
     """
     if not _REPORTING_AVAILABLE:
         return _ok({"error": "Reporting-Modul nicht verfügbar."})
@@ -1388,12 +1565,48 @@ def printix_save_report_template(
             "time":      schedule_time,
         }
 
+    # v3.7.10: Logo-Auflösung analog zum Web-Formular (_resolve_logo).
+    # Reihenfolge: Base64 hat Vorrang vor URL; 1MB-Cap; MIME-Safety.
+    _lb64  = (logo_base64 or "").strip()
+    _lmime = (logo_mime   or "image/png").strip() or "image/png"
+    _lurl  = (logo_url    or "").strip()
+    if _lb64:
+        if not _lmime.startswith("image/"):
+            _lmime = "image/png"
+        # Base64-Größen-Cap (Rohbytes ≈ 0.75 × len(b64))
+        _approx_raw = int(len(_lb64) * 0.75)
+        if _approx_raw > 1024 * 1024:
+            return _ok({"error": f"Logo zu groß ({_approx_raw} bytes > 1MB). Max 1 MB Rohgröße."})
+        _lurl = ""  # Base64 gewinnt gegen URL
+    else:
+        _lb64  = ""
+        _lmime = "image/png"
+
     layout = {
         "company_name":  company_name,
         "primary_color": primary_color,
         "footer_text":   footer_text,
-        "logo_base64":   "",
+        "logo_base64":   _lb64,
+        "logo_mime":     _lmime,
+        "logo_url":      _lurl,
     }
+    # v4.2.0: Erweiterte Design-Parameter
+    if theme_id:
+        layout["theme_id"] = theme_id
+    if chart_type:
+        layout["chart_style"] = chart_type  # maps to design_presets key
+    if header_variant:
+        layout["header_variant"] = header_variant
+    if density:
+        layout["density"] = density
+    if font_family:
+        layout["font_family"] = font_family
+    if currency:
+        layout["currency"] = currency
+    if show_env_impact:
+        layout["show_env_impact"] = show_env_impact.lower() in ("true", "1", "yes", "ja")
+    if logo_position:
+        layout["logo_position"] = logo_position
 
     try:
         # owner_user_id aus Tenant-Kontext holen — nötig damit der Scheduler
@@ -1760,6 +1973,314 @@ def printix_update_schedule(
         return _ok({"error": str(e)})
 
 
+# ─── Reporting: Design & Preview ─────────────────────────────────────────────
+
+@mcp.tool()
+def printix_list_design_options() -> str:
+    """
+    Listet alle verfügbaren Design-Optionen für Report-Templates:
+    Themes, Chart-Typen, Fonts, Header-Varianten, Dichte-Stufen, Währungen.
+
+    Nutze diese Informationen beim Erstellen oder Bearbeiten von Report-Templates,
+    um dem Benutzer passende Optionen vorzuschlagen.
+
+    Beispiel-Workflow:
+      1. printix_list_design_options() → zeigt alle Themes
+      2. Benutzer wählt "executive_slate" als Theme
+      3. printix_save_report_template(..., theme_id="executive_slate") → speichert
+    """
+    if not _REPORTING_AVAILABLE:
+        return _ok({"error": "Reporting-Modul nicht verfügbar."})
+
+    from reporting.design_presets import (
+        THEMES, FONTS, HEADER_VARIANTS, CHART_STYLES, CURRENCIES, DEFAULT_LAYOUT,
+    )
+
+    themes = {}
+    for key, t in THEMES.items():
+        themes[key] = {
+            "name": t["name"],
+            "primary_color": t["primary_color"],
+            "accent_color": t["accent_color"],
+            "background_color": t["background_color"],
+        }
+
+    fonts = [{"key": f["key"], "name": f.get("name", f["key"])} for f in FONTS]
+
+    return _ok({
+        "themes": themes,
+        "chart_types": [
+            {"key": "auto",     "description": "Automatisch — Engine wählt basierend auf Daten"},
+            {"key": "bar",      "description": "Horizontale Balkendiagramme"},
+            {"key": "line",     "description": "Liniendiagramm mit Fläche (ideal für Zeitreihen)"},
+            {"key": "donut",    "description": "Kreisdiagramm (ideal für Anteile/Prozent)"},
+            {"key": "heatmap",  "description": "Heatmap (ideal für Stunde×Wochentag-Daten)"},
+            {"key": "sparkline","description": "Mini-Trend-Linien in KPI-Karten"},
+        ],
+        "chart_styles": [cs["key"] for cs in CHART_STYLES],
+        "fonts": fonts,
+        "header_variants": [hv["key"] for hv in HEADER_VARIANTS],
+        "densities": ["compact", "normal", "airy"],
+        "currencies": [{"key": c["key"], "symbol": c["symbol"]} for c in CURRENCIES],
+        "logo_positions": ["left", "right", "center"],
+        "default_layout": DEFAULT_LAYOUT,
+        "available_query_types": [
+            "print_stats", "cost_report", "top_users", "top_printers",
+            "anomalies", "trend", "hour_dow_heatmap",
+            "printer_history", "device_readings", "job_history", "queue_stats",
+            "user_detail", "user_copy_detail", "user_scan_detail",
+            "workstation_overview", "workstation_detail",
+            "tree_meter", "service_desk", "sensitive_documents",
+            "off_hours_print", "audit_log",
+        ],
+    })
+
+
+@mcp.tool()
+def printix_preview_report(
+    query_type: str,
+    start_date: str = "last_month_start",
+    end_date: str = "last_month_end",
+    query_params_json: str = "",
+    theme_id: str = "",
+    primary_color: str = "",
+    chart_type: str = "auto",
+    company_name: str = "",
+    header_variant: str = "",
+    density: str = "",
+    font_family: str = "",
+    logo_base64: str = "",
+    logo_mime: str = "image/png",
+    footer_text: str = "",
+    currency: str = "",
+    show_env_impact: bool = False,
+    output_format: str = "html",
+    report_id: str = "",
+) -> str:
+    """
+    Erzeugt eine Report-Vorschau OHNE E-Mail-Versand — ideal zum iterativen
+    Design im AI-Chat. Gibt den vollständigen Report als HTML (mit eingebetteten
+    SVG-Charts) oder als JSON-Datenstruktur zurück.
+
+    Zwei Modi:
+      1. Ad-hoc: query_type + Datumsbereich angeben → Daten frisch abfragen
+      2. Template: report_id angeben → gespeichertes Template als Basis
+
+    Bei Ad-hoc wird ein kompletter Report gerendert inkl. KPIs, Charts und Tabellen.
+
+    Workflow für AI-gesteuertes Report-Design:
+      1. printix_list_design_options() → verfügbare Themes etc.
+      2. printix_preview_report(query_type="print_stats", theme_id="executive_slate")
+         → Vorschau ansehen
+      3. "Kannst du die Farbe auf Grün ändern?" → printix_preview_report(..., primary_color="#1BA17D")
+      4. Zufrieden? → printix_save_report_template(...) zum Speichern
+
+    Args:
+        query_type:        Report-Typ (print_stats, cost_report, top_users, etc.)
+        start_date:        Start-Datum oder Preset (last_month_start, this_year_start, etc.)
+        end_date:          End-Datum oder Preset
+        query_params_json: Zusätzliche Query-Parameter als JSON-String
+                           z.B. '{"group_by":"month","site_id":"123"}'
+        theme_id:          Theme (corporate_blue, executive_slate, dark_mode, etc.)
+        primary_color:     Überschreibt die Theme-Primärfarbe (Hex, z.B. #0078D4)
+        chart_type:        Bevorzugter Chart-Typ: auto | bar | line | donut | heatmap
+        company_name:      Firmenname im Header
+        header_variant:    left | center | banner | minimal
+        density:           compact | normal | airy
+        font_family:       arial | georgia | roboto | fira_code | etc.
+        logo_base64:       Base64-kodiertes Logo (ohne data:-Prefix)
+        logo_mime:         MIME-Type des Logos (default: image/png)
+        footer_text:       Fußzeile
+        currency:          EUR | USD | GBP | CHF
+        show_env_impact:   Umwelt-Auswirkung anzeigen (Papier, Bäume, CO₂)
+        output_format:     html (Standard, mit Charts) | json (nur Rohdaten)
+        report_id:         Optional — vorhandenes Template als Basis laden
+    """
+    err = _reporting_check()
+    if err:
+        return _ok({"error": err})
+
+    import json as _json
+    from reporting.design_presets import apply_theme, normalize_layout
+
+    # ── Layout bauen ──────────────────────────────────────────────────────────
+    layout = {}
+
+    # Template als Basis laden?
+    template = None
+    if report_id:
+        template = template_store.get_template(report_id)
+        if template:
+            layout = dict(template.get("layout", {}))
+            if not query_type:
+                query_type = template.get("query_type", "print_stats")
+
+    # Explizite Werte überschreiben Template-Werte
+    if theme_id:
+        layout = apply_theme(layout, theme_id)
+    if primary_color:
+        layout["primary_color"] = primary_color
+    if company_name:
+        layout["company_name"] = company_name
+    if header_variant:
+        layout["header_variant"] = header_variant
+    if density:
+        layout["density"] = density
+    if font_family:
+        layout["font_family"] = font_family
+    if footer_text:
+        layout["footer_text"] = footer_text
+    if currency:
+        layout["currency"] = currency
+    if logo_base64:
+        layout["logo_base64"] = logo_base64
+        layout["logo_mime"] = logo_mime
+    if show_env_impact:
+        layout["show_env_impact"] = True
+    if chart_type and chart_type != "auto":
+        layout["preferred_chart_type"] = chart_type
+    layout["charts_enabled"] = True
+
+    layout = normalize_layout(layout)
+
+    # ── Query-Parameter ───────────────────────────────────────────────────────
+    params = {"start_date": start_date, "end_date": end_date}
+    if query_params_json:
+        try:
+            extra = _json.loads(query_params_json)
+            params.update(extra)
+        except Exception:
+            return _ok({"error": f"query_params_json ist kein gültiges JSON: {query_params_json}"})
+
+    # Template-Parameter als Fallback
+    if template and not query_params_json:
+        tp = template.get("query_params", {})
+        for k, v in tp.items():
+            if k not in params:
+                params[k] = v
+
+    # Dynamische Datums-Presets auflösen
+    from reporting.scheduler import _resolve_dynamic_dates
+    params = _resolve_dynamic_dates(params)
+
+    # ── Daten abfragen ────────────────────────────────────────────────────────
+    try:
+        data = query_tools.run_query(query_type=query_type, **params)
+    except Exception as e:
+        return _ok({"error": f"Query fehlgeschlagen: {e}", "query_type": query_type})
+
+    period = f"{params.get('start_date', '?')} — {params.get('end_date', '?')}"
+
+    if output_format == "json":
+        return _ok({
+            "query_type": query_type,
+            "period": period,
+            "row_count": len(data) if isinstance(data, list) else "n/a",
+            "data": data,
+        })
+
+    # ── Report rendern ────────────────────────────────────────────────────────
+    try:
+        outputs = report_engine.generate_report(
+            query_type=query_type,
+            data=data,
+            period=period,
+            layout=layout,
+            output_formats=[output_format],
+            currency=layout.get("currency", "EUR"),
+            query_params=params,
+        )
+    except Exception as e:
+        return _ok({"error": f"Report-Rendering fehlgeschlagen: {e}"})
+
+    html = outputs.get("html", outputs.get(output_format, ""))
+
+    # Für MCP-Antwort: HTML-Größe begrenzen (sehr große Reports > 100KB)
+    if len(html) > 120_000:
+        html = html[:120_000] + "\n<!-- ... (gekürzt, Report zu groß für Chat) -->"
+
+    return _ok({
+        "query_type": query_type,
+        "period": period,
+        "row_count": len(data) if isinstance(data, list) else "n/a",
+        "format": output_format,
+        "html": html,
+        "layout_used": {
+            "theme_id": layout.get("theme_id", ""),
+            "primary_color": layout.get("primary_color", ""),
+            "header_variant": layout.get("header_variant", ""),
+            "density": layout.get("density", ""),
+            "font_family": layout.get("font_family", ""),
+            "chart_type": chart_type,
+            "currency": layout.get("currency", ""),
+        },
+        "hint": "Zufrieden? → printix_save_report_template() zum Speichern als Template.",
+    })
+
+
+@mcp.tool()
+def printix_query_any(
+    query_type: str,
+    start_date: str = "last_month_start",
+    end_date: str = "last_month_end",
+    query_params_json: str = "",
+) -> str:
+    """
+    Universelles Query-Tool für alle 22 Report-Typen (Stufe 1 + 2).
+
+    Ersetzt die Notwendigkeit, für jeden Query-Typ ein eigenes MCP-Tool zu kennen.
+    Gibt die Rohdaten als JSON zurück — ideal für AI-Analyse, Visualisierung
+    oder als Basis für printix_preview_report.
+
+    Verfügbare query_type-Werte:
+      Stufe 1: print_stats, cost_report, top_users, top_printers, anomalies, trend
+      Stufe 2: printer_history, device_readings, job_history, queue_stats,
+               user_detail, user_copy_detail, user_scan_detail,
+               workstation_overview, workstation_detail,
+               tree_meter, service_desk, sensitive_documents,
+               hour_dow_heatmap, off_hours_print, audit_log
+
+    Args:
+        query_type:        Einer der oben genannten Query-Typen
+        start_date:        Start (Datum oder Preset: last_month_start, this_year_start, today, etc.)
+        end_date:          Ende (Datum oder Preset)
+        query_params_json: Weitere Parameter als JSON, z.B.:
+                           '{"group_by":"user","site_id":"abc","top_n":20}'
+                           '{"user_email":"max@firma.de"}'
+                           '{"keyword_sets":"hr,finance","include_scans":true}'
+    """
+    err = _reporting_check()
+    if err:
+        return _ok({"error": err})
+
+    import json as _json
+    from reporting.scheduler import _resolve_dynamic_dates
+
+    params = {"start_date": start_date, "end_date": end_date}
+    if query_params_json:
+        try:
+            extra = _json.loads(query_params_json)
+            params.update(extra)
+        except Exception:
+            return _ok({"error": f"query_params_json ist kein gültiges JSON: {query_params_json}"})
+
+    params = _resolve_dynamic_dates(params)
+
+    try:
+        data = query_tools.run_query(query_type=query_type, **params)
+    except ValueError as e:
+        return _ok({"error": str(e), "hint": "printix_list_design_options() zeigt alle query_types."})
+    except Exception as e:
+        return _ok({"error": f"Query fehlgeschlagen: {e}"})
+
+    return _ok({
+        "query_type": query_type,
+        "period": f"{params.get('start_date','?')} — {params.get('end_date','?')}",
+        "row_count": len(data) if isinstance(data, list) else "n/a",
+        "data": data,
+    })
+
+
 # ─── Demo Data Generator ─────────────────────────────────────────────────────
 
 try:
@@ -1774,24 +2295,25 @@ except Exception as _de:
 def _demo_check() -> str | None:
     if not _DEMO_AVAILABLE:
         return "Demo-Generator nicht verfügbar — bitte Container neu bauen."
-    if not _sql_configured():
-        return ("SQL nicht konfiguriert. "
-                "Bitte eigene Azure SQL in den Einstellungen eintragen "
-                "und anschließend printix_demo_setup_schema ausführen.")
+    # v4.4.7: Demo läuft auf lokaler SQLite — kein Azure SQL nötig.
+    # Nur prüfen ob tenant_id verfügbar ist.
+    tid = _get_sql_tenant_id() if _REPORTING_AVAILABLE else ""
+    if not tid:
+        return "Kein Tenant-Kontext — bitte mit gültigem Bearer Token authentifizieren."
     return None
 
 
 @mcp.tool()
 def printix_demo_setup_schema() -> str:
     """
-    Erstellt alle erforderlichen Tabellen für Demo-Daten in der konfigurierten Azure SQL.
+    Initialisiert die lokale Demo-SQLite-Datenbank (idempotent).
 
-    Legt folgende Tabellen an (nur wenn sie noch nicht existieren):
-      dbo.networks, dbo.users, dbo.printers, dbo.jobs, dbo.tracking_data,
-      dbo.jobs_scan, dbo.jobs_copy, dbo.jobs_copy_details, dbo.demo_sessions
+    Legt folgende Demo-Tabellen an (nur wenn sie noch nicht existieren):
+      demo_networks, demo_users, demo_printers, demo_jobs, demo_tracking_data,
+      demo_jobs_scan, demo_jobs_copy, demo_jobs_copy_details, demo_sessions
 
     Idempotent — kann mehrfach ohne Schaden ausgeführt werden.
-    Voraussetzung: Eigene Azure SQL mit INSERT/CREATE-Rechten konfiguriert.
+    Kein Azure SQL erforderlich — Demo-Daten liegen lokal auf SQLite.
     """
     err = _demo_check()
     if err:
@@ -1814,11 +2336,11 @@ def printix_demo_generate(
     jobs_per_user_day: float = 3.0,
 ) -> str:
     """
-    Generiert ein vollständiges Demo-Dataset in der konfigurierten Azure SQL-Datenbank.
+    Generiert ein vollständiges Demo-Dataset in der lokalen SQLite-Datenbank.
 
     Erstellt realistische Druck-, Scan- und Kopierjobs für den angegebenen Zeitraum
     — rückwirkend ab heute. Alle Reports (Volumen, Kosten, Top-User, Trends usw.)
-    zeigen danach aussagekräftige Demo-Daten.
+    zeigen danach aussagekräftige Demo-Daten. Kein Azure SQL erforderlich.
 
     Args:
         user_count:        Anzahl Demo-User (1–200, default: 15)
@@ -1863,11 +2385,11 @@ def printix_demo_generate(
 @mcp.tool()
 def printix_demo_rollback(demo_tag: str) -> str:
     """
-    Löscht alle Demo-Daten einer bestimmten Session aus der Azure SQL-Datenbank.
+    Löscht alle Demo-Daten einer bestimmten Session aus der lokalen SQLite-DB.
 
-    Entfernt alle Zeilen aus tracking_data, jobs, jobs_scan, jobs_copy,
-    jobs_copy_details, printers, users, networks und demo_sessions,
-    die mit dem angegebenen demo_tag erstellt wurden.
+    Entfernt alle Zeilen aus demo_tracking_data, demo_jobs, demo_jobs_scan,
+    demo_jobs_copy, demo_jobs_copy_details, demo_printers, demo_users,
+    demo_networks und demo_sessions für den angegebenen demo_tag.
 
     Voraussetzung: printix_demo_status zeigt vorhandene Tags.
 
@@ -1907,40 +2429,789 @@ def printix_demo_status() -> str:
         return _ok({"error": str(e)})
 
 
+# ─── Card Management: Profiles & Mappings (Local DB) ────────────────────────
+
+def _get_card_tenant_id() -> str:
+    """Tenant-ID aus current_tenant für Card-DB-Operationen."""
+    t = current_tenant.get()
+    return t.get("id", "") if t else ""
+
+
+@mcp.tool()
+def printix_list_card_profiles() -> str:
+    """
+    Listet alle Karten-Transformationsprofile des Tenants.
+
+    Profile definieren wie Kartenwerte umgewandelt werden (z.B. HEX→Decimal,
+    Base64-Encoding, Byte-Reversal). Enthält sowohl Built-in-Profile
+    (YSoft, Ricoh, Canon, etc.) als auch benutzerdefinierte.
+
+    Felder: id, name, vendor, reader_model, mode, description, is_builtin, rules_json.
+    """
+    try:
+        from cards.store import list_profiles
+        tid = _get_card_tenant_id()
+        profiles = list_profiles(tid)
+        return _ok({"profiles": profiles, "count": len(profiles)})
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_get_card_profile(profile_id: str) -> str:
+    """
+    Zeigt Details eines Karten-Transformationsprofils.
+
+    Enthält die vollständigen Regeln (rules_json) für die Transformation:
+    strip_separators, input_mode, submit_mode, base64_source,
+    remove_chars, replace_map, trim_prefix, append, prepend, etc.
+
+    Args:
+        profile_id: Profil-ID (z.B. 'builtin-plain-base64' oder eigene UUID).
+    """
+    try:
+        from cards.store import get_profile
+        tid = _get_card_tenant_id()
+        p = get_profile(profile_id, tid)
+        if not p:
+            return _ok({"error": f"Profil '{profile_id}' nicht gefunden."})
+        return _ok(p)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_search_card_mappings(search: str = "", printix_user_id: str = "") -> str:
+    """
+    Durchsucht lokale Karten-Mappings.
+
+    Jedes Mapping speichert die Zuordnung: Kartenwert → Printix-User,
+    inklusive aller Transformations-Zwischenschritte (raw → normalized → final),
+    das verwendete Profil und Notizen.
+
+    Args:
+        search:          Suchbegriff (sucht in raw-Wert, normalized, HEX, Base64).
+        printix_user_id: Optional: nur Mappings für diesen Printix-User.
+    """
+    try:
+        from cards.store import search_mappings
+        tid = _get_card_tenant_id()
+        q = search or printix_user_id or ""
+        results = search_mappings(tid, q)
+        return _ok({"mappings": results, "count": len(results)})
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_get_card_details(card_id: str = "", card_number: str = "") -> str:
+    """
+    Karte abfragen mit vollständigen Details — kombiniert Printix API + lokale DB.
+
+    Liefert:
+    - Printix Cloud: cardId, registeredAt, owner
+    - Lokale DB: Transformation (raw → normalized → final), Profil-Name/Vendor,
+      Reader-Model, Notizen, Vorschau aller Zwischenschritte
+
+    Das ist die "enriched" Version von printix_search_card — nutze dieses Tool
+    wenn Du möglichst viele Details zu einer Karte brauchst.
+
+    Args:
+        card_id:     Printix Card-ID.
+        card_number: Kartennummer (wird automatisch Base64-codiert wenn nötig).
+    """
+    try:
+        c = client()
+        api_data = c.search_card(card_id=card_id or None,
+                                  card_number=card_number or None)
+        enriched = _enrich_card_with_local_data(api_data, _get_card_tenant_id(), requested_card_number=card_number)
+        owner_id = enriched.get("owner_id", "")
+        if owner_id:
+            try:
+                enriched["owner"] = c.get_user(owner_id)
+            except Exception as owner_err:
+                enriched["owner_lookup_error"] = str(owner_err)
+        return _ok(enriched)
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_decode_card_value(card_value: str) -> str:
+    """
+    Analysiert und decodiert einen Kartenwert — erkennt Format automatisch.
+
+    Nützlich wenn ein Kartenwert aus einem Leser kommt und man verstehen will,
+    welches Format vorliegt (ASCII, HEX, YSoft Decimal, Konica, etc.).
+
+    Gibt zurück: erkanntes Format, decodierte Bytes, HEX-Darstellung,
+    Decimal-Wert, reversed Bytes, mögliche Interpretationen.
+
+    Args:
+        card_value: Der Rohwert von der Karte (z.B. "MDQ1RkYwMDI=" oder "04:5F:F0:02").
+    """
+    try:
+        from cards.transform import decode_printix_secret_value
+        result = decode_printix_secret_value(card_value)
+        return _ok(result)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_transform_card_value(
+    card_value: str,
+    profile_id: str = "",
+    strip_separators: bool = False,
+    submit_mode: str = "",
+) -> str:
+    """
+    Transformiert einen Kartenwert mit einem Profil oder manuellen Regeln.
+
+    Wendet Transformationsregeln an: Separatoren entfernen, HEX/Decimal-Konvertierung,
+    Base64-Encoding, Byte-Reversal, Prefix/Suffix, etc.
+
+    Gibt den transformierten Wert + Vorschau aller Zwischenschritte zurück.
+
+    Args:
+        card_value:       Rohwert der Karte.
+        profile_id:       Profil-ID für vordefinierte Regeln (optional).
+        strip_separators: Trennzeichen (:-.) entfernen (wenn kein Profil).
+        submit_mode:      'base64_text', 'hex', 'decimal', 'raw' (wenn kein Profil).
+    """
+    try:
+        from cards.transform import transform_card_value
+        from cards.store import get_profile
+        import json as _json
+
+        rules = {}
+        if profile_id:
+            tid = _get_card_tenant_id()
+            p = get_profile(profile_id, tid)
+            if p:
+                rules = _json.loads(p.get("rules_json", "{}")) if isinstance(p.get("rules_json"), str) else p.get("rules_json", {})
+            else:
+                return _ok({"error": f"Profil '{profile_id}' nicht gefunden."})
+        else:
+            if strip_separators:
+                rules["strip_separators"] = True
+            if submit_mode:
+                rules["submit_mode"] = submit_mode
+
+        result = transform_card_value(card_value, rules)
+        return _ok(result)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_get_user_card_context(user_id: str) -> str:
+    """
+    Vollständiger Kartenkontext eines Benutzers: User-Details + alle Karten + lokale Mappings.
+
+    Ideal wenn ein Agent im Benutzerkontext arbeiten soll und neben den Printix-Karten
+    auch die lokal gespeicherten echten Kartenwerte, Profile und Transformationen sehen soll.
+
+    Args:
+        user_id: Benutzer-ID in Printix.
+    """
+    try:
+        c = client()
+        user = c.get_user(user_id)
+        cards_data = c.list_user_cards(user_id=user_id)
+        tenant_id = _get_card_tenant_id()
+        cards = [_enrich_card_with_local_data(card, tenant_id, printix_user_id=user_id) for card in _card_items(cards_data)]
+        local_mappings = []
+        try:
+            from cards.store import search_mappings
+            local_mappings = [m for m in search_mappings(tenant_id, user_id) if m.get("printix_user_id") == user_id]
+        except Exception as mapping_err:
+            return _ok({
+                "user": user,
+                "cards": cards,
+                "card_count": len(cards),
+                "local_mapping_error": str(mapping_err),
+            })
+        return _ok({
+            "user": user,
+            "cards": cards,
+            "card_count": len(cards),
+            "local_mappings": local_mappings,
+            "local_mappings_count": len(local_mappings),
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+# ─── Audit Log & Feature Requests (Local SQLite) ────────────────────────────
+
+@mcp.tool()
+def printix_query_audit_log(
+    start_date: str = "",
+    end_date: str = "",
+    action_prefix: str = "",
+    object_type: str = "",
+    limit: int = 200,
+) -> str:
+    """
+    Abfrage des lokalen Audit-Logs (SQLite, nicht SQL Server).
+
+    Das Audit-Log erfasst alle Aktionen im MCP-Portal: User-Genehmigungen,
+    Passwort-Resets, Credential-Änderungen, Feature-Requests, etc.
+
+    Args:
+        start_date:    Startdatum (YYYY-MM-DD), leer = letzte 30 Tage.
+        end_date:      Enddatum (YYYY-MM-DD), leer = heute.
+        action_prefix: Filter auf Action-Prefix (z.B. 'user.' für User-Aktionen).
+        object_type:   Filter auf Object-Type (z.B. 'user', 'tenant', 'feature_request').
+        limit:         Max. Einträge (Standard: 200).
+    """
+    try:
+        from datetime import datetime, timedelta
+        import db
+
+        if not start_date:
+            start_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+        if not end_date:
+            end_date = datetime.utcnow().strftime("%Y-%m-%d")
+
+        tid = _get_card_tenant_id()
+        rows = db.query_audit_log_range(
+            start_date=start_date,
+            end_date=end_date,
+            tenant_id=tid if tid else "",
+            action_prefix=action_prefix,
+            limit=limit,
+        )
+        # Optionaler Filter auf object_type (db-Funktion hat den Parameter evtl. nicht)
+        if object_type and rows:
+            rows = [r for r in rows if r.get("object_type", "") == object_type]
+
+        return _ok({"audit_entries": rows, "count": len(rows),
+                     "filter": {"start_date": start_date, "end_date": end_date,
+                                "action_prefix": action_prefix, "object_type": object_type}})
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_list_feature_requests(status: str = "", limit: int = 100) -> str:
+    """
+    Listet Feature-Requests / Feedback-Tickets.
+
+    Zeigt alle Tickets oder filtert nach Status.
+    Gültige Status: new, planned, in_progress, done, rejected, later.
+
+    Args:
+        status: Optional: nur Tickets mit diesem Status.
+        limit:  Max. Einträge (Standard: 100).
+    """
+    try:
+        import db
+        rows = db.list_feature_requests(status=status, limit=limit)
+        counts = db.count_feature_requests_by_status()
+        return _ok({"feature_requests": rows, "count": len(rows),
+                     "status_counts": counts})
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_get_feature_request(ticket_id: int) -> str:
+    """
+    Zeigt Details eines Feature-Request-Tickets.
+
+    Args:
+        ticket_id: Die numerische Ticket-ID (nicht die Ticketnummer).
+    """
+    try:
+        import db
+        row = db.get_feature_request(ticket_id)
+        if not row:
+            return _ok({"error": f"Ticket {ticket_id} nicht gefunden."})
+        return _ok(row)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+# ─── Backup Management ──────────────────────────────────────────────────────
+
+@mcp.tool()
+def printix_list_backups() -> str:
+    """
+    Listet alle verfügbaren Backups des MCP-Servers.
+
+    Backups enthalten: SQLite-Datenbanken (printix_multi.db, demo_data.db),
+    Fernet-Schlüssel, Report-Templates, MCP-Secrets.
+
+    Gibt Dateiname, Größe, Erstellungsdatum und Version zurück.
+    """
+    try:
+        from backup_manager import list_backups
+        backups = list_backups()
+        return _ok({"backups": backups, "count": len(backups)})
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_create_backup() -> str:
+    """
+    Erstellt ein vollständiges Backup des MCP-Servers.
+
+    Sichert: printix_multi.db, demo_data.db, fernet.key,
+    report_templates.json, mcp_secrets.json.
+
+    Gibt den Dateinamen und die Größe des erstellten Backups zurück.
+    """
+    try:
+        from backup_manager import create_backup
+        result = create_backup()
+        return _ok(result)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+# ─── Capture Profile Management ─────────────────────────────────────────────
+
+@mcp.tool()
+def printix_list_capture_profiles() -> str:
+    """
+    Listet alle Capture-Profile (Scan-Weiterleitungsregeln) des Tenants.
+
+    Capture-Profile definieren Webhooks für die Printix Scan-Erfassung.
+    Jedes Profil hat eine Plugin-Konfiguration (z.B. Paperless-NGX).
+
+    Felder: id, name, plugin_type, webhook_url, config.
+    """
+    try:
+        import db
+        tid = _get_card_tenant_id()
+        profiles = db.get_capture_profiles_by_tenant(tid)
+        # Webhook-Base-URL ergänzen
+        base_url = os.environ.get("CAPTURE_PUBLIC_URL", "").rstrip("/")
+        if not base_url:
+            base_url = os.environ.get("MCP_PUBLIC_URL", "").rstrip("/") or "http://localhost:8765"
+        result = []
+        for p in profiles:
+            pd = dict(p) if not isinstance(p, dict) else p
+            pd["webhook_url_full"] = f"{base_url}/capture/webhook/{pd.get('id', '')}"
+            result.append(pd)
+        return _ok({"capture_profiles": result, "count": len(result)})
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_capture_status() -> str:
+    """
+    Zeigt den Status des Capture-Systems.
+
+    Enthält: ob der separate Capture-Server aktiv ist,
+    welche Plugins verfügbar sind, Webhook-Base-URL,
+    und Anzahl konfigurierter Profile.
+    """
+    try:
+        capture_enabled = os.environ.get("CAPTURE_ENABLED", "false").lower() == "true"
+        cap_url = os.environ.get("CAPTURE_PUBLIC_URL", "").rstrip("/")
+        mcp_url = os.environ.get("MCP_PUBLIC_URL", "").rstrip("/")
+
+        # Plugins ermitteln
+        available_plugins = []
+        try:
+            from capture.base_plugin import get_all_plugins
+            available_plugins = [
+                {"id": pid, "name": getattr(pcls, "PLUGIN_NAME", pid)}
+                for pid, pcls in get_all_plugins().items()
+            ]
+        except Exception:
+            pass
+
+        # Profile zählen
+        import db
+        tid = _get_card_tenant_id()
+        try:
+            profiles = db.get_capture_profiles_by_tenant(tid)
+            profile_count = len(profiles)
+        except Exception:
+            profile_count = 0
+
+        return _ok({
+            "capture_separate_server": capture_enabled,
+            "capture_port": 8775 if capture_enabled else "shared with MCP",
+            "webhook_base_url": cap_url or mcp_url or "not configured",
+            "available_plugins": available_plugins,
+            "configured_profiles": profile_count,
+        })
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+# ─── Site & Network: Aggregierte Ansichten ───────────────────────────────────
+
+@mcp.tool()
+def printix_site_summary(site_id: str) -> str:
+    """
+    Vollständige Zusammenfassung einer Site: Site-Details + alle Networks + alle Drucker.
+
+    Kombiniert mehrere API-Calls in einem Tool — spart Round-Trips.
+    Ideal um einen schnellen Überblick über einen Standort zu bekommen.
+
+    Args:
+        site_id: Die Site-ID.
+    """
+    try:
+        c = client()
+        site = c.get_site(site_id)
+        networks = c.list_networks(site_id=site_id)
+        printers = c.list_printers()
+
+        # Drucker filtern die zu dieser Site gehören (über Network-Zuordnung)
+        network_ids = set()
+        if isinstance(networks, list):
+            for n in networks:
+                nid = n.get("networkId") or n.get("id", "")
+                if nid:
+                    network_ids.add(nid)
+
+        return _ok({
+            "site": site,
+            "networks": networks if isinstance(networks, list) else networks.get("networks", []),
+            "network_count": len(network_ids),
+            "printers": printers if isinstance(printers, list) else printers.get("printers", []),
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_network_printers(network_id: str = "", site_id: str = "") -> str:
+    """
+    Listet alle Drucker eines bestimmten Netzwerks oder einer Site.
+
+    Filtert die Drucker-Liste nach Netzwerk- oder Site-Zugehörigkeit.
+    Nützlich um zu sehen welche Geräte in welchem Netzwerk-Segment stehen.
+
+    Args:
+        network_id: Netzwerk-ID (optional).
+        site_id:    Site-ID (optional, listet alle Drucker aller Networks der Site).
+    """
+    try:
+        c = client()
+        all_printers = c.list_printers()
+        printers_list = all_printers if isinstance(all_printers, list) else all_printers.get("printers", [])
+
+        if network_id:
+            # Filtere auf Drucker im angegebenen Netzwerk
+            filtered = [p for p in printers_list
+                        if str(p.get("networkId", "")) == network_id
+                        or str(p.get("network_id", "")) == network_id]
+            return _ok({"printers": filtered, "count": len(filtered),
+                         "filter": {"network_id": network_id}})
+
+        if site_id:
+            # Erst alle Netzwerke der Site holen, dann Drucker filtern
+            networks = c.list_networks(site_id=site_id)
+            net_list = networks if isinstance(networks, list) else networks.get("networks", [])
+            net_ids = {str(n.get("networkId") or n.get("id", "")) for n in net_list}
+
+            filtered = [p for p in printers_list
+                        if str(p.get("networkId", "")) in net_ids
+                        or str(p.get("network_id", "")) in net_ids]
+            return _ok({"printers": filtered, "count": len(filtered),
+                         "filter": {"site_id": site_id, "network_ids": list(net_ids)}})
+
+        return _ok({"error": "Bitte network_id oder site_id angeben."})
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_get_queue_context(queue_id: str, printer_id: str = "") -> str:
+    """
+    Liefert den vollständigen Kontext einer Queue: Queue-/Printer-Objekt + letzte Jobs.
+
+    Praktisch wenn ein Agent mit einer Queue arbeiten soll, aber aus der normalen
+    list_printers-Antwort erst den passenden Printer/Queue-Eintrag herauslösen müsste.
+
+    Args:
+        queue_id: Queue-ID.
+        printer_id: Optionale Printer-ID zur direkten Auflösung.
+    """
+    try:
+        c = client()
+        printers_data = c.list_printers(size=200)
+        printer_items = printers_data if isinstance(printers_data, list) else printers_data.get("printers", [])
+        match = None
+        for item in printer_items:
+            pid, qid = _extract_printer_queue_ids(item)
+            if qid == queue_id and (not printer_id or pid == printer_id):
+                match = dict(item)
+                match["printer_id"] = pid
+                match["queue_id"] = qid
+                break
+        if not match:
+            return _ok({"error": f"Queue '{queue_id}' nicht gefunden."})
+
+        detailed = None
+        if match.get("printer_id"):
+            try:
+                detailed = c.get_printer(match["printer_id"], queue_id)
+            except Exception as detail_err:
+                detailed = {"detail_lookup_error": str(detail_err)}
+
+        jobs = []
+        jobs_error = ""
+        try:
+            jobs_data = c.list_print_jobs(queue_id=queue_id, size=20)
+            jobs = jobs_data if isinstance(jobs_data, list) else jobs_data.get("jobs", jobs_data.get("content", []))
+        except Exception as job_err:
+            jobs_error = str(job_err)
+
+        return _ok({
+            "queue_id": queue_id,
+            "printer_id": match.get("printer_id", ""),
+            "queue_entry": match,
+            "details": detailed,
+            "recent_jobs": jobs,
+            "recent_job_count": len(jobs),
+            "recent_jobs_error": jobs_error,
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_get_network_context(network_id: str) -> str:
+    """
+    Liefert den vollständigen Kontext eines Netzwerks: Network + Site + Drucker + SNMP-Bezüge.
+
+    Args:
+        network_id: Netzwerk-ID.
+    """
+    try:
+        c = client()
+        network = c.get_network(network_id)
+        site = None
+        site_id = (network.get("siteId", "") if isinstance(network, dict) else "") or ""
+        if site_id:
+            try:
+                site = c.get_site(site_id)
+            except Exception as site_err:
+                site = {"site_id": site_id, "lookup_error": str(site_err)}
+
+        printers_data = c.list_printers(size=200)
+        printers_list = printers_data if isinstance(printers_data, list) else printers_data.get("printers", [])
+        printers = []
+        for item in printers_list:
+            pid, qid = _extract_printer_queue_ids(item)
+            item_network_id = str(item.get("networkId", "") or item.get("network_id", ""))
+            if item_network_id == str(network_id):
+                enriched = dict(item)
+                enriched["printer_id"] = pid
+                enriched["queue_id"] = qid
+                printers.append(enriched)
+
+        snmp_data = c.list_snmp_configs(size=200)
+        snmp_list = snmp_data if isinstance(snmp_data, list) else snmp_data.get("snmp", snmp_data.get("snmpConfigurations", []))
+        snmp_matches = []
+        for config in snmp_list:
+            config_network_ids = list(config.get("networkIds", []) or [])
+            if not config_network_ids:
+                for link in ((config.get("_links") or {}).get("networks") or []):
+                    href = link.get("href", "")
+                    cid = _extract_resource_id_from_href(href)
+                    if cid:
+                        config_network_ids.append(cid)
+            if str(network_id) in {str(x) for x in config_network_ids}:
+                snmp_matches.append(config)
+
+        return _ok({
+            "network": network,
+            "site": site,
+            "printers": printers,
+            "printer_count": len(printers),
+            "snmp_configs": snmp_matches,
+            "snmp_config_count": len(snmp_matches),
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_get_snmp_context(config_id: str) -> str:
+    """
+    Liefert den vollständigen Kontext einer SNMP-Konfiguration: SNMP + zugeordnete Networks/Sites/Drucker.
+
+    Args:
+        config_id: SNMP-Konfigurations-ID.
+    """
+    try:
+        c = client()
+        snmp_config = c.get_snmp_config(config_id)
+        network_ids = list(snmp_config.get("networkIds", []) or []) if isinstance(snmp_config, dict) else []
+        if not network_ids and isinstance(snmp_config, dict):
+            for link in ((snmp_config.get("_links") or {}).get("networks") or []):
+                href = link.get("href", "")
+                nid = _extract_resource_id_from_href(href)
+                if nid:
+                    network_ids.append(nid)
+
+        networks = []
+        sites_by_id = OrderedDict()
+        printers = []
+        for network_id in network_ids:
+            try:
+                network = c.get_network(network_id)
+            except Exception as network_err:
+                network = {"network_id": network_id, "lookup_error": str(network_err)}
+            networks.append(network)
+            site_id = network.get("siteId", "") if isinstance(network, dict) else ""
+            if site_id and site_id not in sites_by_id:
+                try:
+                    sites_by_id[site_id] = c.get_site(site_id)
+                except Exception as site_err:
+                    sites_by_id[site_id] = {"site_id": site_id, "lookup_error": str(site_err)}
+
+        printers_data = c.list_printers(size=200)
+        printers_list = printers_data if isinstance(printers_data, list) else printers_data.get("printers", [])
+        network_id_set = {str(nid) for nid in network_ids}
+        for item in printers_list:
+            pid, qid = _extract_printer_queue_ids(item)
+            item_network_id = str(item.get("networkId", "") or item.get("network_id", ""))
+            if item_network_id in network_id_set:
+                enriched = dict(item)
+                enriched["printer_id"] = pid
+                enriched["queue_id"] = qid
+                printers.append(enriched)
+
+        return _ok({
+            "snmp_config": snmp_config,
+            "networks": networks,
+            "network_count": len(networks),
+            "sites": list(sites_by_id.values()),
+            "site_count": len(sites_by_id),
+            "printers": printers,
+            "printer_count": len(printers),
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
 # ─── Dual Transport Router ────────────────────────────────────────────────────
 
 class DualTransportApp:
     """
     ASGI-Router: leitet Anfragen an den passenden MCP-Transport weiter.
 
-      POST /mcp   → Streamable HTTP Transport (claude.ai, neuere MCP-Clients)
-      GET  /sse   → SSE Transport             (ChatGPT, ältere MCP-Clients)
-      POST /messages/ → SSE Message Handler
+      POST /mcp                    → Streamable HTTP Transport (claude.ai)
+      GET  /sse                    → SSE Transport (ChatGPT)
+      POST /capture/webhook/{id}   → Capture Webhook (shared handler)
 
-    Lifespan wird an http_app weitergeleitet, damit der StreamableHTTP-
-    SessionManager seinen anyio-TaskGroup beim Start initialisieren kann.
-    Der SSE-Transport benötigt kein Lifespan (no-op).
+    Capture Webhooks werden in BearerAuthMiddleware von der Bearer-Prüfung
+    ausgenommen — sie nutzen HMAC-Verifizierung.
 
-    Auth-Middleware sitzt davor und schützt beide Endpunkte gleichermaßen.
+    v4.6.7: Wenn CAPTURE_ENABLED=true, laeuft ein separater Capture-Server
+    auf Port 8775. Der MCP-Server akzeptiert Capture-Requests weiterhin
+    fuer Rueckwaertskompatibilitaet, loggt aber einen Hinweis.
     """
 
     def __init__(self, sse_app, http_app):
         self.sse_app = sse_app
         self.http_app = http_app
+        # v4.6.7: Pruefe ob separater Capture-Server aktiv (bool statt Port)
+        self._capture_separate = os.environ.get("CAPTURE_ENABLED", "false").lower() == "true"
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
-            # Lifespan an http_app weiterleiten — initialisiert den
-            # StreamableHTTPSessionManager (anyio TaskGroup).
-            # SSE-Transport hat nur _DefaultLifespan (no-op), kein Handlungsbedarf.
             await self.http_app(scope, receive, send)
             return
 
         path = scope.get("path", "")
+        method = scope.get("method", "?")
         if path == "/mcp" or path.startswith("/mcp/"):
             await self.http_app(scope, receive, send)
+        elif path.startswith("/capture/webhook/") or path.startswith("/capture/debug"):
+            if self._capture_separate:
+                logger.info("▶ CAPTURE REQUEST [mcp-compat]: %s %s "
+                            "(Hinweis: Capture-Server laeuft auf eigenem Port)", method, path)
+            else:
+                logger.info("▶ CAPTURE REQUEST [mcp]: %s %s", method, path)
+            await self._handle_capture(scope, receive, send)
         else:
             await self.sse_app(scope, receive, send)
+
+    # ── Capture Webhook — delegiert an shared handler (v4.4.6) ─────────────
+
+    async def _read_body(self, receive) -> bytes:
+        body = b""
+        while True:
+            msg = await receive()
+            body += msg.get("body", b"")
+            if not msg.get("more_body", False):
+                break
+        return body
+
+    async def _json_response(self, send, status: int, data: dict):
+        import json as _j
+        body = _j.dumps(data, ensure_ascii=False).encode("utf-8")
+        await send({
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                [b"content-type", b"application/json; charset=utf-8"],
+            ],
+        })
+        await send({"type": "http.response.body", "body": body})
+
+    async def _handle_capture(self, scope, receive, send):
+        """Delegiert an den shared capture webhook handler (v4.4.6)."""
+        from capture.webhook_handler import handle_webhook
+
+        path = scope.get("path", "")
+        method = scope.get("method", "GET")
+        raw_headers = dict(scope.get("headers", []))
+        headers_str = {
+            k.decode("utf-8", errors="replace"): v.decode("utf-8", errors="replace")
+            for k, v in raw_headers.items()
+        }
+        body_bytes = await self._read_body(receive)
+
+        # Profile-ID aus Pfad extrahieren
+        if path.startswith("/capture/webhook/"):
+            profile_id = path[len("/capture/webhook/"):].strip("/")
+        elif path.startswith("/capture/debug"):
+            profile_id = "00000000-0000-0000-0000-000000000000"
+        else:
+            profile_id = ""
+
+        try:
+            status, data = await handle_webhook(
+                profile_id=profile_id,
+                method=method,
+                headers=headers_str,
+                body_bytes=body_bytes,
+                source="mcp",
+            )
+        except Exception as e:
+            logger.error("Capture handler error: %s", e, exc_info=True)
+            status, data = 500, {"error": str(e)}
+
+        await self._json_response(send, status, data)
 
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────
@@ -1973,7 +3244,7 @@ if __name__ == "__main__":
             logger.warning("Scheduler-Init fehlgeschlagen: %s", _sched_err)
 
     logger.info("╔══════════════════════════════════════════════════════════════╗")
-    logger.info("║        PRINTIX MCP SERVER v3.2.0 — MULTI-TENANT             ║")
+    logger.info("║        PRINTIX MCP SERVER v%s — MULTI-TENANT            ║", APP_VERSION)
     logger.info("╠══════════════════════════════════════════════════════════════╣")
     logger.info("║  MCP (claude.ai):  %s/mcp", base)
     logger.info("║  SSE (ChatGPT):    %s/sse", base)
@@ -1990,6 +3261,13 @@ if __name__ == "__main__":
     except Exception:
         _host_web_port = int(os.environ.get("WEB_PORT", "8080"))
     logger.info("║  Benutzer registrieren:  http://<HA-IP>:%d", _host_web_port)
+    # v4.6.7: Capture-Status (bool statt Port)
+    _capture_enabled = os.environ.get("CAPTURE_ENABLED", "false").lower() == "true"
+    if _capture_enabled:
+        _cap_url = os.environ.get("CAPTURE_PUBLIC_URL", "").rstrip("/") or "http://<HA-IP>:8775"
+        logger.info("║  Capture (separat): %s/capture/webhook/<id>", _cap_url)
+    else:
+        logger.info("║  Capture (via MCP): %s/capture/webhook/<id>", base)
     logger.info("╚══════════════════════════════════════════════════════════════╝")
 
     uvicorn.run(app, host=host, port=port, log_level=LOG_LEVEL.lower())

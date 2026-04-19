@@ -1,7 +1,7 @@
 # Home Assistant Add-on: Printix MCP Server
 # https://github.com/mnimtz/Printix-MCP
 name: Printix MCP Server
-version: "3.6.6"
+version: "6.7.36"
 slug: printix-mcp
 description: >-
   Multi-Tenant MCP Server für die Printix Cloud Print API.
@@ -20,13 +20,18 @@ init: false
 homeassistant_api: false
 hassio_api: false
 
-# Beide Ports: MCP-Server + Web-Verwaltungsoberfläche
+# Ports: MCP-Server + Web-Verwaltungsoberfläche + Capture + IPP (Cloud Print)
+# v6.6.0: LPR komplett entfernt — IPPS ist der einzige Cloud-Print-Eingang.
 ports:
   8765/tcp: 8765
   8080/tcp: 8080
+  8775/tcp: 8775
+  621/tcp:  621
 ports_description:
   8765/tcp: "MCP Endpoint (SSE für ChatGPT + Streamable HTTP für claude.ai)"
   8080/tcp: "Web-Verwaltungsoberfläche (Registrierung + Admin)"
+  8775/tcp: "Capture Webhook Endpoint (optional, separat von MCP)"
+  621/tcp:  "IPP/IPPS Listener for Cloud Print forwarding"
 
 # Minimale Konfiguration — alle Zugangsdaten werden über die Web-UI verwaltet
 options:
@@ -36,23 +41,58 @@ options:
   # Web-Verwaltungsoberfläche Port (Standard: 8080)
   web_port: 8080
 
-  # Öffentliche URL des Servers (z.B. via Cloudflare Tunnel)
+  # Öffentliche URL des MCP-Servers (z.B. via Cloudflare Tunnel)
   # Wird in der Web-UI und im Log als Verbindungsinfo angezeigt
-  public_url: ""
+  public_url: "https://mcp.printix.cloud"
+
+  # Separater Capture-Server auf Port 8775 (true = aktiv, false = deaktiviert)
+  # Der Container-Port ist IMMER 8775 (fest in config.yaml/ports definiert).
+  # Den Host-Port konfiguriert man in HA unter Add-on > Netzwerk.
+  # Capture-Webhooks funktionieren auch ohne separaten Server ueber den MCP-Port (8765).
+  capture_enabled: false
+
+  # Capture Webhook: optionale eigene öffentliche URL (z.B. https://capture.printix.cloud)
+  # Wenn leer, wird die MCP public_url für Webhook-URLs verwendet
+  capture_public_url: ""
+
+  # Cloud Print / IPP/IPPS Listener: Container-Port für IPP-Requests (v6.5.0+).
+  # Einziger Cloud-Print-Eingang (v6.6.0: LPR komplett entfernt).
+  # User-Identität kommt direkt aus den IPP-Attributen.
+  # 0 oder leer = deaktiviert (dann läuft IPP nur auf dem WEB_PORT).
+  ipp_port: 621
+
+  # v6.7.0: TLS-Termination direkt im IPP-Listener.
+  # Printix spricht IPPS = IPP über TLS — wir brauchen Cert+Key.
+  # Defaults zeigen auf das HA-Standard-/ssl-Verzeichnis das vom
+  # "Let's Encrypt"- oder "DuckDNS"-Addon befüllt wird.
+  # Leer lassen, wenn TLS extern (z.B. via Reverse Proxy) terminiert wird.
+  ipps_certfile: "/ssl/fullchain.pem"
+  ipps_keyfile:  "/ssl/privkey.pem"
 
   # Log Level
   log_level: "info"
+
+  # Entra ID Auto-Setup: Device Code Flow (ab v4.3.0)
+  # Keine Bootstrap-App mehr noetig — Admin klickt "Automatisch einrichten",
+  # gibt einen Code bei Microsoft ein, und die SSO-App wird via Graph API erstellt.
 
 # Schema-Validierung
 schema:
   mcp_port: int
   web_port: int
-  public_url: "url?"
+  public_url: "str?"
+  capture_enabled: bool
+  capture_public_url: "str?"
+  ipp_port: int
+  ipps_certfile: "str?"
+  ipps_keyfile: "str?"
   log_level: "list(debug|info|warning|error|critical)"
 
 # Datenpersistenz: SQLite-Datenbank + Secrets bleiben über Updates erhalten
+# v6.7.0: ssl:ro für Zugriff auf Let's-Encrypt-/DuckDNS-Cert (TLS für IPPS).
 map:
   - config:rw
+  - ssl:ro
 
 # Kein 'image:' hier = HA baut lokal aus dem Dockerfile (für lokales Testen)
 # Für Production mit GitHub Actions:

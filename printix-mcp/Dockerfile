@@ -12,6 +12,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tdsodbc \
     freetds-dev \
     freetds-bin \
+    # v6.7.28: LibreOffice-core für Web-Upload-Konvertierung (docx/xlsx/pptx/odt → PDF)
+    # Nutzt nur das Core-Paket ohne GUI/Java → ~230 MB zusätzlich.
+    # Plus 'fonts-dejavu' damit Standard-Dokumente mit Umlauten etc. korrekt rendern.
+    libreoffice-core \
+    libreoffice-writer \
+    libreoffice-calc \
+    libreoffice-impress \
+    fonts-dejavu \
+    # Pillow für Image-to-PDF (PNG/JPG/GIF)
+    python3-pil \
     && rm -rf /var/lib/apt/lists/*
 
 # Sicherstellen dass FreeTDS korrekt registriert ist (tdsodbc macht das meist automatisch,
@@ -31,15 +41,22 @@ WORKDIR /app
 COPY src/requirements.txt /app/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /app/requirements.txt
 
-# Cache-bust: 2026-04-10T15:00 — set_config_from_tenant in sql_client.py (v3.5.1)
+# 2026-04-10 — v3.7.2: reporting.v_tracking_data/v_jobs/v_jobs_scan Views gefixt
 COPY src/ /app/
+
+# v6.7.1: VERSION als Single Source of Truth aus dem Repo-Top-Level nach
+# /app/VERSION kopieren. Vorher gab es ein `src/VERSION` (gelöscht in 6.7.0)
+# — dadurch hatte das Banner alten Layer-Cache angezeigt. Jetzt eindeutig:
+# /app/VERSION = Repo-Top-Level VERSION, von run.sh + app_version.py gelesen.
+COPY VERSION /app/VERSION
 
 # Copy run script
 COPY run.sh /app/run.sh
 RUN chmod a+x /app/run.sh
 
-# Expose MCP port and Web-UI port
+# Expose MCP port, Web-UI port, and Capture port
 EXPOSE 8765
 EXPOSE 8080
+EXPOSE 8775
 
 CMD [ "/app/run.sh" ]

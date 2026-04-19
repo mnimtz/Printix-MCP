@@ -1,17 +1,44 @@
 {% extends "base.html" %}
 {% set show_nav = false %}
-{% block title %}{{ _('login_title') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('login_title') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block content %}
 <div style="display:flex; align-items:center; justify-content:center; min-height:100vh; padding:20px;">
   <div style="width:100%; max-width:380px;">
     <div style="text-align:center; margin-bottom:28px;">
-      <div style="font-size:2.5em; margin-bottom:8px;">🖨️</div>
-      <h1 style="font-size:1.3em; color:#1e3a5f;">Printix MCP Admin</h1>
+      <div style="width:96px; margin:0 auto 12px; color:#002854;">
+        {% include "_brand_logo.svg" %}
+      </div>
+      <h1 style="font-size:1.3em; color:#1e3a5f;">{{ _('brand_console_name') }}</h1>
     </div>
 
     <div class="card">
       {% if error %}
       <div class="alert alert-error">{{ error }}</div>
+      {% endif %}
+
+      {% if entra_enabled | default(false) %}
+      <a href="/auth/entra/login"
+         style="display:flex;align-items:center;justify-content:center;gap:10px;
+                width:100%;padding:10px 16px;border:1px solid #d1d5db;border-radius:8px;
+                background:#fff;color:#374151;font-size:.95em;font-weight:600;
+                text-decoration:none;transition:background .15s,box-shadow .15s;
+                margin-bottom:20px;"
+         onmouseover="this.style.background='#f8fafc';this.style.boxShadow='0 2px 8px rgba(0,0,0,.08)'"
+         onmouseout="this.style.background='#fff';this.style.boxShadow='none'">
+        <svg width="20" height="20" viewBox="0 0 21 21">
+          <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+          <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+          <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+          <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+        </svg>
+        {{ _('login_microsoft') }}
+      </a>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+        <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+        <span style="font-size:.82em;color:#9ca3af;white-space:nowrap;">{{ _('login_or') }}</span>
+        <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+      </div>
       {% endif %}
 
       <form method="post" action="/login">

@@ -15,9 +15,11 @@ Erlaubt ohne Auth:
   - /robots.txt
 """
 
+import json
 import logging
 from contextvars import ContextVar
 from typing import Optional
+from app_version import APP_VERSION
 
 logger = logging.getLogger("printix.auth")
 
@@ -60,6 +62,10 @@ class BearerAuthMiddleware:
         if path in ("/favicon.ico", "/robots.txt"):
             await self._not_found(send)
             return
+        # Capture Webhooks: HMAC-Auth statt Bearer Token (v4.4.3)
+        if path.startswith("/capture/webhook/") or path.startswith("/capture/debug"):
+            await self.app(scope, receive, send)
+            return
 
         # Bearer Token aus Authorization-Header extrahieren
         headers = dict(scope.get("headers", []))
@@ -81,11 +87,11 @@ class BearerAuthMiddleware:
             await self._unauthorized(send, "Invalid bearer token.")
             return
 
-        logger.debug("Auth OK: Tenant '%s' für %s %s",
-                     tenant.get("name", tenant.get("id", "?")),
-                     scope.get("method", "?"), path)
-
         # Tenant in ContextVar setzen (thread-safe dank contextvars)
+        # WICHTIG: ContextVar MUSS gesetzt sein BEVOR der erste Logger-Aufruf
+        # erfolgt — sonst landet das Auth-OK-Log nicht in tenant_logs (der
+        # _TenantDBHandler liest current_tenant und verwirft Records ohne
+        # Tenant-Kontext).
         token_ct = current_tenant.set(tenant)
 
         # SQL-Konfiguration für Reporting-Modul setzen
@@ -96,6 +102,10 @@ class BearerAuthMiddleware:
             "password":  tenant.get("sql_password", ""),
             "tenant_id": tenant.get("printix_tenant_id", ""),
         })
+
+        logger.debug("Auth OK: Tenant '%s' für %s %s",
+                     tenant.get("name", tenant.get("id", "?")),
+                     scope.get("method", "?"), path)
 
         try:
             await self.app(scope, receive, send)
@@ -115,7 +125,9 @@ class BearerAuthMiddleware:
     # ── HTTP-Antworten ─────────────────────────────────────────────────────────
 
     async def _unauthorized(self, send, message: str):
-        body = f'{{"error":"unauthorized","message":"{message}"}}'.encode()
+        # json.dumps statt f-string: verhindert, dass Sonderzeichen im
+        # Message-Text die JSON-Struktur zerlegen (defensiv für künftige Caller).
+        body = json.dumps({"error": "unauthorized", "message": message}).encode()
         await send({"type": "http.response.start", "status": 401,
                     "headers": [[b"content-type", b"application/json"],
                                  [b"www-authenticate", b"Bearer"],
@@ -128,7 +140,11 @@ class BearerAuthMiddleware:
         await send({"type": "http.response.body", "body": b""})
 
     async def _health_response(self, send):
-        body = b'{"status":"ok","service":"printix-mcp"}'
+        body = json.dumps({
+            "status": "ok",
+            "service": "printix-mcp",
+            "version": APP_VERSION,
+        }).encode()
         await send({"type": "http.response.start", "status": 200,
                     "headers": [[b"content-type", b"application/json"],
                                  [b"content-length", str(len(body)).encode()]]})

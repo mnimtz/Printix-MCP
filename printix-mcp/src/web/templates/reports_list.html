@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('reports_title') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('reports_title') }} — {{ _('brand_console_name') }}{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -56,10 +56,11 @@
 
     <!-- ── Eigene Templates ─────────────────────────────────────────────── -->
     {% if templates_list %}
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
     <table>
       <thead>
         <tr>
-          <th>Name</th>
+          <th>{{ _('reports_list_name') }}</th>
           <th>{{ _('rpt_list_type') }}</th>
           <th>{{ _('rpt_list_recipients') }}</th>
           <th>{{ _('rpt_list_schedule') }}</th>
@@ -96,7 +97,8 @@
           <td style="font-size:.8em;color:#9ca3af;">{{ t.created_at[:10] if t.created_at else '—' }}</td>
           <td style="text-align:right; white-space:nowrap;">
             <!-- Run now -->
-            <form class="run-form" method="post" action="/reports/{{ t.report_id }}/run">
+            <form class="run-form" method="post" action="/reports/{{ t.report_id }}/run"
+                  onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').innerHTML='⏳';this.querySelector('button').title='{{ _('rpt_run_running') | e }}';">
               <button type="submit" class="btn btn-success btn-sm"
                       title="{{ _('rpt_run_now') }}"
                       {% if not reporting_ok %}disabled{% endif %}>▶</button>
@@ -109,7 +111,9 @@
             <a href="/reports/{{ t.report_id }}/edit" class="btn btn-secondary btn-sm" title="{{ _('rpt_edit_title') }}">✏</a>
             <!-- Delete -->
             <form class="run-form" method="post" action="/reports/{{ t.report_id }}/delete"
-                  onsubmit="return confirm('{{ _('rpt_delete_confirm') }}'.replace('?', ' \'' + {{ t.name | tojson }} + '\'?'));">
+                  data-report-name="{{ t.name }}"
+                  data-confirm-msg="{{ _('rpt_delete_confirm') }}"
+                  onsubmit="return confirm(this.dataset.confirmMsg.replace('?', ' \'' + this.dataset.reportName + '\'?'));">
               <button type="submit" class="btn btn-danger btn-sm" title="{{ _('rpt_delete_title') }}">🗑</button>
             </form>
           </td>
@@ -117,6 +121,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <div class="empty-state">
       <div class="es-icon">📊</div>

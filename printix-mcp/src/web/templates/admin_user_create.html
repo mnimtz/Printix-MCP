@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('admin_create_user') }} — Printix MCP{% endblock %}
+{% block title %}{{ _('admin_create_user') }} — {{ _('brand_console_name') }}{% endblock %}
 {% block content %}
 <div class="container">
   <div class="card" style="max-width:520px;margin:40px auto;">
@@ -61,11 +61,13 @@
         </select>
       </div>
       <div class="form-group">
-        <div class="check-row">
-          <input type="checkbox" name="is_admin" value="1" id="is_admin_cb"
-                 {% if f_is_admin | default('') == '1' %}checked{% endif %}>
-          <label for="is_admin_cb" style="margin-bottom:0;">{{ _('admin_is_admin') }}</label>
-        </div>
+        <label>{{ _('admin_role') }}</label>
+        <select name="role_type">
+          <option value="user" {% if f_role_type | default('user') == 'user' %}selected{% endif %}>{{ _('role_user') }}</option>
+          <option value="employee" {% if f_role_type | default('') == 'employee' %}selected{% endif %}>{{ _('role_employee') }}</option>
+          <option value="admin" {% if f_role_type | default('') == 'admin' %}selected{% endif %}>{{ _('role_admin') }}</option>
+        </select>
+        <small class="hint">{{ _('admin_role_hint') }}</small>
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <button type="submit" class="btn btn-primary">{{ _('admin_create_user') }}</button>
