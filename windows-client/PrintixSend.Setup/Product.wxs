@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Printix Send — Per-User MSI
+    ============================
+    - Installation in %LocalAppData%\Programs\PrintixSend (kein Admin nötig)
+    - SendTo-Verknüpfung in %AppData%\Microsoft\Windows\SendTo
+    - Start-Menü-Verknüpfung
+    - Upgrade-Code ist fix; MSI erkennt bestehende Version und macht Upgrade
+
+    Varianten für Architektur werden über den Build-Switch $(var.PlatformTag)
+    gesteuert (x64 / ARM64).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package
+    Name="Printix Send"
+    Manufacturer="Printix MCP Project"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="9F2C4D6A-5E3B-4A1C-9F7E-123456789ABC"
+    Scope="perUser"
+    Compressed="yes"
+    InstallerVersion="500">
+
+    <!-- Upgrade-Logik: neue Version überschreibt alte -->
+    <MajorUpgrade
+      DowngradeErrorMessage="Eine neuere Version von Printix Send ist bereits installiert."
+      Schedule="afterInstallInitialize"/>
+
+    <!-- Ein CAB im MSI -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Per-User Install: %LocalAppData%\Programs\PrintixSend -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="AppProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="PrintixSend" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- SendTo-Verzeichnis des aktuellen Users -->
+    <StandardDirectory Id="SendToFolder" />
+
+    <!-- Start-Menü -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppShortcutFolder" Name="Printix Send" />
+    </StandardDirectory>
+
+    <!-- Haupt-Feature -->
+    <Feature Id="MainFeature" Title="Printix Send" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="SendToShortcut" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="RegistryEntries" />
+    </Feature>
+
+    <!-- SendTo-Shortcut (per-user) -->
+    <Component Id="SendToShortcut" Directory="SendToFolder" Guid="*">
+      <RegistryValue Root="HKCU"
+                     Key="Software\PrintixSend\Installed"
+                     Name="SendTo"
+                     Type="string" Value="1" KeyPath="yes" />
+      <Shortcut Id="SendToShortcutItem"
+                Name="Printix Send"
+                Target="[INSTALLFOLDER]PrintixSend.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Description="Dateien über Printix Send an Drucker oder Capture-Ziel senden" />
+    </Component>
+
+    <!-- Start-Menü -->
+    <Component Id="StartMenuShortcut" Directory="AppShortcutFolder" Guid="*">
+      <RegistryValue Root="HKCU"
+                     Key="Software\PrintixSend\Installed"
+                     Name="StartMenu"
+                     Type="string" Value="1" KeyPath="yes" />
+      <Shortcut Id="StartMenuShortcutItem"
+                Name="Printix Send"
+                Target="[INSTALLFOLDER]PrintixSend.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Description="Printix Send — Drucken und Capture mit einem Klick" />
+      <RemoveFolder Id="RemoveAppShortcutFolder" Directory="AppShortcutFolder" On="uninstall" />
+    </Component>
+
+    <!-- Registry-Eintrag für einfache Deinstallations-Erkennung -->
+    <Component Id="RegistryEntries" Directory="INSTALLFOLDER" Guid="*">
+      <RegistryValue Root="HKCU"
+                     Key="Software\PrintixSend"
+                     Name="Version"
+                     Type="string" Value="$(var.ProductVersion)" KeyPath="yes" />
+      <RegistryValue Root="HKCU"
+                     Key="Software\PrintixSend"
+                     Name="InstallPath"
+                     Type="string" Value="[INSTALLFOLDER]" />
+      <RegistryValue Root="HKCU"
+                     Key="Software\PrintixSend"
+                     Name="Platform"
+                     Type="string" Value="$(var.PlatformTag)" />
+    </Component>
+
+    <!-- UI (WixUI_Minimal = 1-Klick mit Lizenz) -->
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
+    <!-- Keine Elevation — Per-User Install -->
+    <Property Id="ALLUSERS" Value="" />
+    <Property Id="MSIINSTALLPERUSER" Value="1" />
+
+  </Package>
+
+  <!-- Dateien aus dem Publish-Verzeichnis einsammeln.
+       Wird beim Build automatisch via HarvestDirectory erweitert — hier
+       definieren wir manuell die Hauptdatei, Rest kommt via ComponentGroup.
+       Für das self-contained-Publish liegt PrintixSend.exe als Single-File vor. -->
+  <Fragment>
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Component Id="MainExe" Guid="*">
+        <File Id="PrintixSendExe"
+              Source="$(var.AppPublishDir)\PrintixSend.exe"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="AppSettings" Guid="*">
+        <File Id="AppSettingsJson"
+              Source="$(var.AppPublishDir)\appsettings.json"
+              KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>

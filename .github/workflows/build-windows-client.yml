@@ -1,0 +1,99 @@
+name: Build Windows Client (MSI)
+
+on:
+  push:
+    tags:
+      - 'client-v*'
+    paths:
+      - 'windows-client/**'
+      - '.github/workflows/build-windows-client.yml'
+  pull_request:
+    paths:
+      - 'windows-client/**'
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: pwsh
+    working-directory: windows-client
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, ARM64]
+        include:
+          - platform: x64
+            rid: win-x64
+          - platform: ARM64
+            rid: win-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore PrintixSend.sln
+
+      - name: Publish WPF (${{ matrix.rid }})
+        run: |
+          dotnet publish .\PrintixSend\PrintixSend.csproj `
+            -c Release `
+            -r ${{ matrix.rid }} `
+            -p:Platform=${{ matrix.platform }} `
+            --self-contained true
+
+      - name: Build MSI (${{ matrix.platform }})
+        run: |
+          dotnet build .\PrintixSend.Setup\PrintixSend.Setup.wixproj `
+            -c Release `
+            -p:Platform=${{ matrix.platform }}
+
+      - name: Locate MSI
+        id: findmsi
+        run: |
+          $msi = Get-ChildItem -Path .\PrintixSend.Setup\bin\${{ matrix.platform }}\Release -Filter "PrintixSend-*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "MSI nicht gefunden" }
+          "msi_path=$($msi.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "msi_name=$($msi.Name)"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintixSend-${{ matrix.platform }}-msi
+          path: ${{ steps.findmsi.outputs.msi_path }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/client-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: PrintixSend-*-msi
+          merge-multiple: true
+          path: artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.msi
+          name: Printix Send ${{ github.ref_name }}
+          body: |
+            Windows-Client-Release ${{ github.ref_name }}.
+
+            Installieren:
+            - **PrintixSend-*-x64.msi** — für Intel/AMD-Windows (x64)
+            - **PrintixSend-*-arm64.msi** — für Snapdragon/ARM-Windows
+
+            Per-User Install: kein Admin-Recht nötig. Nach Install:
+            Rechtsklick auf eine Datei → *Senden an* → *Printix Send*.

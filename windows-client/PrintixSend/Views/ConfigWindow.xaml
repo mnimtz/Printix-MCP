@@ -1,0 +1,37 @@
+<Window x:Class="PrintixSend.Views.ConfigWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Printix Send — Einstellungen" Height="320" Width="480"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Server-Verbindung einrichten" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+            <TextBlock Text="Trage die öffentliche URL deines Printix-MCP-Servers ein."
+                       Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1">
+            <TextBlock Text="Server-URL" Margin="0,0,0,4" Foreground="{StaticResource TextBrush}"/>
+            <TextBox x:Name="TxtServerUrl" Text="https://printix.cloud"/>
+            <TextBlock Text="z.B. https://printix.cloud oder https://mcp.firma.de"
+                       Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,4,0,12"/>
+
+            <TextBlock Text="Geräte-Name (für Audit-Log)" Margin="0,0,0,4" Foreground="{StaticResource TextBrush}"/>
+            <TextBox x:Name="TxtDeviceName"/>
+
+            <TextBlock x:Name="TxtError" Foreground="{StaticResource ErrorBrush}" Margin="0,12,0,0" Visibility="Collapsed"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Abbrechen" Style="{StaticResource SecondaryButton}" Margin="0,0,8,0" Click="OnCancel"/>
+            <Button Content="Speichern" Style="{StaticResource PrimaryButton}" Click="OnSave" IsDefault="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

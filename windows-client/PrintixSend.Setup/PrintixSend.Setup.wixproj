@@ -1,0 +1,35 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <PropertyGroup>
+    <OutputName>PrintixSend-$(ProductVersion)-$(Platform)</OutputName>
+    <OutputType>Package</OutputType>
+    <!-- Platform wird von außen gesetzt: x64 oder arm64 -->
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <!-- ProductVersion muss < 256.x.x.x bleiben für MSI-Spezifikation.
+         Entspricht app.csproj-Version ohne 4. Segment. -->
+    <ProductVersion>6.7.36</ProductVersion>
+    <!-- Publish-Ordner des WPF-Projekts je Plattform:
+         PrintixSend\bin\Release\net8.0-windows\win-x64\publish\ -->
+    <PublishRid Condition=" '$(Platform)' == 'x64'   ">win-x64</PublishRid>
+    <PublishRid Condition=" '$(Platform)' == 'ARM64' ">win-arm64</PublishRid>
+    <PublishRid Condition=" '$(Platform)' == 'arm64' ">win-arm64</PublishRid>
+    <AppPublishDir>..\PrintixSend\bin\Release\net8.0-windows\$(PublishRid)\publish</AppPublishDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Product.wxs" />
+  </ItemGroup>
+
+  <!-- MSI-Definitions-Variablen durchreichen -->
+  <ItemGroup>
+    <WixVariable Include="AppPublishDir" Value="$(AppPublishDir)" />
+    <WixVariable Include="ProductVersion" Value="$(ProductVersion)" />
+    <WixVariable Include="PlatformTag" Value="$(Platform)" />
+  </ItemGroup>
+
+</Project>

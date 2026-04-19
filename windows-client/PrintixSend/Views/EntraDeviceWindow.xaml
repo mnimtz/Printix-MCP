@@ -1,0 +1,43 @@
+<Window x:Class="PrintixSend.Views.EntraDeviceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Printix Send — Microsoft-Anmeldung" Height="420" Width="480"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Mit Microsoft anmelden" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+            <TextBlock Text="1. Öffne die Anmeldeseite von Microsoft.&#x0a;2. Gib dort den unten angezeigten Code ein.&#x0a;3. Schließe die Anmeldung in deinem Browser ab."
+                       Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="{StaticResource CardBrush}" CornerRadius="8"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="16" Margin="0,0,0,16">
+            <StackPanel>
+                <TextBlock Text="Dein Code" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                <TextBlock x:Name="TxtCode" Text="…" FontSize="28" FontWeight="Bold"
+                           Foreground="{StaticResource AccentBrush}" Margin="0,4,0,8"/>
+                <Button x:Name="BtnOpen" Content="🌐  Browser öffnen" Style="{StaticResource PrimaryButton}"
+                        Click="OnOpenBrowser" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="TxtUri" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,8,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Grid.Row="2" VerticalAlignment="Top">
+            <TextBlock x:Name="TxtStatus" Text="Warte auf Anmeldung…"
+                       Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+            <ProgressBar x:Name="ProgBar" IsIndeterminate="True" Height="4" Margin="0,8,0,0"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Abbrechen" Style="{StaticResource SecondaryButton}" Click="OnCancel"/>
+        </StackPanel>
+    </Grid>
+</Window>

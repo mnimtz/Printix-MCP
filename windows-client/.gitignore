@@ -1,0 +1,18 @@
+# Build-Output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Publish
+publish/
+
+# WiX
+*.wixobj
+*.wixpdb
+*.msi
+
+# IDE
+.idea/
+.vscode/
