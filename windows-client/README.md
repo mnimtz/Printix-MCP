@@ -2,12 +2,17 @@
 
 Leichtgewichtiger WPF-Client für den Printix-MCP-Server. Integriert sich in Windows *Senden an* und überträgt Dateien an serverseitig konfigurierte Ziele (Secure Print, Delegate Print, später Capture).
 
-## Features (MVP v6.7.36)
+## Features (v6.7.50)
 
 - **Login**: Lokaler Login *oder* Microsoft Entra SSO (Device-Code-Flow)
-- **Targets**: Live vom Server geladen (`GET /desktop/targets`) — keine hartkodierten Ziele im Client
-- **Senden**: Datei-Upload an `POST /desktop/send` mit Ziel-ID
-- **Windows-Integration**: MSI-Installer legt einen *Senden an*-Eintrag an (per-user)
+- **Targets**: Live vom Server geladen (`GET /desktop/targets`) — Secure Print self, Delegate Print, Capture-Profile
+- **Per-Target-SendTo-Einträge** (v6.7.44): Nach dem Login erscheint pro Ziel ein eigener „Senden an"-Eintrag im Explorer — kein Ziel-Dropdown nötig
+- **Headless Send** (v6.7.47): Kein GUI-Flash beim Senden via SendTo-Menü — Datei → Toast → fertig
+- **Permanent Tray-Icon + Home-Window** (v6.7.48): Quick-Status, Re-Login, letzte Jobs
+- **Auto-Launch nach Installation** (v6.7.50): Erster Start öffnet Config/Login automatisch, WiX WixShellExec
+- **Long-Running-Uploads** (v6.7.50): `HttpClient.Timeout = 15 min`, damit LibreOffice-Coldstart auf dem Server (60–120s) nicht den Request killt
+- **Async 202-Accepted** (Server v6.7.43): Server schickt sofort 202, Job-Status in `/my/jobs` sichtbar — keine Cloudflare-524-Probleme mehr
+- **Windows-Integration**: MSI-Installer (Per-User, kein Admin) legt Start-Menü-Eintrag + SendTo-Verknüpfungen an
 - **Sicher**: Token in Windows DPAPI verschlüsselt (`%LocalAppData%\PrintixSend\token.bin`)
 
 ## Projekt-Struktur

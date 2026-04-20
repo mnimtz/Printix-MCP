@@ -80,6 +80,420 @@ def _mask_token(token: Optional[str]) -> str:
 
 # ─── Registrierung ───────────────────────────────────────────────────────────
 
+async def _process_desktop_send_bg(
+    user: dict,
+    target_id: str,
+    data: bytes,
+    filename: str,
+    copies: int,
+    color: str,
+    duplex: str,
+    internal_id: str,
+    t_start: float,
+) -> None:
+    """
+    Background-Worker für /desktop/send (v6.7.43).
+
+    Läuft als asyncio.Task, nachdem der HTTP-Handler bereits 202 Accepted
+    zurückgegeben hat. Hintergrund: Cloudflare kappt jede HTTP-Verbindung
+    nach 100 s (HTTP 524), aber die Printix-Pipeline (LibreOffice-Konvertierung
+    + 5-Stage-Submit) braucht regelmäßig 90–180 s. Fire-and-forget umgeht
+    diese Architektur-Grenze; Fehler landen im cloudprint_jobs-Eintrag
+    und werden dort über die Web-UI sichtbar.
+    """
+    import time as _t
+    try:
+        import sys as _sys, os as _os
+        src_dir = _os.path.dirname(_os.path.dirname(__file__))
+        if src_dir not in _sys.path:
+            _sys.path.insert(0, src_dir)
+        from upload_converter import convert_to_pdf, ConversionError
+        from db import get_tenant_full_by_user_id
+        from cloudprint.db_extensions import (
+            get_parent_user_id, get_cloudprint_config,
+            get_delegations_for_owner, create_cloudprint_job,
+            update_cloudprint_job_status,
+        )
+        from cloudprint.printix_cache_db import find_printix_user_by_identity
+
+        def _fail(msg: str, code: str = "error") -> None:
+            try:
+                update_cloudprint_job_status(
+                    internal_id, "error",
+                    error_message=f"{code}: {msg}"[:500],
+                )
+            except Exception:
+                pass
+            logger.warning(
+                "Desktop-Send BG-FAIL — user='%s' target=%s job_id=%s "
+                "code=%s msg=%s",
+                user.get("username"), target_id, internal_id, code, msg,
+            )
+
+        # === Stage 1: Format-Erkennung + Konvertierung =====================
+        t_convert_start = _t.monotonic()
+        try:
+            pdf_data, conv_label = convert_to_pdf(data, filename)
+            if pdf_data is not data:
+                base = filename.rsplit(".", 1)[0] if "." in filename else filename
+                display_filename = f"{base}.pdf"
+                data = pdf_data
+            else:
+                display_filename = filename
+            dt_conv = _t.monotonic() - t_convert_start
+            logger.info(
+                "Desktop-Send [1/5] convert OK — user='%s' conv='%s' "
+                "out_size=%d dt=%.2fs job_id=%s",
+                user.get("username"), conv_label, len(data), dt_conv, internal_id,
+            )
+        except ConversionError as ce:
+            logger.warning(
+                "Desktop-Send [1/5] convert FAIL — user='%s' file='%s' err=%s",
+                user.get("username"), filename, ce,
+            )
+            _fail(str(ce), code="convert_failed")
+            return
+        except Exception as e:
+            logger.error(
+                "Desktop-Send [1/5] convert EXCEPTION — user='%s' file='%s' err=%s",
+                user.get("username"), filename, e,
+            )
+            _fail(str(e)[:200], code="convert_error")
+            return
+
+        # === Stage 2: Tenant + Queue + Owner-Email =========================
+        parent_id = get_parent_user_id(user["user_id"])
+        tenant = get_tenant_full_by_user_id(parent_id)
+        config = get_cloudprint_config(user["user_id"])
+
+        if not tenant or not config or not config.get("lpr_target_queue"):
+            fallback_source = ""
+            try:
+                from cloudprint.db_extensions import (
+                    get_default_single_tenant, get_admin_tenant_with_queue,
+                )
+                fallback = get_default_single_tenant()
+                if fallback and fallback.get("lpr_target_queue"):
+                    fallback_source = "single-tenant"
+                else:
+                    fallback = get_admin_tenant_with_queue()
+                    if fallback:
+                        fallback_source = "admin-tenant"
+                if fallback and fallback.get("lpr_target_queue"):
+                    tenant = get_tenant_full_by_user_id(fallback["user_id"])
+                    config = fallback
+                    logger.info(
+                        "Desktop-Send [2/5] fallback-tenant (%s) — user='%s' "
+                        "→ tenant.user_id=%s queue=%s",
+                        fallback_source, user.get("username"),
+                        fallback.get("user_id"),
+                        fallback.get("lpr_target_queue"),
+                    )
+            except Exception as _fb:
+                logger.debug("Tenant-Fallback failed: %s", _fb)
+
+        if not tenant or not config or not config.get("lpr_target_queue"):
+            logger.warning(
+                "Desktop-Send [2/5] no queue — user='%s' parent_id=%s "
+                "tenant=%s queue=%s (auch Single-Tenant-Fallback leer)",
+                user.get("username"), parent_id, bool(tenant),
+                (config or {}).get("lpr_target_queue"),
+            )
+            _fail("no secure print queue configured", code="no_queue")
+            return
+
+        # Owner-Email ermitteln (für Default: den User selbst)
+        user_email = (user.get("email") or "").strip()
+        owner_email = user_email
+        try:
+            px_id = (user.get("printix_user_id") or "").strip()
+            if px_id:
+                from db import _conn as _dbconn
+                with _dbconn() as _c:
+                    row = _c.execute(
+                        "SELECT email FROM cached_printix_users "
+                        "WHERE printix_user_id=?", (px_id,),
+                    ).fetchone()
+                if row and row["email"]:
+                    owner_email = row["email"]
+            if not owner_email or "@" not in owner_email:
+                pxu = find_printix_user_by_identity(user_email)
+                if pxu and pxu.get("email"):
+                    owner_email = pxu["email"]
+        except Exception:
+            pass
+
+        target_id = (target_id or "").strip()
+        target_type = ""
+        if target_id == "print:self":
+            submit_user_email = owner_email
+            target_type = "print_secure"
+        elif target_id.startswith("capture:"):
+            profile_id = target_id.split(":", 1)[1].strip()
+            from db import get_capture_profile, add_capture_log
+            from capture.base_plugin import create_plugin_instance
+            import capture.plugins  # noqa: F401
+
+            profile = get_capture_profile(profile_id)
+            if not profile:
+                _fail("capture profile not found", code="target_not_found")
+                return
+            if not profile.get("is_active"):
+                _fail("capture profile is disabled", code="target_disabled")
+                return
+            if tenant and profile.get("tenant_id") != tenant.get("id"):
+                _fail("capture profile not accessible", code="target_forbidden")
+                return
+
+            plugin = create_plugin_instance(
+                profile.get("plugin_type", ""),
+                profile.get("config_json", "{}"),
+            )
+            if not plugin:
+                _fail(
+                    f"unknown capture plugin: {profile.get('plugin_type')}",
+                    code="plugin_unknown",
+                )
+                return
+
+            plugin_metadata = {
+                "_source":       "desktop-send",
+                "_user_name":    user.get("username", ""),
+                "_user_email":   owner_email,
+                "_device_name":  user.get("device_name", ""),
+                "_filename":     display_filename,
+                "title":         display_filename.rsplit(".", 1)[0]
+                                 if "." in display_filename else display_filename,
+            }
+
+            t_up = _t.monotonic()
+            try:
+                ok, msg = await plugin.ingest_bytes(data, display_filename, plugin_metadata)
+            except NotImplementedError as _ne:
+                _fail(
+                    f"Plugin '{profile.get('plugin_type')}' unterstützt keinen Direkt-Upload.",
+                    code="plugin_no_ingest",
+                )
+                return
+            except Exception as _pe:
+                logger.exception(
+                    "Desktop-Send [4/5] capture-plugin EXCEPTION — user='%s' "
+                    "plugin=%s err=%s",
+                    user.get("username"), profile.get("plugin_type"), _pe,
+                )
+                _fail(str(_pe)[:200], code="plugin_error")
+                return
+            dt_up = _t.monotonic() - t_up
+
+            try:
+                add_capture_log(
+                    profile["tenant_id"], profile_id, profile.get("name", ""),
+                    "DesktopSend", "ok" if ok else "error", msg or "",
+                    details=f"user={user.get('username')}, "
+                            f"file={display_filename}, size={len(data)}",
+                )
+            except Exception as _le:
+                logger.debug("capture-log write failed: %s", _le)
+
+            dt_total = _t.monotonic() - t_start
+            if ok:
+                try:
+                    update_cloudprint_job_status(
+                        internal_id, "forwarded",
+                        target_queue=f"capture:{profile.get('plugin_type', '')}",
+                    )
+                except Exception:
+                    pass
+                logger.info(
+                    "Desktop-Send COMPLETE (capture) — user='%s' target=%s "
+                    "profile='%s' plugin=%s file='%s' size=%d dt_plugin=%.2fs "
+                    "total_dt=%.2fs job_id=%s",
+                    user["username"], target_id, profile.get("name", ""),
+                    profile.get("plugin_type"), display_filename, len(data),
+                    dt_up, dt_total, internal_id,
+                )
+            else:
+                _fail(msg or "capture plugin returned failure", code="capture_failed")
+            return
+        elif target_id.startswith("print:delegate:"):
+            deleg_id = target_id.split(":", 2)[2]
+            try:
+                delegs = get_delegations_for_owner(user["user_id"])
+                delegate = next((d for d in delegs if str(d.get("id")) == str(deleg_id)), None)
+            except Exception as _e:
+                logger.warning(
+                    "Desktop-Send [2/5] delegate-lookup err — user='%s' "
+                    "deleg_id=%s: %s",
+                    user.get("username"), deleg_id, _e,
+                )
+                delegate = None
+            if not delegate or not delegate.get("delegate_email"):
+                _fail("delegate target not found", code="target_not_found")
+                return
+            submit_user_email = delegate["delegate_email"]
+            target_type = "print_delegate"
+        else:
+            _fail(f"unsupported target: {target_id}", code="target_unsupported")
+            return
+
+        logger.info(
+            "Desktop-Send [2/5] resolved — user='%s' target=%s type=%s "
+            "submit_to='%s' queue=%s job_id=%s",
+            user.get("username"), target_id, target_type,
+            submit_user_email, config["lpr_target_queue"], internal_id,
+        )
+
+        # === Stage 3-5: Printix Secure Print Submit ========================
+        try:
+            import re as _re
+            from printix_client import PrintixClient
+            client = PrintixClient(
+                tenant_id=tenant["printix_tenant_id"],
+                print_client_id=tenant.get("print_client_id", ""),
+                print_client_secret=tenant.get("print_client_secret", ""),
+                shared_client_id=tenant.get("shared_client_id", ""),
+                shared_client_secret=tenant.get("shared_client_secret", ""),
+                um_client_id=tenant.get("um_client_id", ""),
+                um_client_secret=tenant.get("um_client_secret", ""),
+            )
+            printers_data = client.list_printers(size=200)
+            raw_list = printers_data.get("printers", []) if isinstance(printers_data, dict) else []
+            if not raw_list and isinstance(printers_data, dict):
+                raw_list = (printers_data.get("_embedded") or {}).get("printers", [])
+            printer_id = ""
+            target_queue = config["lpr_target_queue"]
+            for p in raw_list:
+                href = (p.get("_links") or {}).get("self", {}).get("href", "")
+                m = _re.search(r"/printers/([^/]+)/queues/([^/?]+)", href)
+                if m and m.group(2) == target_queue:
+                    printer_id = m.group(1)
+                    break
+            if not printer_id:
+                logger.error(
+                    "Desktop-Send [3/5] printer-id-lookup FAIL — user='%s' "
+                    "queue=%s scanned_printers=%d",
+                    user.get("username"), target_queue, len(raw_list),
+                )
+                _fail("target queue not found in Printix", code="queue_missing")
+                return
+            logger.info(
+                "Desktop-Send [3/5] printer resolved — user='%s' printer_id=%s "
+                "queue=%s job_id=%s",
+                user.get("username"), printer_id, target_queue, internal_id,
+            )
+
+            # Jetzt (nachdem Tenant bekannt ist) den Tracking-Eintrag
+            # auf "forwarding" updaten bzw. anlegen. create_cloudprint_job
+            # ist idempotent genug: wir haben den Eintrag in desktop_send
+            # bereits angelegt und aktualisieren hier nur das Ziel.
+            try:
+                update_cloudprint_job_status(
+                    internal_id, "forwarding",
+                    target_queue=target_queue,
+                    detected_identity=submit_user_email,
+                    identity_source="desktop-send",
+                )
+            except Exception:
+                pass
+
+            result = client.submit_print_job(
+                printer_id=printer_id,
+                queue_id=target_queue,
+                title=display_filename,
+                user=submit_user_email,
+                pdl="PDF",
+                release_immediately=False,
+                color=bool(color),
+                duplex=("LONG_EDGE" if duplex else "NONE"),
+                copies=max(1, min(99, int(copies or 1))),
+            )
+            result_job = result.get("job", result) if isinstance(result, dict) else {}
+            px_job_id = result_job.get("id", "") if isinstance(result_job, dict) else ""
+            upload_url = ""
+            upload_headers = {}
+            if isinstance(result, dict):
+                upload_url = result.get("uploadUrl", "") or ""
+                links = result.get("uploadLinks") or []
+                if not upload_url and links and isinstance(links[0], dict):
+                    upload_url = links[0].get("url", "") or ""
+                    upload_headers = links[0].get("headers") or {}
+
+            if not px_job_id or not upload_url:
+                logger.error(
+                    "Desktop-Send [3/5] submit FAIL (no job-id/upload-url) — "
+                    "user='%s' result_keys=%s",
+                    user.get("username"),
+                    list(result.keys()) if isinstance(result, dict) else "?",
+                )
+                _fail("Printix accepted no job", code="printix_no_job")
+                return
+            logger.info(
+                "Desktop-Send [3/5] submit OK — user='%s' printix_job=%s job_id=%s",
+                user.get("username"), px_job_id, internal_id,
+            )
+
+            t_upload = _t.monotonic()
+            client.upload_file_to_url(upload_url, data, "application/pdf", upload_headers)
+            dt_upload = _t.monotonic() - t_upload
+            logger.info(
+                "Desktop-Send [4a/5] blob-upload OK — user='%s' size=%d dt=%.2fs",
+                user.get("username"), len(data), dt_upload,
+            )
+            client.complete_upload(px_job_id)
+            logger.info(
+                "Desktop-Send [4b/5] completeUpload OK — user='%s' printix_job=%s",
+                user.get("username"), px_job_id,
+            )
+
+            if "@" in submit_user_email:
+                try:
+                    client.change_job_owner(px_job_id, submit_user_email)
+                    logger.info(
+                        "Desktop-Send [5/5] changeOwner OK — user='%s' "
+                        "printix_job=%s owner='%s'",
+                        user.get("username"), px_job_id, submit_user_email,
+                    )
+                except Exception as _co:
+                    logger.warning(
+                        "Desktop-Send [5/5] changeOwner FAIL — user='%s' "
+                        "printix_job=%s owner='%s' err=%s",
+                        user.get("username"), px_job_id, submit_user_email, _co,
+                    )
+            else:
+                logger.warning(
+                    "Desktop-Send [5/5] changeOwner skip — submit_user_email "
+                    "hat kein @: '%s'", submit_user_email,
+                )
+
+            update_cloudprint_job_status(
+                internal_id, "forwarded",
+                printix_job_id=px_job_id, target_queue=target_queue,
+                detected_identity=submit_user_email,
+                identity_source="desktop-send",
+            )
+
+            dt_total = _t.monotonic() - t_start
+            logger.info(
+                "Desktop-Send COMPLETE — user='%s' target=%s type=%s file='%s' "
+                "size=%d printix_job=%s owner='%s' total_dt=%.2fs job_id=%s",
+                user["username"], target_id, target_type, display_filename,
+                len(data), px_job_id, submit_user_email, dt_total, internal_id,
+            )
+        except Exception as e:
+            logger.exception(
+                "Desktop-Send BG EXCEPTION — user='%s' target=%s file='%s' err=%s",
+                user.get("username"), target_id, filename, e,
+            )
+            _fail(str(e)[:300], code="send_failed")
+    except Exception as outer:
+        # Letzter Fallback — damit die Task nicht stumm stirbt.
+        logger.exception(
+            "Desktop-Send BG OUTER EXCEPTION — user='%s' job_id=%s err=%s",
+            user.get("username") if isinstance(user, dict) else "?",
+            internal_id, outer,
+        )
+
+
 def register_desktop_routes(app: FastAPI, get_app_version) -> None:
     """Registriert alle /desktop/*-Routen in der FastAPI-App.
 
@@ -378,449 +792,73 @@ def register_desktop_routes(app: FastAPI, get_app_version) -> None:
             bool(color), bool(duplex), ci["peer"],
         )
 
-        # === Stage 1: Format-Erkennung + Konvertierung =====================
-        t_convert_start = _t.monotonic()
+        # v6.7.43: Fire-and-forget — Cloudflare kappt jede HTTP-Verbindung
+        # nach 100 s (HTTP 524), aber unsere Pipeline (LibreOffice-Konvertierung
+        # + 5-Stage-Printix-Submit) braucht regelmäßig 90–180 s. Daher:
+        # jetzt nur noch validieren, Job-Tracking-Eintrag anlegen, 202 Accepted
+        # zurück und die eigentliche Verarbeitung in asyncio.create_task().
+        # Der Windows-Client sieht damit innerhalb weniger Sekunden "queued"
+        # und der Server arbeitet in Ruhe weiter. Fehler landen im
+        # cloudprint_jobs-Eintrag (Status=error) und sind in der Web-UI
+        # unter „Meine Druckjobs" einsehbar.
+        import asyncio
+        import uuid as _uuid
+        internal_id = _uuid.uuid4().hex[:10]
+
+        # Tracking-Eintrag früh anlegen, damit ein sofortiger Fehler in der
+        # Background-Task immer ein update_cloudprint_job_status() treffen
+        # kann. tenant_id ist hier noch leer — die BG-Task trägt später das
+        # echte Ziel (target_queue, identity) nach.
         try:
             import sys as _sys, os as _os
             src_dir = _os.path.dirname(_os.path.dirname(__file__))
             if src_dir not in _sys.path:
                 _sys.path.insert(0, src_dir)
-            from upload_converter import convert_to_pdf, ConversionError
-            try:
-                pdf_data, conv_label = convert_to_pdf(data, file.filename)
-                if pdf_data is not data:
-                    base = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
-                    display_filename = f"{base}.pdf"
-                    data = pdf_data
-                else:
-                    display_filename = file.filename
-                dt_conv = _t.monotonic() - t_convert_start
-                logger.info(
-                    "Desktop-Send [1/5] convert OK — user='%s' conv='%s' "
-                    "out_size=%d dt=%.2fs",
-                    user.get("username"), conv_label, len(data), dt_conv,
-                )
-            except ConversionError as ce:
-                logger.warning(
-                    "Desktop-Send [1/5] convert FAIL — user='%s' file='%s' err=%s",
-                    user.get("username"), file.filename, ce,
-                )
-                return _json_error(str(ce), code="convert_failed", status=400)
-        except Exception as e:
-            logger.error(
-                "Desktop-Send [1/5] convert EXCEPTION — user='%s' file='%s' err=%s",
-                user.get("username"), file.filename, e,
-            )
-            return _json_error(str(e)[:200], code="convert_error", status=500)
-
-        # Ziel auflösen
-        from db import get_tenant_full_by_user_id
-        from cloudprint.db_extensions import (
-            get_parent_user_id, get_cloudprint_config,
-            get_delegations_for_owner, create_cloudprint_job,
-            update_cloudprint_job_status,
-        )
-        from cloudprint.printix_cache_db import find_printix_user_by_identity
-
-        # === Stage 2: Tenant + Queue + Owner-Email =========================
-        parent_id = get_parent_user_id(user["user_id"])
-        tenant = get_tenant_full_by_user_id(parent_id)
-        config = get_cloudprint_config(user["user_id"])
-
-        # v6.7.35/36: Dreistufige Fallback-Kette für User ohne eigenen
-        # Tenant-Eintrag (z.B. role=user ohne Printix-Credentials oder
-        # leerer printix_tenant_id-Eintrag in seiner tenants-Zeile).
-        #   1) Single-Tenant-Setup  (schnell, nur wenn exakt 1 Tenant)
-        #   2) Admin-Tenant mit Queue (robust auch in Multi-Row-Setups)
-        if not tenant or not config or not config.get("lpr_target_queue"):
-            fallback_source = ""
-            try:
-                from cloudprint.db_extensions import (
-                    get_default_single_tenant, get_admin_tenant_with_queue,
-                )
-                fallback = get_default_single_tenant()
-                if fallback and fallback.get("lpr_target_queue"):
-                    fallback_source = "single-tenant"
-                else:
-                    fallback = get_admin_tenant_with_queue()
-                    if fallback:
-                        fallback_source = "admin-tenant"
-                if fallback and fallback.get("lpr_target_queue"):
-                    tenant = get_tenant_full_by_user_id(fallback["user_id"])
-                    config = fallback
-                    logger.info(
-                        "Desktop-Send [2/5] fallback-tenant (%s) — user='%s' "
-                        "→ tenant.user_id=%s queue=%s",
-                        fallback_source, user.get("username"),
-                        fallback.get("user_id"),
-                        fallback.get("lpr_target_queue"),
-                    )
-            except Exception as _fb:
-                logger.debug("Tenant-Fallback failed: %s", _fb)
-
-        if not tenant or not config or not config.get("lpr_target_queue"):
-            logger.warning(
-                "Desktop-Send [2/5] no queue — user='%s' parent_id=%s "
-                "tenant=%s queue=%s (auch Single-Tenant-Fallback leer)",
-                user.get("username"), parent_id, bool(tenant),
-                (config or {}).get("lpr_target_queue"),
-            )
-            return _json_error("no secure print queue configured",
-                               code="no_queue", status=400)
-
-        # Owner-Email ermitteln (für Default: den User selbst)
-        user_email = (user.get("email") or "").strip()
-        owner_email = user_email
-        try:
-            px_id = (user.get("printix_user_id") or "").strip()
-            if px_id:
-                from db import _conn as _dbconn
-                with _dbconn() as _c:
-                    row = _c.execute(
-                        "SELECT email FROM cached_printix_users "
-                        "WHERE printix_user_id=?", (px_id,),
-                    ).fetchone()
-                if row and row["email"]:
-                    owner_email = row["email"]
-            if not owner_email or "@" not in owner_email:
-                pxu = find_printix_user_by_identity(user_email)
-                if pxu and pxu.get("email"):
-                    owner_email = pxu["email"]
-        except Exception:
-            pass
-
-        # Target-Routing mit Log
-        target_id = (target_id or "").strip()
-        target_type = ""
-        if target_id == "print:self":
-            submit_user_email = owner_email
-            target_type = "print_secure"
-        elif target_id.startswith("capture:"):
-            # Capture-Profil-Dispatch: Bytes direkt ins Ziel-Plugin übergeben
-            # (ohne Azure-Blob-Umweg, da der Desktop-Client die Datei schon hat).
-            profile_id = target_id.split(":", 1)[1].strip()
-            from db import get_capture_profile, add_capture_log
-            from capture.base_plugin import create_plugin_instance
-            import capture.plugins  # noqa: F401 — registriert Plugins
-
-            profile = get_capture_profile(profile_id)
-            if not profile:
-                logger.warning(
-                    "Desktop-Send [2/5] capture-profile not found — user='%s' "
-                    "profile=%s", user.get("username"), profile_id,
-                )
-                return _json_error("capture profile not found",
-                                   code="target_not_found", status=400)
-            if not profile.get("is_active"):
-                logger.warning(
-                    "Desktop-Send [2/5] capture-profile disabled — user='%s' "
-                    "profile=%s name='%s'",
-                    user.get("username"), profile_id, profile.get("name", "-"),
-                )
-                return _json_error("capture profile is disabled",
-                                   code="target_disabled", status=400)
-            # Tenant-Zugehörigkeit prüfen: User darf nur Profile seines Tenants nutzen
-            if tenant and profile.get("tenant_id") != tenant.get("id"):
-                logger.warning(
-                    "Desktop-Send [2/5] capture-profile tenant mismatch — "
-                    "user='%s' user_tenant=%s profile_tenant=%s",
-                    user.get("username"), tenant.get("id"),
-                    profile.get("tenant_id"),
-                )
-                return _json_error("capture profile not accessible",
-                                   code="target_forbidden", status=403)
-
-            plugin = create_plugin_instance(
-                profile.get("plugin_type", ""),
-                profile.get("config_json", "{}"),
-            )
-            if not plugin:
-                logger.error(
-                    "Desktop-Send [3/5] capture-plugin unknown — user='%s' "
-                    "plugin=%s", user.get("username"), profile.get("plugin_type"),
-                )
-                return _json_error(
-                    f"unknown capture plugin: {profile.get('plugin_type')}",
-                    code="plugin_unknown", status=500,
-                )
-
-            # Metadaten für das Plugin: minimaler Kontext aus Desktop-Send.
-            # Plugins wie Paperless nutzen primär ihre eigenen Defaults
-            # (Tags/Correspondent/DocumentType) — wir geben zusätzlich
-            # Herkunfts-Infos mit, damit z.B. "title" aus dem Dateinamen
-            # fallbacken kann.
-            plugin_metadata = {
-                "_source":       "desktop-send",
-                "_user_name":    user.get("username", ""),
-                "_user_email":   owner_email,
-                "_device_name":  user.get("device_name", ""),
-                "_filename":     display_filename,
-                "title":         display_filename.rsplit(".", 1)[0]
-                                 if "." in display_filename else display_filename,
-            }
-
-            t_up = _t.monotonic()
-            try:
-                ok, msg = await plugin.ingest_bytes(data, display_filename, plugin_metadata)
-            except NotImplementedError as _ne:
-                logger.warning(
-                    "Desktop-Send [4/5] capture-plugin ohne ingest_bytes — "
-                    "user='%s' plugin=%s err=%s",
-                    user.get("username"), profile.get("plugin_type"), _ne,
-                )
-                return _json_error(
-                    f"Plugin '{profile.get('plugin_type')}' unterstützt noch "
-                    "keinen Direkt-Upload aus dem Desktop-Client.",
-                    code="plugin_no_ingest", status=501,
-                )
-            except Exception as _pe:
-                logger.exception(
-                    "Desktop-Send [4/5] capture-plugin EXCEPTION — user='%s' "
-                    "plugin=%s err=%s",
-                    user.get("username"), profile.get("plugin_type"), _pe,
-                )
-                return _json_error(str(_pe)[:200], code="plugin_error", status=500)
-            dt_up = _t.monotonic() - t_up
-
-            # Capture-Log-Eintrag analog zum Webhook-Flow, damit das Profil
-            # in der Web-UI seine Aktivität sieht.
-            try:
-                add_capture_log(
-                    profile["tenant_id"], profile_id, profile.get("name", ""),
-                    "DesktopSend", "ok" if ok else "error", msg or "",
-                    details=f"user={user.get('username')}, "
-                            f"file={display_filename}, size={len(data)}",
-                )
-            except Exception as _le:
-                logger.debug("capture-log write failed: %s", _le)
-
-            dt_total = _t.monotonic() - t_start
-            if ok:
-                logger.info(
-                    "Desktop-Send COMPLETE (capture) — user='%s' target=%s "
-                    "profile='%s' plugin=%s file='%s' size=%d dt_plugin=%.2fs "
-                    "total_dt=%.2fs",
-                    user["username"], target_id, profile.get("name", ""),
-                    profile.get("plugin_type"), display_filename, len(data),
-                    dt_up, dt_total,
-                )
-                return JSONResponse({
-                    "ok": True,
-                    "target": target_id,
-                    "filename": display_filename,
-                    "size": len(data),
-                    "plugin": profile.get("plugin_type"),
-                    "profile": profile.get("name", ""),
-                    "message": msg or "",
-                })
-            else:
-                logger.warning(
-                    "Desktop-Send FAIL (capture) — user='%s' target=%s "
-                    "profile='%s' msg=%s",
-                    user.get("username"), target_id, profile.get("name", ""), msg,
-                )
-                return _json_error(msg or "capture plugin returned failure",
-                                   code="capture_failed", status=502)
-        elif target_id.startswith("print:delegate:"):
-            deleg_id = target_id.split(":", 2)[2]
-            try:
-                delegs = get_delegations_for_owner(user["user_id"])
-                delegate = next((d for d in delegs if str(d.get("id")) == str(deleg_id)), None)
-            except Exception as _e:
-                logger.warning(
-                    "Desktop-Send [2/5] delegate-lookup err — user='%s' "
-                    "deleg_id=%s: %s",
-                    user.get("username"), deleg_id, _e,
-                )
-                delegate = None
-            if not delegate or not delegate.get("delegate_email"):
-                logger.warning(
-                    "Desktop-Send [2/5] delegate not found — user='%s' "
-                    "deleg_id=%s",
-                    user.get("username"), deleg_id,
-                )
-                return _json_error("delegate target not found",
-                                   code="target_not_found", status=400)
-            submit_user_email = delegate["delegate_email"]
-            target_type = "print_delegate"
-        else:
-            logger.warning(
-                "Desktop-Send [2/5] unsupported target — user='%s' target=%s",
-                user.get("username"), target_id,
-            )
-            return _json_error(f"unsupported target: {target_id}",
-                               code="target_unsupported", status=400)
-
-        logger.info(
-            "Desktop-Send [2/5] resolved — user='%s' target=%s type=%s "
-            "submit_to='%s' queue=%s",
-            user.get("username"), target_id, target_type,
-            submit_user_email, config["lpr_target_queue"],
-        )
-
-        # Printer-ID finden
-        try:
-            import re as _re
-            from printix_client import PrintixClient
-            client = PrintixClient(
-                tenant_id=tenant["printix_tenant_id"],
-                print_client_id=tenant.get("print_client_id", ""),
-                print_client_secret=tenant.get("print_client_secret", ""),
-                shared_client_id=tenant.get("shared_client_id", ""),
-                shared_client_secret=tenant.get("shared_client_secret", ""),
-                um_client_id=tenant.get("um_client_id", ""),
-                um_client_secret=tenant.get("um_client_secret", ""),
-            )
-            printers_data = client.list_printers(size=200)
-            raw_list = printers_data.get("printers", []) if isinstance(printers_data, dict) else []
-            if not raw_list and isinstance(printers_data, dict):
-                raw_list = (printers_data.get("_embedded") or {}).get("printers", [])
-            printer_id = ""
-            target_queue = config["lpr_target_queue"]
-            for p in raw_list:
-                href = (p.get("_links") or {}).get("self", {}).get("href", "")
-                m = _re.search(r"/printers/([^/]+)/queues/([^/?]+)", href)
-                if m and m.group(2) == target_queue:
-                    printer_id = m.group(1)
-                    break
-            if not printer_id:
-                logger.error(
-                    "Desktop-Send [3/5] printer-id-lookup FAIL — user='%s' "
-                    "queue=%s scanned_printers=%d",
-                    user.get("username"), target_queue, len(raw_list),
-                )
-                return _json_error("target queue not found in Printix",
-                                   code="queue_missing", status=500)
-            logger.info(
-                "Desktop-Send [3/5] printer resolved — user='%s' printer_id=%s "
-                "queue=%s",
-                user.get("username"), printer_id, target_queue,
-            )
-
-            # Tracking-Eintrag
-            import uuid as _uuid
-            internal_id = _uuid.uuid4().hex[:10]
+            from cloudprint.db_extensions import create_cloudprint_job
             create_cloudprint_job(
                 job_id=internal_id,
-                tenant_id=tenant.get("id", ""),
-                queue_name=tenant.get("printix_tenant_id", ""),
-                username=submit_user_email,
+                tenant_id="",
+                queue_name="",
+                username=(user.get("email") or user.get("username") or "")[:120],
                 hostname=f"desktop:{user.get('device_name', '')}"[:80],
-                job_name=display_filename,
+                job_name=file.filename,
                 data_size=len(data),
-                data_format="application/pdf",
-                detected_identity=submit_user_email,
+                data_format="application/octet-stream",
+                detected_identity=(user.get("email") or ""),
                 identity_source="desktop-send",
-                status="forwarding",
+                status="queued",
             )
+        except Exception as _cj:
+            # Wenn das Tracking-Insert fehlschlägt, trotzdem weiter —
+            # der eigentliche Druckflow ist wichtiger als die UI-Anzeige.
+            logger.debug("initial cloudprint_job insert failed: %s", _cj)
 
-            # Submit
-            result = client.submit_print_job(
-                printer_id=printer_id,
-                queue_id=target_queue,
-                title=display_filename,
-                user=submit_user_email,
-                pdl="PDF",
-                release_immediately=False,
-                color=bool(color),
-                duplex=("LONG_EDGE" if duplex else "NONE"),
-                copies=max(1, min(99, int(copies or 1))),
-            )
-            result_job = result.get("job", result) if isinstance(result, dict) else {}
-            px_job_id = result_job.get("id", "") if isinstance(result_job, dict) else ""
-            upload_url = ""
-            upload_headers = {}
-            if isinstance(result, dict):
-                upload_url = result.get("uploadUrl", "") or ""
-                links = result.get("uploadLinks") or []
-                if not upload_url and links and isinstance(links[0], dict):
-                    upload_url = links[0].get("url", "") or ""
-                    upload_headers = links[0].get("headers") or {}
+        asyncio.create_task(_process_desktop_send_bg(
+            user=user,
+            target_id=target_id,
+            data=data,
+            filename=file.filename,
+            copies=copies,
+            color=color,
+            duplex=duplex,
+            internal_id=internal_id,
+            t_start=t_start,
+        ))
 
-            if not px_job_id or not upload_url:
-                logger.error(
-                    "Desktop-Send [3/5] submit FAIL (no job-id/upload-url) — "
-                    "user='%s' result_keys=%s",
-                    user.get("username"),
-                    list(result.keys()) if isinstance(result, dict) else "?",
-                )
-                update_cloudprint_job_status(internal_id, "error",
-                    error_message="Printix API returned no job-id / upload-url")
-                return _json_error("Printix accepted no job",
-                                   code="printix_no_job", status=502)
-            logger.info(
-                "Desktop-Send [3/5] submit OK — user='%s' printix_job=%s",
-                user.get("username"), px_job_id,
-            )
-
-            # === Stage 4: Datei-Upload zu Azure Blob =======================
-            t_upload = _t.monotonic()
-            client.upload_file_to_url(upload_url, data, "application/pdf", upload_headers)
-            dt_upload = _t.monotonic() - t_upload
-            logger.info(
-                "Desktop-Send [4a/5] blob-upload OK — user='%s' size=%d "
-                "dt=%.2fs",
-                user.get("username"), len(data), dt_upload,
-            )
-            client.complete_upload(px_job_id)
-            logger.info(
-                "Desktop-Send [4b/5] completeUpload OK — user='%s' "
-                "printix_job=%s",
-                user.get("username"), px_job_id,
-            )
-
-            # === Stage 5: Owner-Wechsel ====================================
-            if "@" in submit_user_email:
-                try:
-                    client.change_job_owner(px_job_id, submit_user_email)
-                    logger.info(
-                        "Desktop-Send [5/5] changeOwner OK — user='%s' "
-                        "printix_job=%s owner='%s'",
-                        user.get("username"), px_job_id, submit_user_email,
-                    )
-                except Exception as _co:
-                    logger.warning(
-                        "Desktop-Send [5/5] changeOwner FAIL — user='%s' "
-                        "printix_job=%s owner='%s' err=%s",
-                        user.get("username"), px_job_id, submit_user_email, _co,
-                    )
-            else:
-                logger.warning(
-                    "Desktop-Send [5/5] changeOwner skip — submit_user_email "
-                    "hat kein @: '%s'", submit_user_email,
-                )
-
-            update_cloudprint_job_status(
-                internal_id, "forwarded",
-                printix_job_id=px_job_id, target_queue=target_queue,
-                detected_identity=submit_user_email,
-                identity_source="desktop-send",
-            )
-
-            dt_total = _t.monotonic() - t_start
-            logger.info(
-                "Desktop-Send COMPLETE — user='%s' target=%s type=%s file='%s' "
-                "size=%d printix_job=%s owner='%s' total_dt=%.2fs",
-                user["username"], target_id, target_type, display_filename,
-                len(data), px_job_id, submit_user_email, dt_total,
-            )
-            return JSONResponse({
-                "ok": True,
-                "job_id": internal_id,
-                "printix_job_id": px_job_id,
-                "target": target_id,
-                "filename": display_filename,
-                "size": len(data),
-                "owner_email": submit_user_email,
-            })
-
-        except Exception as e:
-            logger.exception(
-                "Desktop-Send EXCEPTION — user='%s' target=%s file='%s' err=%s",
-                user.get("username"), target_id,
-                file.filename if file else "-", e,
-            )
-            return _json_error(str(e)[:300], code="send_failed", status=500)
+        logger.info(
+            "Desktop-Send QUEUED — user='%s' target=%s job_id=%s size=%d "
+            "— 202 Accepted, Verarbeitung läuft asynchron",
+            user.get("username"), target_id, internal_id, len(data),
+        )
+        return JSONResponse({
+            "ok": True,
+            "status": "queued",
+            "job_id": internal_id,
+            "target": target_id,
+            "filename": file.filename,
+            "size": len(data),
+            "message": "Job angenommen — Verarbeitung läuft im Hintergrund.",
+        }, status_code=202)
 
     # ── Entra SSO via Device Code Flow (v6.7.32) ──────────────────────────
     # Der Desktop-Client startet den Flow, zeigt dem User einen Code und die
