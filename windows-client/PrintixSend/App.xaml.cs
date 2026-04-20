@@ -70,8 +70,9 @@ public partial class App : Application
             {
                 MessageBox.Show(
                     "Printix Send ist eingerichtet.\n\n" +
-                    "Rechtsklick auf eine Datei → „Senden an" → wähle dein Ziel (z. B. „Mein Secure Print" oder einen Delegate).\n\n" +
-                    "Die Ziele werden automatisch aus dem Server übernommen.",
+                    "Rechtsklick auf eine Datei \u2192 \u201eSenden an\u201c \u2192 waehle dein Ziel " +
+                    "(z. B. \u201eMein Secure Print\u201c oder einen Delegate).\n\n" +
+                    "Die Ziele werden automatisch aus dem Server uebernommen.",
                     "Printix Send", MessageBoxButton.OK, MessageBoxImage.Information);
                 Config.SendToHintShown = true;
             }
