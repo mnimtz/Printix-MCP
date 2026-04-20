@@ -28,14 +28,17 @@ public class ApiClient : IDisposable
         _baseUrl = baseUrl.TrimEnd('/');
         _token = token;
         _log = log;
-        // Standard-Timeout kurz halten, damit die UI nicht minutenlang
-        // hängt. Der Upload (SendFileAsync) setzt einen eigenen längeren
-        // CancellationToken, der den HttpClient-Default überschreibt.
+        // v6.7.50: HttpClient.Timeout greift pro Request UND überschreibt jeden
+        // CancellationToken — früher hatten wir 30s hier und einen 10-Min-CTS
+        // im Upload, aber der CTS war wirkungslos und Uploads brachen nach 30s
+        // mit TaskCanceledException ab (LibreOffice-Coldstart auf dem Server
+        // dauert 60-120s). Jetzt global 15 Minuten, per-Request-Grenzen via
+        // übergebenem CancellationToken.
         _http = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = TimeSpan.FromMinutes(15)
         };
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("PrintixSend-Windows/6.7.49");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("PrintixSend-Windows/6.7.50");
         if (!string.IsNullOrEmpty(_token))
             _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
     }
