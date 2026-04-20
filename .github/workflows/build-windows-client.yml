@@ -41,6 +41,11 @@ jobs:
       - name: Restore
         run: dotnet restore PrintixSend.sln
 
+      - name: Generate app.ico
+        # Ordentliches Blau-"P"-Icon für Exe + Shortcuts — ersetzt das
+        # Standard-WPF-MSI-Icon. Läuft nur auf Windows (System.Drawing).
+        run: pwsh -File .\scripts\make-icon.ps1
+
       - name: Publish WPF (${{ matrix.rid }})
         # KEIN -p:Platform hier: Platform=x64 würde bin/x64/Release/... erzeugen,
         # aber die wxs erwartet bin/Release/... (Platform steckt schon im RID).

@@ -12,12 +12,14 @@ namespace PrintixSend.Views;
 public partial class SendWindow : Window
 {
     private readonly string[] _files;
+    private readonly string? _preselectTargetId;
     private List<Target> _targets = new();
 
-    public SendWindow(string[] files)
+    public SendWindow(string[] files, string? preselectTargetId = null)
     {
         InitializeComponent();
         _files = files;
+        _preselectTargetId = preselectTargetId;
         foreach (var f in _files)
         {
             var fi = new FileInfo(f);
@@ -51,17 +53,27 @@ public partial class SendWindow : Window
             LstTargets.ItemsSource = _targets;
             App.Log.Info("SendWindow — ItemsSource gesetzt");
 
-            // Default vorselektieren — bevorzugt zuletzt verwendet
+            // Vorauswahl: 1) aus --target=<id>, 2) zuletzt verwendet, 3) Server-Default, 4) erstes
             Target? pick = null;
-            if (!string.IsNullOrEmpty(App.Config.DefaultTargetId))
+            if (!string.IsNullOrEmpty(_preselectTargetId))
+                pick = _targets.FirstOrDefault(t => t.Id == _preselectTargetId);
+            if (pick == null && !string.IsNullOrEmpty(App.Config.DefaultTargetId))
                 pick = _targets.FirstOrDefault(t => t.Id == App.Config.DefaultTargetId);
             pick ??= _targets.FirstOrDefault(t => t.IsDefault);
             pick ??= _targets.FirstOrDefault();
             if (pick != null) LstTargets.SelectedItem = pick;
-            App.Log.Info($"SendWindow — Default vorselektiert: {pick?.Label ?? "<none>"}");
+            App.Log.Info($"SendWindow — Default vorselektiert: {pick?.Label ?? "<none>"}"
+                + (string.IsNullOrEmpty(_preselectTargetId) ? "" : $" (aus --target={_preselectTargetId})"));
 
             SetBusy(_targets.Count == 0 ? "Keine Ziele verfügbar." : $"{_targets.Count} Ziel(e) geladen.", false);
             App.Log.Info("SendWindow.InitializeAsync — fertig");
+
+            // Wenn Ziel explizit per --target gewählt wurde UND gefunden → sofort senden
+            if (!string.IsNullOrEmpty(_preselectTargetId) && pick != null)
+            {
+                App.Log.Info("SendWindow — Auto-Send (Ziel kam aus 'Senden an')");
+                OnSend(this, new RoutedEventArgs());
+            }
         }
         catch (Exception ex)
         {
@@ -149,6 +161,8 @@ public partial class SendWindow : Window
         }
         catch { /* ignore */ }
         App.Tokens.Clear();
+        try { new SendToSync(App.Log).ClearAll(); }
+        catch (Exception ex) { App.Log.Warn($"SendToSync.ClearAll fehlgeschlagen: {ex.Message}"); }
         Close();
     }
 

@@ -7,12 +7,14 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <!-- <ApplicationIcon>Resources\app.ico</ApplicationIcon> -->
+    <!-- Icon wird bei CI-Build via scripts\make-icon.ps1 erzeugt.
+         Lokale Builds ohne Icon laufen trotzdem durch (Condition greift). -->
+    <ApplicationIcon Condition="Exists('Resources\app.ico')">Resources\app.ico</ApplicationIcon>
     <AssemblyName>PrintixSend</AssemblyName>
     <RootNamespace>PrintixSend</RootNamespace>
-    <Version>6.7.43</Version>
-    <FileVersion>6.7.43.0</FileVersion>
-    <AssemblyVersion>6.7.43.0</AssemblyVersion>
+    <Version>6.7.44</Version>
+    <FileVersion>6.7.44.0</FileVersion>
+    <AssemblyVersion>6.7.44.0</AssemblyVersion>
     <Company>Printix MCP Project</Company>
     <Product>Printix Send</Product>
     <Copyright>© 2026 Printix MCP</Copyright>
@@ -29,9 +31,9 @@
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <!-- <None Update="Resources\app.ico">
+    <None Update="Resources\app.ico" Condition="Exists('Resources\app.ico')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None> -->
+    </None>
   </ItemGroup>
 
   <ItemGroup>

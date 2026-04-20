@@ -44,6 +44,12 @@ public class ConfigService
         set { _data.DefaultTargetId = value ?? ""; Save(); }
     }
 
+    public bool SendToHintShown
+    {
+        get => _data.SendToHintShown;
+        set { _data.SendToHintShown = value; Save(); }
+    }
+
     private ConfigData Load()
     {
         try
@@ -73,5 +79,6 @@ public class ConfigService
         public string? ServerUrl { get; set; }
         public string? DeviceName { get; set; }
         public string? DefaultTargetId { get; set; }
+        public bool SendToHintShown { get; set; }
     }
 }

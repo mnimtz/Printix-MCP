@@ -46,26 +46,19 @@
       <Directory Id="AppShortcutFolder" Name="Printix Send" />
     </StandardDirectory>
 
-    <!-- Haupt-Feature -->
+    <!-- Haupt-Feature — statischen SendTo-Shortcut bewusst NICHT mehr
+         mitgeben: die App synchronisiert nach dem Login automatisch
+         ein .lnk je Ziel ("Mein Secure Print", "Delegate: Max", …).
+         Ein statischer Eintrag würde dazwischenstehen und verwirren. -->
     <Feature Id="MainFeature" Title="Printix Send" Level="1">
       <ComponentGroupRef Id="AppFiles" />
-      <ComponentRef Id="SendToShortcut" />
       <ComponentRef Id="StartMenuShortcut" />
       <ComponentRef Id="RegistryEntries" />
     </Feature>
 
-    <!-- SendTo-Shortcut (per-user) -->
-    <Component Id="SendToShortcut" Directory="SendToFolder" Guid="*">
-      <RegistryValue Root="HKCU"
-                     Key="Software\PrintixSend\Installed"
-                     Name="SendTo"
-                     Type="string" Value="1" KeyPath="yes" />
-      <Shortcut Id="SendToShortcutItem"
-                Name="Printix Send"
-                Target="[INSTALLFOLDER]PrintixSend.exe"
-                WorkingDirectory="INSTALLFOLDER"
-                Description="Dateien über Printix Send an Drucker oder Capture-Ziel senden" />
-    </Component>
+    <!-- Icon in Start-Menu, "Programme und Features", Shortcuts -->
+    <Icon Id="AppIcon.exe" SourceFile="$(var.AppPublishDir)\PrintixSend.exe" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.exe" />
 
     <!-- Start-Menü -->
     <Component Id="StartMenuShortcut" Directory="AppShortcutFolder" Guid="*">
@@ -77,6 +70,8 @@
                 Name="Printix Send"
                 Target="[INSTALLFOLDER]PrintixSend.exe"
                 WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon.exe"
+                IconIndex="0"
                 Description="Printix Send — Drucken und Capture mit einem Klick" />
       <RemoveFolder Id="RemoveAppShortcutFolder" Directory="AppShortcutFolder" On="uninstall" />
     </Component>
