@@ -20,6 +20,8 @@ defaults:
 jobs:
   build:
     runs-on: macos-14   # Apple Silicon runner — baut Universal-Binary für arm64+x86_64
+    permissions:
+      contents: write   # für softprops/action-gh-release
     env:
       DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
 
@@ -91,26 +93,8 @@ jobs:
           path: macos-client/dist/PrintixSend.app
           if-no-files-found: error
 
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/macos-client-v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download DMG
-        uses: actions/download-artifact@v4
-        with:
-          pattern: PrintixSend-macOS-*
-          path: release-assets
-          merge-multiple: true
-
-      - name: List assets
-        run: ls -la release-assets/
-
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/macos-client-v')
         uses: softprops/action-gh-release@v2
         with:
           name: Printix Send macOS ${{ github.ref_name }}
@@ -131,6 +115,6 @@ jobs:
             - macOS 13 Ventura oder neuer
             - Apple Silicon **oder** Intel (Universal-Binary)
           files: |
-            release-assets/PrintixSend-*.dmg
+            macos-client/dist/PrintixSend-*.dmg
           draft: false
           prerelease: false
