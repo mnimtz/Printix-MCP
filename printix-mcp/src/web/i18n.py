@@ -14403,7 +14403,7 @@ for lang, extra in LOCALIZED_DASH_CARDS_TRANSLATIONS.items():
 
 BUILDER_BRAND_TRANSLATIONS: dict[str, dict[str, str]] = {
     "de": {
-        "brand_console_name": "Printix Management Console",
+        "brand_console_name": "Management Console",
         "login_microsoft": "Mit Microsoft anmelden",
         "login_or": "oder",
         "admin_overview_sub": "Printix Management Console — Uebersicht und Verwaltung.",
@@ -14457,7 +14457,7 @@ BUILDER_BRAND_TRANSLATIONS: dict[str, dict[str, str]] = {
         "fleet_builder_install_secret_note": "Hinweis: Das Client Secret wird beim Erstellen der Go-Registration-App nur einmal angezeigt und kann spaeter nicht erneut abgerufen werden.",
     },
     "en": {
-        "brand_console_name": "Printix Management Console",
+        "brand_console_name": "Management Console",
         "login_microsoft": "Sign in with Microsoft",
         "login_or": "or",
         "admin_overview_sub": "Printix Management Console — overview and administration.",
@@ -14511,7 +14511,7 @@ BUILDER_BRAND_TRANSLATIONS: dict[str, dict[str, str]] = {
         "fleet_builder_install_secret_note": "Note: the client secret is shown only once when the Go registration app is created and cannot be retrieved later.",
     },
     "fr": {
-        "brand_console_name": "Printix Management Console",
+        "brand_console_name": "Management Console",
         "login_microsoft": "Se connecter avec Microsoft",
         "login_or": "ou",
         "admin_overview_sub": "Printix Management Console — vue d'ensemble et administration.",
@@ -14537,7 +14537,7 @@ BUILDER_BRAND_TRANSLATIONS: dict[str, dict[str, str]] = {
         "fleet_builder_field_tenant_url_help": "URL de votre Printix Home, par exemple https://acme.printix.net.",
     },
     "it": {
-        "brand_console_name": "Printix Management Console",
+        "brand_console_name": "Management Console",
         "login_microsoft": "Accedi con Microsoft",
         "login_or": "oppure",
         "admin_overview_sub": "Printix Management Console — panoramica e amministrazione.",
@@ -14563,7 +14563,7 @@ BUILDER_BRAND_TRANSLATIONS: dict[str, dict[str, str]] = {
         "fleet_builder_field_tenant_url_help": "URL del tuo Printix Home, ad esempio https://acme.printix.net.",
     },
     "es": {
-        "brand_console_name": "Printix Management Console",
+        "brand_console_name": "Management Console",
         "login_microsoft": "Iniciar sesion con Microsoft",
         "login_or": "o",
         "admin_overview_sub": "Printix Management Console — resumen y administracion.",
@@ -14592,7 +14592,7 @@ BUILDER_BRAND_TRANSLATIONS: dict[str, dict[str, str]] = {
         "fleet_builder_field_tenant_url_help": "URL de tu Printix Home, por ejemplo https://acme.printix.net.",
     },
     "nl": {
-        "brand_console_name": "Printix Management Console",
+        "brand_console_name": "Management Console",
         "login_microsoft": "Aanmelden met Microsoft",
         "login_or": "of",
         "admin_overview_sub": "Printix Management Console — overzicht en beheer.",
@@ -14618,7 +14618,7 @@ BUILDER_BRAND_TRANSLATIONS: dict[str, dict[str, str]] = {
         "fleet_builder_field_tenant_url_help": "URL van je Printix Home, bijvoorbeeld https://acme.printix.net.",
     },
     "no": {
-        "brand_console_name": "Printix Management Console",
+        "brand_console_name": "Management Console",
         "login_microsoft": "Logg inn med Microsoft",
         "login_or": "eller",
         "admin_overview_sub": "Printix Management Console — oversikt og administrasjon.",
@@ -14634,7 +14634,7 @@ BUILDER_BRAND_TRANSLATIONS: dict[str, dict[str, str]] = {
         "fleet_builder_js_package_version": "Pakkeversjon",
     },
     "sv": {
-        "brand_console_name": "Printix Management Console",
+        "brand_console_name": "Management Console",
         "login_microsoft": "Logga in med Microsoft",
         "login_or": "eller",
         "admin_overview_sub": "Printix Management Console — oversikt och administration.",
