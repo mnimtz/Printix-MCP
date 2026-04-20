@@ -40,7 +40,7 @@ logger = logging.getLogger("printix.employee")
 
 # Empfohlene Printix-Send-Client-Version für den Download-Tab.
 # Bei einem neuen Client-Release hier bumpen (oder künftig als Setting pflegen).
-RECOMMENDED_CLIENT_VERSION = "6.7.48"
+RECOMMENDED_CLIENT_VERSION = "6.7.49"
 
 # i18n-Keys beim Import patchen
 try:
