@@ -6,7 +6,14 @@
     <!-- Platform wird von außen gesetzt: x64 oder arm64 -->
     <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
     <!-- ProductVersion muss < 256.x.x.x bleiben für MSI-Spezifikation. -->
-    <ProductVersion>6.7.40</ProductVersion>
+    <ProductVersion>6.7.41</ProductVersion>
+
+    <!-- ICE-Validator-Meldungen, die nur für per-machine-MSIs Sinn ergeben:
+           ICE38 — File-KeyPath im User-Profil
+           ICE64 — User-Profile-Verzeichnis ohne RemoveFile
+           ICE91 — "File landet in per-user-Dir"
+         Wir wollen genau per-user → diese ICEs sind hier falsch positiv. -->
+    <SuppressIces>ICE38;ICE64;ICE91</SuppressIces>
     <!-- Publish-Ordner des WPF-Projekts je Plattform -->
     <PublishRid Condition=" '$(Platform)' == 'x64'   ">win-x64</PublishRid>
     <PublishRid Condition=" '$(Platform)' == 'ARM64' ">win-arm64</PublishRid>
