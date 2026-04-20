@@ -35,7 +35,7 @@ public class ApiClient : IDisposable
         {
             Timeout = TimeSpan.FromSeconds(30)
         };
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("PrintixSend-Windows/6.7.46");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("PrintixSend-Windows/6.7.47");
         if (!string.IsNullOrEmpty(_token))
             _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
     }

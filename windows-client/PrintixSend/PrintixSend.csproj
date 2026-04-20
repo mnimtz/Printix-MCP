@@ -12,9 +12,9 @@
     <ApplicationIcon Condition="Exists('Resources\app.ico')">Resources\app.ico</ApplicationIcon>
     <AssemblyName>PrintixSend</AssemblyName>
     <RootNamespace>PrintixSend</RootNamespace>
-    <Version>6.7.46</Version>
-    <FileVersion>6.7.46.0</FileVersion>
-    <AssemblyVersion>6.7.46.0</AssemblyVersion>
+    <Version>6.7.47</Version>
+    <FileVersion>6.7.47.0</FileVersion>
+    <AssemblyVersion>6.7.47.0</AssemblyVersion>
     <Company>Printix MCP Project</Company>
     <Product>Printix Send</Product>
     <Copyright>© 2026 Printix MCP</Copyright>

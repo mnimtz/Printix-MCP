@@ -80,11 +80,31 @@ public partial class App : Application
             return;
         }
 
-        // 3b. Dateien + evtl. preselect-Target → Send-Fenster öffnen
-        Log.Info($"{files.Length} Datei(en) übergeben, preselectTarget={preselectTarget ?? "<keins>"}");
-        // Send-To-Sync im Hintergrund anstoßen, blockiert den Send nicht
+        // Send-To-Sync im Hintergrund anstoßen, blockiert den Upload nicht
         _ = SyncSendToMenuAsync();
 
+        // 3b. "Senden an"-Pfad: --target=<id> ist gesetzt → komplett headless senden.
+        //     Keine SendWindow, kein "Lade Ziele …", keine weiteren Klicks.
+        //     Erfolg ist stumm, Fehler zeigt eine MessageBox.
+        if (!string.IsNullOrEmpty(preselectTarget))
+        {
+            Log.Info($"{files.Length} Datei(en) → silent send an target={preselectTarget}");
+            try
+            {
+                await SilentSender.RunAsync(files, preselectTarget);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("SilentSender unerwarteter Fehler", ex);
+                MessageBox.Show($"Senden fehlgeschlagen.\n\n{ex.Message}",
+                    "Printix Send", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            Shutdown();
+            return;
+        }
+
+        // 3c. Dateien OHNE --target (z.B. manuell per Drag&Drop auf exe) → normales Fenster
+        Log.Info($"{files.Length} Datei(en) übergeben (ohne Target) → SendWindow");
         var send = new SendWindow(files, preselectTarget);
         send.Show();
     }
