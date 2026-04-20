@@ -5,6 +5,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <!-- <ApplicationIcon>Resources\app.ico</ApplicationIcon> -->
     <AssemblyName>PrintixSend</AssemblyName>
