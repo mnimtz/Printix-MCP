@@ -6,7 +6,7 @@
     <!-- Platform wird von außen gesetzt: x64 oder arm64 -->
     <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
     <!-- ProductVersion muss < 256.x.x.x bleiben für MSI-Spezifikation. -->
-    <ProductVersion>6.7.38</ProductVersion>
+    <ProductVersion>6.7.39</ProductVersion>
     <!-- Publish-Ordner des WPF-Projekts je Plattform -->
     <PublishRid Condition=" '$(Platform)' == 'x64'   ">win-x64</PublishRid>
     <PublishRid Condition=" '$(Platform)' == 'ARM64' ">win-arm64</PublishRid>
@@ -24,8 +24,8 @@
     <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Include="Product.wxs" />
-  </ItemGroup>
+  <!-- Product.wxs wird vom WiX-SDK automatisch erfasst — KEIN explizites
+       <Compile Include="Product.wxs" />, sonst wird die Datei doppelt
+       kompiliert und es gibt "Multiple entry sections". -->
 
 </Project>
