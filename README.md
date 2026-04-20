@@ -6,16 +6,6 @@ A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others)
 
 ---
 
-## 🚀 Selbst ausprobieren
-
-Neugierig geworden? Alles was hier beschrieben ist, kannst du direkt selbst testen — ganz ohne eigene Infrastruktur.
-
-👉 **Registriere dich kostenlos unter [https://printix.cloud](https://printix.cloud)** und leg direkt los: AI-Assistenten verbinden, Cloud-Print-Gateway nutzen, Mitarbeiter einladen, Reports generieren.
-
-Wir freuen uns über jedes Feedback — viel Spaß beim Entdecken! ✨
-
----
-
 ## Features
 
 ### AI Integration
