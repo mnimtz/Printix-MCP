@@ -290,8 +290,37 @@ def register_desktop_routes(app: FastAPI, get_app_version) -> None:
                 user.get("username"), _e,
             )
 
-        # 3) Capture-Profile (Phase 4 — Stub für Forward-Kompatibilität)
-        # Aktuell leer, damit Client den Block schon anzeigt. Schema-ready.
+        # 3) Capture-Profile — alle aktiven Profile des Tenants als Send-To-Ziel.
+        #    Client zeigt sie automatisch als eigenen "Senden an"-Eintrag
+        #    (Send2Printix — Capture: <Name>).
+        #
+        #    Routing in /desktop/send ist noch Stub (liefert einen klaren
+        #    Hinweis) — das eigentliche Capture-Dispatching folgt in einer
+        #    späteren Version. Die Einträge erscheinen aber bereits im
+        #    Explorer-"Senden an"-Menü.
+        try:
+            if tenant and tenant.get("id"):
+                from db import get_capture_profiles_by_tenant
+                profiles = get_capture_profiles_by_tenant(tenant["id"])
+                for p in profiles:
+                    if not p.get("is_active"):
+                        continue
+                    name = (p.get("name") or "").strip() or "Capture"
+                    plugin_type = (p.get("plugin_type") or "").strip()
+                    targets.append({
+                        "id": f"capture:{p['id']}",
+                        "type": "capture_profile",
+                        "label": f"Capture: {name}",
+                        "description": plugin_type or "Capture-Ziel",
+                        "icon": "archive",
+                        "is_default": False,
+                    })
+                    breakdown["capture"] += 1
+        except Exception as _e:
+            logger.warning(
+                "Desktop-Targets: Capture-Lookup failed — user='%s' err=%s",
+                user.get("username"), _e,
+            )
 
         logger.info(
             "Desktop-Targets OK — user='%s' targets=%d (self=%d delegates=%d "
@@ -466,6 +495,21 @@ def register_desktop_routes(app: FastAPI, get_app_version) -> None:
         if target_id == "print:self":
             submit_user_email = owner_email
             target_type = "print_secure"
+        elif target_id.startswith("capture:"):
+            # Stub — Targets erscheinen bereits im Senden-an-Menü, aber der
+            # eigentliche Capture-Upload ist noch nicht implementiert.
+            # Rückgabe ist bewusst sauber, damit der Client eine verständliche
+            # Meldung zeigt statt HTTP 500.
+            logger.info(
+                "Desktop-Send capture stub — user='%s' target=%s "
+                "(capture-dispatch noch nicht aktiv)",
+                user.get("username"), target_id,
+            )
+            return _json_error(
+                "Capture-Ziel ist vorbereitet, aber der Upload-Pfad folgt in "
+                "einer späteren Version.",
+                code="capture_not_implemented", status=501,
+            )
         elif target_id.startswith("print:delegate:"):
             deleg_id = target_id.split(":", 2)[2]
             try:
