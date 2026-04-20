@@ -10,9 +10,9 @@
     <!-- <ApplicationIcon>Resources\app.ico</ApplicationIcon> -->
     <AssemblyName>PrintixSend</AssemblyName>
     <RootNamespace>PrintixSend</RootNamespace>
-    <Version>6.7.37</Version>
-    <FileVersion>6.7.37.0</FileVersion>
-    <AssemblyVersion>6.7.37.0</AssemblyVersion>
+    <Version>6.7.38</Version>
+    <FileVersion>6.7.38.0</FileVersion>
+    <AssemblyVersion>6.7.38.0</AssemblyVersion>
     <Company>Printix MCP Project</Company>
     <Product>Printix Send</Product>
     <Copyright>© 2026 Printix MCP</Copyright>

@@ -101,8 +101,9 @@
     <ui:WixUI Id="WixUI_Minimal" />
     <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
 
-    <!-- Keine Elevation — Per-User Install -->
-    <Property Id="ALLUSERS" Value="" />
+    <!-- Keine Elevation — Per-User Install.
+         ALLUSERS wird bewusst NICHT gesetzt (= leer/NULL), das ist WiX-5-konform
+         per fehlender Property. MSIINSTALLPERUSER=1 erzwingt per-user. -->
     <Property Id="MSIINSTALLPERUSER" Value="1" />
 
   </Package>
