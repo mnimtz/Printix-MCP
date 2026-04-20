@@ -6,7 +6,7 @@
     <!-- Platform wird von außen gesetzt: x64 oder arm64 -->
     <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
     <!-- ProductVersion muss < 256.x.x.x bleiben für MSI-Spezifikation. -->
-    <ProductVersion>6.7.39</ProductVersion>
+    <ProductVersion>6.7.40</ProductVersion>
     <!-- Publish-Ordner des WPF-Projekts je Plattform -->
     <PublishRid Condition=" '$(Platform)' == 'x64'   ">win-x64</PublishRid>
     <PublishRid Condition=" '$(Platform)' == 'ARM64' ">win-arm64</PublishRid>

@@ -42,11 +42,12 @@ jobs:
         run: dotnet restore PrintixSend.sln
 
       - name: Publish WPF (${{ matrix.rid }})
+        # KEIN -p:Platform hier: Platform=x64 würde bin/x64/Release/... erzeugen,
+        # aber die wxs erwartet bin/Release/... (Platform steckt schon im RID).
         run: |
           dotnet publish .\PrintixSend\PrintixSend.csproj `
             -c Release `
             -r ${{ matrix.rid }} `
-            -p:Platform=${{ matrix.platform }} `
             --self-contained true
 
       - name: Build MSI (${{ matrix.platform }})
