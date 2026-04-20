@@ -210,4 +210,25 @@ The web UI at `http://<HA-IP>:8080` groups features into four functional areas. 
 
 ## License
 
-MIT — 2026 [Marcus Nimtz](https://github.com/mnimtz) / Tungsten Automation
+MIT — 2026 [Marcus Nimtz](https://github.com/mnimtz)
+
+---
+
+## ⚠️ Disclaimer · Rechtlicher Hinweis
+
+**DE:** Dies ist ein **privates Entwicklungsprojekt** und steht in **keinerlei
+offizieller Verbindung** zu Printix oder Tungsten Automation. Es handelt sich
+ausschließlich um eine **Beispielimplementierung**, die zeigt, was mit der
+öffentlichen Printix-API umgesetzt werden kann. „Printix" und zugehörige Logos
+sind Marken ihrer jeweiligen Inhaber und werden hier lediglich beschreibend
+verwendet. Die Nutzung dieses Projekts erfolgt **auf eigene Gefahr** — es gibt
+**keine Gewährleistung, keinen Support und keine Haftung** für Datenverluste,
+Ausfälle oder Schäden jeglicher Art, die aus der Verwendung entstehen.
+
+**EN:** This is a **private development project** with **no official affiliation**
+to Printix or Tungsten Automation. It is provided solely as an **example
+implementation** demonstrating what can be built with the public Printix API.
+"Printix" and related logos are trademarks of their respective owners and are
+used here for descriptive purposes only. Use of this project is **at your own
+risk** — **no warranty, no support, and no liability** is provided for data
+loss, outages, or damages of any kind arising from its use.
