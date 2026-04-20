@@ -68,6 +68,29 @@ class CapturePlugin(ABC):
         """
         ...
 
+    async def ingest_bytes(
+        self,
+        data: bytes,
+        filename: str,
+        metadata: dict[str, Any],
+    ) -> tuple[bool, str]:
+        """
+        Dokument als Bytes direkt an das Ziel-System weiterleiten
+        (z.B. aus Desktop-Send/Web-Upload — ohne Azure Blob SAS URL).
+
+        Default: wirft NotImplementedError. Plugins, die diesen Pfad
+        unterstützen sollen, überschreiben die Methode und laden die
+        Bytes direkt ins Ziel hoch. Für Webhook-basierte Flows wird
+        weiterhin `process_document(document_url, …)` benutzt.
+
+        Returns:
+            (success: bool, message: str)
+        """
+        raise NotImplementedError(
+            f"Plugin '{self.plugin_id}' unterstützt kein direktes Ingest von "
+            "Bytes (nur Webhook-basiertes process_document)."
+        )
+
     @abstractmethod
     async def test_connection(self) -> tuple[bool, str]:
         """

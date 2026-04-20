@@ -496,20 +496,131 @@ def register_desktop_routes(app: FastAPI, get_app_version) -> None:
             submit_user_email = owner_email
             target_type = "print_secure"
         elif target_id.startswith("capture:"):
-            # Stub — Targets erscheinen bereits im Senden-an-Menü, aber der
-            # eigentliche Capture-Upload ist noch nicht implementiert.
-            # Rückgabe ist bewusst sauber, damit der Client eine verständliche
-            # Meldung zeigt statt HTTP 500.
-            logger.info(
-                "Desktop-Send capture stub — user='%s' target=%s "
-                "(capture-dispatch noch nicht aktiv)",
-                user.get("username"), target_id,
+            # Capture-Profil-Dispatch: Bytes direkt ins Ziel-Plugin übergeben
+            # (ohne Azure-Blob-Umweg, da der Desktop-Client die Datei schon hat).
+            profile_id = target_id.split(":", 1)[1].strip()
+            from db import get_capture_profile, add_capture_log
+            from capture.base_plugin import create_plugin_instance
+            import capture.plugins  # noqa: F401 — registriert Plugins
+
+            profile = get_capture_profile(profile_id)
+            if not profile:
+                logger.warning(
+                    "Desktop-Send [2/5] capture-profile not found — user='%s' "
+                    "profile=%s", user.get("username"), profile_id,
+                )
+                return _json_error("capture profile not found",
+                                   code="target_not_found", status=400)
+            if not profile.get("is_active"):
+                logger.warning(
+                    "Desktop-Send [2/5] capture-profile disabled — user='%s' "
+                    "profile=%s name='%s'",
+                    user.get("username"), profile_id, profile.get("name", "-"),
+                )
+                return _json_error("capture profile is disabled",
+                                   code="target_disabled", status=400)
+            # Tenant-Zugehörigkeit prüfen: User darf nur Profile seines Tenants nutzen
+            if tenant and profile.get("tenant_id") != tenant.get("id"):
+                logger.warning(
+                    "Desktop-Send [2/5] capture-profile tenant mismatch — "
+                    "user='%s' user_tenant=%s profile_tenant=%s",
+                    user.get("username"), tenant.get("id"),
+                    profile.get("tenant_id"),
+                )
+                return _json_error("capture profile not accessible",
+                                   code="target_forbidden", status=403)
+
+            plugin = create_plugin_instance(
+                profile.get("plugin_type", ""),
+                profile.get("config_json", "{}"),
             )
-            return _json_error(
-                "Capture-Ziel ist vorbereitet, aber der Upload-Pfad folgt in "
-                "einer späteren Version.",
-                code="capture_not_implemented", status=501,
-            )
+            if not plugin:
+                logger.error(
+                    "Desktop-Send [3/5] capture-plugin unknown — user='%s' "
+                    "plugin=%s", user.get("username"), profile.get("plugin_type"),
+                )
+                return _json_error(
+                    f"unknown capture plugin: {profile.get('plugin_type')}",
+                    code="plugin_unknown", status=500,
+                )
+
+            # Metadaten für das Plugin: minimaler Kontext aus Desktop-Send.
+            # Plugins wie Paperless nutzen primär ihre eigenen Defaults
+            # (Tags/Correspondent/DocumentType) — wir geben zusätzlich
+            # Herkunfts-Infos mit, damit z.B. "title" aus dem Dateinamen
+            # fallbacken kann.
+            plugin_metadata = {
+                "_source":       "desktop-send",
+                "_user_name":    user.get("username", ""),
+                "_user_email":   owner_email,
+                "_device_name":  user.get("device_name", ""),
+                "_filename":     display_filename,
+                "title":         display_filename.rsplit(".", 1)[0]
+                                 if "." in display_filename else display_filename,
+            }
+
+            t_up = _t.monotonic()
+            try:
+                ok, msg = await plugin.ingest_bytes(data, display_filename, plugin_metadata)
+            except NotImplementedError as _ne:
+                logger.warning(
+                    "Desktop-Send [4/5] capture-plugin ohne ingest_bytes — "
+                    "user='%s' plugin=%s err=%s",
+                    user.get("username"), profile.get("plugin_type"), _ne,
+                )
+                return _json_error(
+                    f"Plugin '{profile.get('plugin_type')}' unterstützt noch "
+                    "keinen Direkt-Upload aus dem Desktop-Client.",
+                    code="plugin_no_ingest", status=501,
+                )
+            except Exception as _pe:
+                logger.exception(
+                    "Desktop-Send [4/5] capture-plugin EXCEPTION — user='%s' "
+                    "plugin=%s err=%s",
+                    user.get("username"), profile.get("plugin_type"), _pe,
+                )
+                return _json_error(str(_pe)[:200], code="plugin_error", status=500)
+            dt_up = _t.monotonic() - t_up
+
+            # Capture-Log-Eintrag analog zum Webhook-Flow, damit das Profil
+            # in der Web-UI seine Aktivität sieht.
+            try:
+                add_capture_log(
+                    profile["tenant_id"], profile_id, profile.get("name", ""),
+                    "DesktopSend", "ok" if ok else "error", msg or "",
+                    details=f"user={user.get('username')}, "
+                            f"file={display_filename}, size={len(data)}",
+                )
+            except Exception as _le:
+                logger.debug("capture-log write failed: %s", _le)
+
+            dt_total = _t.monotonic() - t_start
+            if ok:
+                logger.info(
+                    "Desktop-Send COMPLETE (capture) — user='%s' target=%s "
+                    "profile='%s' plugin=%s file='%s' size=%d dt_plugin=%.2fs "
+                    "total_dt=%.2fs",
+                    user["username"], target_id, profile.get("name", ""),
+                    profile.get("plugin_type"), display_filename, len(data),
+                    dt_up, dt_total,
+                )
+                return JSONResponse({
+                    "ok": True,
+                    "target": target_id,
+                    "filename": display_filename,
+                    "size": len(data),
+                    "plugin": profile.get("plugin_type"),
+                    "profile": profile.get("name", ""),
+                    "message": msg or "",
+                })
+            else:
+                logger.warning(
+                    "Desktop-Send FAIL (capture) — user='%s' target=%s "
+                    "profile='%s' msg=%s",
+                    user.get("username"), target_id, profile.get("name", ""), msg,
+                )
+                return _json_error(msg or "capture plugin returned failure",
+                                   code="capture_failed", status=502)
         elif target_id.startswith("print:delegate:"):
             deleg_id = target_id.split(":", 2)[2]
             try:

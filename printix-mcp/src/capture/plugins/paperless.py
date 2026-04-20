@@ -180,6 +180,32 @@ class PaperlessNgxPlugin(CapturePlugin):
             },
         ]
 
+    async def ingest_bytes(
+        self,
+        data: bytes,
+        filename: str,
+        metadata: dict[str, Any],
+    ) -> tuple[bool, str]:
+        """Direkt-Upload aus Desktop-Send/Web-Upload ohne Azure-Blob-Zwischenstation."""
+        if not data:
+            return False, "Empty document"
+        paperless_url = self.config.get("paperless_url", "").rstrip("/")
+        token = self.config.get("paperless_token", "")
+        if not paperless_url or not token:
+            return False, "Paperless-ngx URL or API token not configured"
+        api_headers = {
+            "Authorization": f"Token {token}",
+            "Accept": "application/json",
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                return await self._upload_bytes_to_paperless(
+                    session, paperless_url, api_headers, data, filename, metadata,
+                )
+        except Exception as e:
+            logger.exception("Paperless-ngx ingest_bytes error: %s", e)
+            return False, f"Error: {e}"
+
     async def process_document(
         self,
         document_url: str,
@@ -214,77 +240,81 @@ class PaperlessNgxPlugin(CapturePlugin):
                         return False, "Downloaded document is empty"
                     logger.info("Downloaded %d bytes", len(doc_bytes))
 
-                # 2. Resolve names → IDs for tags, correspondent, document_type
-                tag_ids: list[int] = []
-                tags_cfg = self.config.get("default_tags", "")
-                if tags_cfg:
-                    for tag_name in tags_cfg.split(","):
-                        tag_name = tag_name.strip()
-                        if tag_name:
-                            tid = await _resolve_tag_id(session, paperless_url, api_headers, tag_name)
-                            if tid is not None:
-                                tag_ids.append(tid)
-
-                correspondent_id: int | None = None
-                correspondent_name = self.config.get("default_correspondent", "").strip()
-                if correspondent_name:
-                    correspondent_id = await _resolve_correspondent_id(
-                        session, paperless_url, api_headers, correspondent_name
-                    )
-
-                doc_type_id: int | None = None
-                doc_type_name = self.config.get("default_document_type", "").strip()
-                if doc_type_name:
-                    doc_type_id = await _resolve_document_type_id(
-                        session, paperless_url, api_headers, doc_type_name
-                    )
-
-                # 3. Build multipart form for Paperless-ngx
-                upload_url = f"{paperless_url}/api/documents/post_document/"
-
-                _fn = filename or "scan.pdf"
-                _ct = mimetypes.guess_type(_fn)[0] or "application/pdf"
-
-                form = aiohttp.FormData()
-                form.add_field(
-                    "document",
-                    doc_bytes,
-                    filename=_fn,
-                    content_type=_ct,
+                return await self._upload_bytes_to_paperless(
+                    session, paperless_url, api_headers, doc_bytes, filename, metadata,
                 )
-
-                # Title from metadata or filename
-                title = metadata.get("title") or metadata.get("Title") or filename or ""
-                if title:
-                    form.add_field("title", title)
-
-                # Tags — API expects IDs, one form field per tag
-                for tid in tag_ids:
-                    form.add_field("tags", str(tid))
-
-                # Correspondent — API expects ID
-                if correspondent_id is not None:
-                    form.add_field("correspondent", str(correspondent_id))
-
-                # Document type — API expects ID
-                if doc_type_id is not None:
-                    form.add_field("document_type", str(doc_type_id))
-
-                # 4. Upload to Paperless-ngx
-                logger.info("Uploading to Paperless-ngx: %s (tags=%s, corr=%s, dtype=%s)",
-                            upload_url, tag_ids, correspondent_id, doc_type_id)
-                async with session.post(upload_url, data=form, headers=api_headers) as resp:
-                    resp_text = await resp.text()
-                    if resp.status in (200, 201, 202):
-                        logger.info("Paperless-ngx accepted document: %s", resp_text[:200])
-                        return True, f"Document uploaded successfully (HTTP {resp.status})"
-                    else:
-                        logger.error("Paperless-ngx rejected: HTTP %d — %s", resp.status, resp_text[:300])
-                        return False, f"Paperless-ngx error: HTTP {resp.status} — {resp_text[:200]}"
-
         except Exception as e:
             logger.exception("Paperless-ngx plugin error: %s", e)
             return False, f"Error: {e}"
+
+    async def _upload_bytes_to_paperless(
+        self,
+        session: "aiohttp.ClientSession",
+        paperless_url: str,
+        api_headers: dict,
+        doc_bytes: bytes,
+        filename: str,
+        metadata: dict[str, Any],
+    ) -> tuple[bool, str]:
+        """Gemeinsamer Upload-Pfad: Bytes → Paperless mit Tag-/Corr-/Type-Resolution.
+
+        Die Session wird vom Aufrufer gemanaged (offen übergeben, nicht hier
+        geschlossen), damit beide Pfade — Webhook-Download und Direkt-Ingest —
+        denselben Code teilen können.
+        """
+        # Resolve names → IDs for tags, correspondent, document_type
+        tag_ids: list[int] = []
+        tags_cfg = self.config.get("default_tags", "")
+        if tags_cfg:
+            for tag_name in tags_cfg.split(","):
+                tag_name = tag_name.strip()
+                if tag_name:
+                    tid = await _resolve_tag_id(session, paperless_url, api_headers, tag_name)
+                    if tid is not None:
+                        tag_ids.append(tid)
+
+        correspondent_id: int | None = None
+        correspondent_name = self.config.get("default_correspondent", "").strip()
+        if correspondent_name:
+            correspondent_id = await _resolve_correspondent_id(
+                session, paperless_url, api_headers, correspondent_name
+            )
+
+        doc_type_id: int | None = None
+        doc_type_name = self.config.get("default_document_type", "").strip()
+        if doc_type_name:
+            doc_type_id = await _resolve_document_type_id(
+                session, paperless_url, api_headers, doc_type_name
+            )
+
+        # Build multipart form for Paperless-ngx
+        upload_url = f"{paperless_url}/api/documents/post_document/"
+
+        _fn = filename or "scan.pdf"
+        _ct = mimetypes.guess_type(_fn)[0] or "application/pdf"
+
+        form = aiohttp.FormData()
+        form.add_field("document", doc_bytes, filename=_fn, content_type=_ct)
+
+        title = metadata.get("title") or metadata.get("Title") or filename or ""
+        if title:
+            form.add_field("title", title)
+        for tid in tag_ids:
+            form.add_field("tags", str(tid))
+        if correspondent_id is not None:
+            form.add_field("correspondent", str(correspondent_id))
+        if doc_type_id is not None:
+            form.add_field("document_type", str(doc_type_id))
+
+        logger.info("Uploading to Paperless-ngx: %s (tags=%s, corr=%s, dtype=%s, size=%d)",
+                    upload_url, tag_ids, correspondent_id, doc_type_id, len(doc_bytes))
+        async with session.post(upload_url, data=form, headers=api_headers) as resp:
+            resp_text = await resp.text()
+            if resp.status in (200, 201, 202):
+                logger.info("Paperless-ngx accepted document: %s", resp_text[:200])
+                return True, f"Document uploaded successfully (HTTP {resp.status})"
+            logger.error("Paperless-ngx rejected: HTTP %d — %s", resp.status, resp_text[:300])
+            return False, f"Paperless-ngx error: HTTP {resp.status} — {resp_text[:200]}"
 
     async def test_connection(self) -> tuple[bool, str]:
         """Tests connection to Paperless-ngx by querying /api/documents/ (v4.4.11)."""
