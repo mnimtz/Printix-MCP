@@ -1,7 +1,7 @@
 # Home Assistant Add-on: Printix MCP Server
 # https://github.com/mnimtz/Printix-MCP
 name: Printix MCP Server
-version: "6.7.36"
+version: "6.7.37"
 slug: printix-mcp
 description: >-
   Multi-Tenant MCP Server für die Printix Cloud Print API.

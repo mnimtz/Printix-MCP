@@ -89,10 +89,35 @@ def register_desktop_routes(app: FastAPI, get_app_version) -> None:
 
     # ── Auth ──────────────────────────────────────────────────────────────
     @app.post("/desktop/auth/login")
-    async def desktop_login(request: Request,
-                             username: str = Form(...),
-                             password: str = Form(...),
-                             device_name: str = Form("")):
+    async def desktop_login(request: Request):
+        """Login-Endpoint — akzeptiert sowohl JSON als auch Form-Body.
+
+        Der Windows-Client (PrintixSend) schickt JSON via PostAsJsonAsync.
+        Ältere Aufrufe (z.B. curl, Postman-Form) funktionieren weiterhin
+        als multipart/x-www-form-urlencoded.
+        """
+        ct_header = request.headers.get("content-type", "").lower()
+        username = ""
+        password = ""
+        device_name = ""
+        if "application/json" in ct_header:
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            username = (body.get("username") or "").strip()
+            password = body.get("password") or ""
+            device_name = (body.get("device_name") or "").strip()
+        else:
+            form = await request.form()
+            username = (form.get("username") or "").strip()
+            password = form.get("password") or ""
+            device_name = (form.get("device_name") or "").strip()
+
+        if not username or not password:
+            return _json_error("username and password required",
+                               code="auth_missing_fields", status=422)
+
         ci = _log_req(request, "POST /auth/login",
                       f"username='{username}' device='{device_name or '-'}'")
         from db import authenticate_user
