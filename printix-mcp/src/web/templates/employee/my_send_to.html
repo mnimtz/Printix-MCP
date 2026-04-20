@@ -60,13 +60,26 @@
 
     <div style="margin-top:14px;font-size:.85em;color:#475569;">
       <div style="display:flex;gap:16px;flex-wrap:wrap;">
-        <div><strong>📦 {{ _('emp_send_to_download_x64') }}</strong><br>
+        <div><strong>🪟 Windows x64</strong><br>
           <code style="font-size:.8em;">PrintixSend-{{ client_version }}-x64.msi</code>
         </div>
-        <div><strong>📦 {{ _('emp_send_to_download_arm64') }}</strong><br>
+        <div><strong>🪟 Windows ARM64</strong><br>
           <code style="font-size:.8em;">PrintixSend-{{ client_version }}-arm64.msi</code>
         </div>
+        <div><strong>🍎 macOS (Universal)</strong><br>
+          <code style="font-size:.8em;">PrintixSend-&lt;version&gt;.dmg</code><br>
+          <span style="font-size:.78em;color:#64748b;">Apple Silicon + Intel, macOS 13+</span>
+        </div>
       </div>
+    </div>
+  </div>
+
+  <!-- macOS-Hinweis -->
+  <div class="card" style="margin-top:16px;">
+    <div class="section-title">🍎 macOS — Finder Quick Actions</div>
+    <div class="section-sub">Der macOS-Client liefert statt „Senden an" die Finder-<em>Quick Actions</em>: Rechtsklick auf eine Datei → <strong>Quick Actions</strong> → <strong>Printix Send — &lt;Ziel&gt;</strong>. Pro Ziel wird automatisch ein Eintrag nach dem Login angelegt.</div>
+    <div style="margin-top:10px;font-size:.85em;color:#475569;line-height:1.6;">
+      Installation: DMG öffnen → <code>PrintixSend.app</code> nach <em>Applications</em> ziehen → beim ersten Start Rechtsklick → <em>Öffnen</em> (Gatekeeper). Menu-Bar-Icon 🖨 → <em>Konfiguration…</em> → Server-URL eintragen, dann <em>Anmelden</em>.
     </div>
   </div>
 

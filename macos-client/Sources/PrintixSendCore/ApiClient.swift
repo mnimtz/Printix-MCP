@@ -1,0 +1,269 @@
+import Foundation
+
+// Swift-Pendant zu windows-client/PrintixSend/Services/ApiClient.cs.
+// Identische Endpunkte, identisches Auth-Schema (Bearer), identischer
+// Server-Vertrag (v6.7.43+ mit 202-Accepted für /desktop/send).
+//
+// Timeouts: 15 Minuten pro Request — damit LibreOffice-Coldstart oder
+// grosse Uploads den Client nicht killen. Eigentlich würde der Server
+// ja nach Sekunden mit 202 antworten, aber mit zu aggressivem Timeout
+// macht man sich das Leben unnötig schwer.
+
+public enum ApiError: Error, LocalizedError {
+    case invalidUrl
+    case http(Int, String)
+    case decode(String)
+    case transport(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidUrl:              return "Ungültige Server-URL"
+        case .http(let c, let body):   return "HTTP \(c) — \(body.prefix(200))"
+        case .decode(let msg):         return "Antwort nicht lesbar: \(msg)"
+        case .transport(let msg):      return "Verbindung: \(msg)"
+        }
+    }
+}
+
+public final class ApiClient: @unchecked Sendable {
+    public let baseUrl: URL
+    private let session: URLSession
+    private var token: String?
+    private let log = AppLogger.shared
+
+    public init(baseUrl: String, token: String? = nil) throws {
+        guard let url = URL(string: baseUrl.trimmingCharacters(in: .whitespaces)
+                            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else {
+            throw ApiError.invalidUrl
+        }
+        self.baseUrl = url
+        self.token = token
+
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest  = 900   // 15 min — pro Request
+        cfg.timeoutIntervalForResource = 1800  // 30 min — gesamter Upload
+        cfg.httpAdditionalHeaders = ["User-Agent": "PrintixSend-macOS/\(Self.clientVersion)"]
+        self.session = URLSession(configuration: cfg)
+    }
+
+    public static let clientVersion = "0.1.0"
+
+    public func setToken(_ t: String?) { self.token = t }
+
+    private func buildRequest(_ path: String, method: String = "GET") -> URLRequest {
+        var req = URLRequest(url: baseUrl.appendingPathComponent(path))
+        req.httpMethod = method
+        if let token = token, !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        return req
+    }
+
+    private func maskToken(_ t: String?) -> String {
+        guard let t = t, !t.isEmpty else { return "<null>" }
+        if t.count > 8 {
+            let start = t.prefix(4); let end = t.suffix(4)
+            return "\(start)…\(end)"
+        }
+        return "<short>"
+    }
+
+    // MARK: - Login
+
+    public func login(username: String, password: String, deviceName: String) async throws -> LoginResponse {
+        log.info("POST /desktop/auth/login — user=\(username) device=\(deviceName)")
+        var req = buildRequest("desktop/auth/login", method: "POST")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: String] = [
+            "username":    username,
+            "password":    password,
+            "device_name": deviceName,
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        let result = try JSONDecoder().decode(LoginResponse.self, from: data)
+        if let t = result.token {
+            setToken(t)
+            log.info("Login ok — token=\(maskToken(t)) user=\(result.user?.username ?? "?")")
+        }
+        return result
+    }
+
+    public func logout() async {
+        do {
+            var req = buildRequest("desktop/auth/logout", method: "POST")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            _ = try await session.data(for: req)
+            log.info("POST /desktop/auth/logout")
+        } catch {
+            log.warn("Logout-Fehler (ignoriert): \(error)")
+        }
+    }
+
+    // MARK: - Me
+
+    public func me() async throws -> UserInfo? {
+        log.info("GET /desktop/me")
+        let req = buildRequest("desktop/me")
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let userDict = obj["user"] as? [String: Any] {
+            let userData = try JSONSerialization.data(withJSONObject: userDict)
+            return try? JSONDecoder().decode(UserInfo.self, from: userData)
+        }
+        return nil
+    }
+
+    // MARK: - Targets
+
+    public func targets() async throws -> [Target] {
+        log.info("GET /desktop/targets")
+        let req = buildRequest("desktop/targets")
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        let result = try JSONDecoder().decode(TargetsResponse.self, from: data)
+        log.info("Targets: \(result.targets.count) Eintrag/Einträge")
+        return result.targets
+    }
+
+    // MARK: - Send
+
+    public func send(filePath: String, targetId: String,
+                     comment: String? = nil,
+                     copies: Int = 1,
+                     color: Bool = false,
+                     duplex: Bool = false) async throws -> SendResult {
+        let url = URL(fileURLWithPath: filePath)
+        let fileData = try Data(contentsOf: url)
+        let filename = url.lastPathComponent
+        log.info("POST /desktop/send — target=\(targetId) file=\(filename) size=\(fileData.count)")
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var req = buildRequest("desktop/send", method: "POST")
+        req.setValue("multipart/form-data; boundary=\(boundary)",
+                     forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+        func append(_ s: String) { body.append(Data(s.utf8)) }
+
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"target_id\"\r\n\r\n")
+        append("\(targetId)\r\n")
+
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"copies\"\r\n\r\n")
+        append("\(copies)\r\n")
+
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"color\"\r\n\r\n")
+        append(color ? "1\r\n" : "\r\n")
+
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"duplex\"\r\n\r\n")
+        append(duplex ? "1\r\n" : "\r\n")
+
+        if let c = comment, !c.isEmpty {
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"comment\"\r\n\r\n")
+            append("\(c)\r\n")
+        }
+
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
+        append("Content-Type: \(guessMime(url.pathExtension))\r\n\r\n")
+        body.append(fileData)
+        append("\r\n--\(boundary)--\r\n")
+
+        req.httpBody = body
+
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else {
+            throw ApiError.transport("Keine HTTP-Antwort")
+        }
+
+        // v6.7.43: Server schickt 202 Accepted mit ok:true. Alle 2xx = ok.
+        if (200..<300).contains(http.statusCode) {
+            let result = (try? JSONDecoder().decode(SendResult.self, from: data))
+                ?? SendResult(ok: true, status: "queued", jobId: nil, printixJobId: nil,
+                              target: targetId, filename: filename, size: fileData.count,
+                              ownerEmail: nil, error: nil, code: nil, message: nil)
+            log.info("Send ok — status=\(result.status ?? "-") job_id=\(result.jobId ?? "")")
+            return result
+        }
+
+        let bodyStr = String(data: data, encoding: .utf8) ?? ""
+        log.warn("Send-Fehler: HTTP \(http.statusCode) — \(bodyStr.prefix(400))")
+        if let parsed = try? JSONDecoder().decode(SendResult.self, from: data) {
+            return parsed
+        }
+        return SendResult(ok: false, status: nil, jobId: nil, printixJobId: nil,
+                          target: targetId, filename: filename, size: fileData.count,
+                          ownerEmail: nil, error: "HTTP \(http.statusCode)",
+                          code: "http_error", message: bodyStr)
+    }
+
+    // MARK: - Entra Device-Code
+
+    public func entraStart(deviceName: String) async throws -> EntraStartResponse {
+        log.info("POST /desktop/auth/entra/start")
+        var req = buildRequest("desktop/auth/entra/start", method: "POST")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["device_name": deviceName])
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        return try JSONDecoder().decode(EntraStartResponse.self, from: data)
+    }
+
+    public func entraPoll(deviceCode: String) async throws -> EntraPollResponse {
+        var req = buildRequest("desktop/auth/entra/poll", method: "POST")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["device_code": deviceCode])
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode(EntraPollResponse.self, from: data)
+    }
+
+    // MARK: - Version
+
+    public func latestVersion() async -> VersionResponse? {
+        do {
+            let req = buildRequest("desktop/client/latest-version")
+            let (data, resp) = try await session.data(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            return try? JSONDecoder().decode(VersionResponse.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func ensureOk(_ resp: URLResponse, _ data: Data) throws {
+        guard let http = resp as? HTTPURLResponse else {
+            throw ApiError.transport("Keine HTTP-Antwort")
+        }
+        if !(200..<300).contains(http.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw ApiError.http(http.statusCode, body)
+        }
+    }
+
+    private func guessMime(_ ext: String) -> String {
+        switch ext.lowercased() {
+        case "pdf":  return "application/pdf"
+        case "png":  return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif":  return "image/gif"
+        case "txt":  return "text/plain"
+        case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        case "xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        case "pptx": return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        case "doc":  return "application/msword"
+        case "xls":  return "application/vnd.ms-excel"
+        case "ppt":  return "application/vnd.ms-powerpoint"
+        default:     return "application/octet-stream"
+        }
+    }
+}

@@ -60,6 +60,18 @@ Each tenant can invite employees who log in with their own credentials (or Entra
 - **Auto-launch after install** (v6.7.50) — new installations open the config/login dialog automatically
 - **Long-running uploads** (v6.7.50) — `HttpClient.Timeout = 15 min` so LibreOffice coldstart doesn't kill the request
 
+### Desktop Client — "Printix Send" for macOS
+
+- **Swift-native Menu-Bar-App + CLI**, packaged as universal **DMG** (Apple Silicon + Intel) — no admin rights required
+- **Finder Quick Actions integration** — right-click any file → *Quick Actions* → *Printix Send — &lt;target&gt;* (one entry per target, auto-synced after login)
+- **Menu-bar icon (🖨)** — login status, target list, re-sync, configuration, logout
+- **Headless send** via `printix-send-cli` invoked from the `.workflow` bundles — no GUI flash
+- **Microsoft Entra SSO** via Device Code Flow + local username/password fallback
+- **Targets loaded live** from `/desktop/targets` — Secure Print self, delegate print, capture profiles
+- **Keychain-stored token** (`de.printix.send` / `bearer-token`, `kSecAttrAccessibleAfterFirstUnlock`)
+- **Long-running uploads** — `URLSession` with 15 min request / 30 min resource timeout
+- **macOS 13 Ventura** or newer
+
 ### Printix Capture — Scan-to-Cloud
 
 - **Webhook endpoint** (`/capture/webhook`) receives `FileDeliveryJobReady` events from Printix Capture
@@ -97,7 +109,9 @@ Each tenant can invite employees who log in with their own credentials (or Entra
 2. **Configure** — open the Web UI at `http://<HA-IP>:8080`, register, enter your Printix OAuth2 credentials (or run the Entra ID auto-setup)
 3. **Connect your AI** — add the MCP endpoint `http://<HA-IP>:8765/mcp` (claude.ai) or `/sse` (ChatGPT) with your bearer token
 4. **Cloud Print** *(optional)* — expose port 621 via a Cloudflare tunnel / reverse proxy, then register `ipps://print.yourdomain.tld` on clients
-5. **Desktop Client** *(optional)* — install the "Printix Send" MSI from [Releases](https://github.com/mnimtz/Printix-MCP/releases/latest) (per-user, no admin needed). First launch opens the config/login dialog automatically.
+5. **Desktop Client** *(optional)* — install "Printix Send" from [Releases](https://github.com/mnimtz/Printix-MCP/releases/latest):
+   - **Windows** — MSI (x64 / ARM64), per-user, no admin needed. First launch opens the config/login dialog automatically.
+   - **macOS** — DMG (universal, Apple Silicon + Intel). Drag to *Applications*, configure server URL, sign in. Right-click → *Quick Actions* to send.
 6. **Invite employees** *(optional)* — use the Employees register to send invitation emails; each employee gets their own portal and can configure delegations
 
 ---
@@ -190,6 +204,7 @@ The web UI at `http://<HA-IP>:8080` groups features into four functional areas. 
 - [printix-mcp/README.md](printix-mcp/README.md) — server install, AI connection guides, MCP tool reference, architecture, changelog
 - [printix-mcp/CHANGELOG.md](printix-mcp/CHANGELOG.md) — full per-version history
 - [windows-client/README.md](windows-client/README.md) — Windows desktop client (features, build, MSI, release tags)
+- [macos-client/README.md](macos-client/README.md) — macOS desktop client (menu-bar app + Quick Actions, build, DMG, release tags)
 
 ---
 

@@ -1,0 +1,112 @@
+name: Build macOS Client (DMG)
+
+on:
+  push:
+    tags:
+      - 'macos-client-v*'
+    paths:
+      - 'macos-client/**'
+      - '.github/workflows/build-macos-client.yml'
+  pull_request:
+    paths:
+      - 'macos-client/**'
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+    working-directory: macos-client
+
+jobs:
+  build:
+    runs-on: macos-14   # Apple Silicon runner — baut Universal-Binary für arm64+x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode / Swift version
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Derive version from tag
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/macos-client-v* ]]; then
+              VERSION="${GITHUB_REF#refs/tags/macos-client-v}"
+          else
+              VERSION="0.0.0-${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      - name: Build universal binaries
+        run: bash scripts/build-universal.sh
+
+      - name: Make .app bundle
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: bash scripts/make-app-bundle.sh
+
+      - name: Make DMG
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: bash scripts/make-dmg.sh
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintixSend-macOS-${{ steps.ver.outputs.version }}
+          path: macos-client/dist/PrintixSend-*.dmg
+          if-no-files-found: error
+
+      - name: Upload .app bundle (for notarization/debug)
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintixSend-app-bundle-${{ steps.ver.outputs.version }}
+          path: macos-client/dist/PrintixSend.app
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/macos-client-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download DMG
+        uses: actions/download-artifact@v4
+        with:
+          pattern: PrintixSend-macOS-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: List assets
+        run: ls -la release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Printix Send macOS ${{ github.ref_name }}
+          body: |
+            # Printix Send für macOS
+
+            Menu-Bar-App + Finder-Quick-Actions — macOS-Pendant zum Windows-Client.
+
+            ## Installation
+            1. `PrintixSend-*.dmg` herunterladen und öffnen
+            2. `PrintixSend.app` in den **Applications**-Ordner ziehen
+            3. Beim ersten Start Rechtsklick → **Öffnen** (Gatekeeper, da unsigniert)
+            4. Menu-Bar-Icon 🖨 → **Konfiguration…** → Server-URL eintragen
+            5. **Anmelden…** → Benutzer/Passwort oder **Mit Microsoft (Entra)**
+            6. Rechtsklick auf eine Datei → **Quick Actions** → `Printix Send — <Ziel>`
+
+            ## Systemanforderungen
+            - macOS 13 Ventura oder neuer
+            - Apple Silicon **oder** Intel (Universal-Binary)
+          files: |
+            release-assets/PrintixSend-*.dmg
+          draft: false
+          prerelease: false
