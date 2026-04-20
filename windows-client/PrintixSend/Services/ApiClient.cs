@@ -28,11 +28,14 @@ public class ApiClient : IDisposable
         _baseUrl = baseUrl.TrimEnd('/');
         _token = token;
         _log = log;
+        // Standard-Timeout kurz halten, damit die UI nicht minutenlang
+        // hängt. Der Upload (SendFileAsync) setzt einen eigenen längeren
+        // CancellationToken, der den HttpClient-Default überschreibt.
         _http = new HttpClient
         {
-            Timeout = TimeSpan.FromMinutes(5)
+            Timeout = TimeSpan.FromSeconds(30)
         };
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("PrintixSend-Windows/6.7.41");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("PrintixSend-Windows/6.7.42");
         if (!string.IsNullOrEmpty(_token))
             _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
     }
@@ -88,13 +91,35 @@ public class ApiClient : IDisposable
     // ── /me ───────────────────────────────────────────────────
     public async Task<UserInfo?> GetMeAsync(CancellationToken ct = default)
     {
-        var resp = await _http.GetAsync($"{_baseUrl}/desktop/me", ct);
-        if (!resp.IsSuccessStatusCode) return null;
-        var json = await resp.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.TryGetProperty("user", out var u))
-            return JsonSerializer.Deserialize<UserInfo>(u.GetRawText());
-        return null;
+        _log.Info($"GET {_baseUrl}/desktop/me");
+        try
+        {
+            var resp = await _http.GetAsync($"{_baseUrl}/desktop/me", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.Warn($"Me-Fehler: HTTP {(int)resp.StatusCode}");
+                return null;
+            }
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("user", out var u))
+            {
+                var info = JsonSerializer.Deserialize<UserInfo>(u.GetRawText());
+                _log.Info($"Me ok — user={info?.Username}");
+                return info;
+            }
+            return null;
+        }
+        catch (TaskCanceledException)
+        {
+            _log.Warn("Me-Abruf Timeout (30s) — server nicht erreichbar?");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _log.Warn($"Me-Abruf Fehler: {ex.Message}");
+            return null;
+        }
     }
 
     // ── Targets ───────────────────────────────────────────────
@@ -135,7 +160,16 @@ public class ApiClient : IDisposable
         form.Add(fileContent, "file", fi.Name);
 
         progress?.Report(0.1);
-        var resp = await _http.PostAsync($"{_baseUrl}/desktop/send", form, ct);
+        // Upload darf länger dauern als der Default-Timeout von 30s.
+        // Wir nutzen SendAsync mit einer expliziten Frist von 10 Minuten
+        // per linked CTS, damit der HttpClient-Default umgangen wird.
+        using var uploadCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        uploadCts.CancelAfter(TimeSpan.FromMinutes(10));
+        using var sendRequest = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/desktop/send")
+        {
+            Content = form
+        };
+        var resp = await _http.SendAsync(sendRequest, HttpCompletionOption.ResponseHeadersRead, uploadCts.Token);
         progress?.Report(0.9);
         var body = await resp.Content.ReadAsStringAsync(ct);
 

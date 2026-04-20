@@ -28,21 +28,28 @@ public partial class SendWindow : Window
 
     private async Task InitializeAsync()
     {
-        SetBusy("Lade Ziele …", true);
+        App.Log.Info("SendWindow.InitializeAsync — start");
+        SetBusy("Verbinde mit Server …", true);
         try
         {
             var token = App.Tokens.LoadToken();
             using var api = new ApiClient(App.Config.ServerUrl, token, App.Log);
 
             // Me
+            SetBusy("Prüfe Anmeldung …", true);
             var me = await api.GetMeAsync();
             TxtUserHint.Text = me == null
                 ? "Nicht angemeldet"
                 : $"Angemeldet als {me.Email ?? me.Username} ({me.RoleType})";
+            App.Log.Info($"SendWindow — Me fertig, user={me?.Username ?? "<null>"}");
 
             // Targets
+            SetBusy("Lade Ziele …", true);
             _targets = await api.GetTargetsAsync();
+            App.Log.Info($"SendWindow — Targets geladen: {_targets.Count}");
+
             LstTargets.ItemsSource = _targets;
+            App.Log.Info("SendWindow — ItemsSource gesetzt");
 
             // Default vorselektieren — bevorzugt zuletzt verwendet
             Target? pick = null;
@@ -51,12 +58,14 @@ public partial class SendWindow : Window
             pick ??= _targets.FirstOrDefault(t => t.IsDefault);
             pick ??= _targets.FirstOrDefault();
             if (pick != null) LstTargets.SelectedItem = pick;
+            App.Log.Info($"SendWindow — Default vorselektiert: {pick?.Label ?? "<none>"}");
 
             SetBusy(_targets.Count == 0 ? "Keine Ziele verfügbar." : $"{_targets.Count} Ziel(e) geladen.", false);
+            App.Log.Info("SendWindow.InitializeAsync — fertig");
         }
         catch (Exception ex)
         {
-            App.Log.Error("Targets-Abruf fehlgeschlagen", ex);
+            App.Log.Error("SendWindow.InitializeAsync fehlgeschlagen", ex);
             // Token evtl. abgelaufen → Token löschen + beenden mit Hinweis
             if (ex.Message.Contains("401") || ex.Message.Contains("403"))
             {
@@ -67,6 +76,9 @@ public partial class SendWindow : Window
                 return;
             }
             SetBusy($"Fehler: {ex.Message}", false);
+            MessageBox.Show(this,
+                $"Konnte Ziele nicht laden.\n\n{ex.Message}\n\nServer: {App.Config.ServerUrl}",
+                "Printix Send", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
