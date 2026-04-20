@@ -63,6 +63,29 @@
         <a href="/register" style="color:#2563eb;">{{ _('login_register_link') }}</a>
       </div>
 
+      <!-- Rechtlicher Hinweis / Legal disclaimer -->
+      <div style="margin-top:22px; padding:12px 14px; border:1px dashed #d1d5db;
+                  border-radius:8px; background:#fafafa;
+                  font-size:.75em; line-height:1.5; color:#6b7280;">
+        <div style="font-weight:600; color:#4b5563; margin-bottom:4px;">
+          ⚠️ Hinweis · Disclaimer
+        </div>
+        <div style="margin-bottom:6px;">
+          <strong>DE:</strong> Dies ist ein <u>privates Entwicklungsprojekt</u> und
+          <u>keine offizielle Seite von Printix</u> oder Kofax. Es dient ausschließlich
+          als Beispiel dafür, was mit der öffentlichen Printix-API umgesetzt werden kann.
+          Nutzung auf eigene Gefahr — keine Gewährleistung, kein Support, keine Haftung
+          für Datenverluste oder Schäden jeglicher Art.
+        </div>
+        <div>
+          <strong>EN:</strong> This is a <u>private development project</u> and
+          <u>not an official Printix</u> or Kofax site. It is provided solely as an
+          example of what can be built with the public Printix API. Use at your own
+          risk — no warranty, no support, and no liability for data loss or damages
+          of any kind.
+        </div>
+      </div>
+
       <!-- Sprach-Switcher auf Login-Seite -->
       <div style="margin-top:24px; text-align:center; font-size:.82em;">
         {% if supported_langs and lang_names %}

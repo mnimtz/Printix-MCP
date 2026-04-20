@@ -16,6 +16,24 @@
     <div class="section-title">{{ _('reg_account_create') }}</div>
     <div class="section-sub">{{ _('reg_account_subtitle') }}</div>
 
+    <div style="margin:14px 0 18px; padding:12px 14px; border:1px dashed #d1d5db;
+                border-radius:8px; background:#fafafa;
+                font-size:.78em; line-height:1.5; color:#6b7280;">
+      <div style="font-weight:600; color:#4b5563; margin-bottom:4px;">
+        ⚠️ Hinweis · Disclaimer
+      </div>
+      <div style="margin-bottom:6px;">
+        <strong>DE:</strong> Privates Entwicklungsprojekt — <u>keine offizielle
+        Printix-Seite</u>. Beispielimplementierung der öffentlichen Printix-API.
+        Nutzung auf eigene Gefahr; keine Gewährleistung, kein Support, keine Haftung.
+      </div>
+      <div>
+        <strong>EN:</strong> Private development project — <u>not an official
+        Printix site</u>. Example implementation of the public Printix API.
+        Use at your own risk; no warranty, no support, no liability.
+      </div>
+    </div>
+
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
     <form method="post" action="/register">
