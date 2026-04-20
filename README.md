@@ -1,8 +1,8 @@
 # Printix MCP Server — Home Assistant Add-on
 
-**Version 6.7.46** · Multi-Tenant MCP Server + Cloud Print Gateway + Desktop Client for the Printix Cloud Print API
+**Version 6.7.46** · Multi-Tenant MCP Server + Cloud Print Gateway + Desktop Client for the Printix API
 
-A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix Cloud Print API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), **plus** a native Cloud Print Gateway (IPP/IPPS) and a native Windows desktop client for Secure-Print workflows. Manage printers, users, print jobs, delegations, scan-to-cloud and generate detailed reports — all through natural language in your AI chat, the browser, or directly from the OS "Send to" menu.
+A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), **plus** a native Cloud Print Gateway (IPP/IPPS) and a native Windows desktop client for Secure-Print workflows. Manage printers, users, print jobs, delegations, scan-to-cloud and generate detailed reports — all through natural language in your AI chat, the browser, or directly from the OS "Send to" menu.
 
 ---
 
@@ -138,7 +138,7 @@ The web UI at `http://<HA-IP>:8080` groups features into four functional areas. 
    └── /tenant/demo                         Demo-data generator (presets, sessions)
 
 🃏 /cards  (Card Lab)                       Advanced RFID/badge tooling, independent
-                                            of Printix cloud state.
+                                            of Printix backend state.
    ├── Card Lab                             Enter raw values, apply profiles, preview
    ├── Local Card Mappings                  card-id → local value per tenant
    ├── Transformation Profiles              HEX/Dec, byte-reverse, strip, leading-zero
