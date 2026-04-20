@@ -35,7 +35,7 @@ public class ApiClient : IDisposable
         {
             Timeout = TimeSpan.FromSeconds(30)
         };
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("PrintixSend-Windows/6.7.45");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("PrintixSend-Windows/6.7.46");
         if (!string.IsNullOrEmpty(_token))
             _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
     }
@@ -149,7 +149,9 @@ public class ApiClient : IDisposable
         _log.Info($"POST /desktop/send — target={targetId} file={fi.Name} size={fi.Length}");
 
         using var form = new MultipartFormDataContent();
-        form.Add(new StringContent(targetId), "target");
+        // Server erwartet 'target_id' (nicht 'target') — siehe
+        // desktop_routes.py:desktop_send(target_id: str = Form(...)).
+        form.Add(new StringContent(targetId), "target_id");
         if (!string.IsNullOrWhiteSpace(comment))
             form.Add(new StringContent(comment), "comment");
 
