@@ -46,8 +46,28 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
 
-      - name: Build universal binaries
-        run: bash scripts/build-universal.sh
+      - name: Build arm64
+        run: |
+          set -x
+          swift build --arch arm64 -c release
+
+      - name: Build x86_64
+        run: |
+          set -x
+          swift build --arch x86_64 -c release
+
+      - name: Make universal binaries
+        run: |
+          set -x
+          OUT=".build/apple/Products/Release"
+          mkdir -p "$OUT"
+          for bin in PrintixSendApp printix-send-cli; do
+              lipo -create \
+                   ".build/arm64-apple-macosx/release/$bin" \
+                   ".build/x86_64-apple-macosx/release/$bin" \
+                   -output "$OUT/$bin"
+          done
+          lipo -info "$OUT/PrintixSendApp" "$OUT/printix-send-cli"
 
       - name: Make .app bundle
         env:
