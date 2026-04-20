@@ -36,7 +36,14 @@
         <!-- Target -->
         <TextBlock Grid.Row="2" Text="Ziel auswählen" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,6"/>
         <ListBox Grid.Row="3" x:Name="LstTargets" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                 Background="{StaticResource CardBrush}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                 Background="{StaticResource CardBrush}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 HorizontalContentAlignment="Stretch">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    <Setter Property="Padding" Value="6,4"/>
+                </Style>
+            </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <Grid Margin="4">
