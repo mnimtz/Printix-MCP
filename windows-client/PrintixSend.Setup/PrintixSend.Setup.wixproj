@@ -6,7 +6,7 @@
     <!-- Platform wird von außen gesetzt: x64 oder arm64 -->
     <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
     <!-- ProductVersion muss < 256.x.x.x bleiben für MSI-Spezifikation. -->
-    <ProductVersion>6.7.47</ProductVersion>
+    <ProductVersion>6.7.48</ProductVersion>
 
     <!-- ICE-Validator-Meldungen, die nur für per-machine-MSIs Sinn ergeben:
            ICE38 — File-KeyPath im User-Profil

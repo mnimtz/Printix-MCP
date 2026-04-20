@@ -14,6 +14,9 @@ public partial class App : Application
     public static TokenStore Tokens { get; } = new();
     public static Logger Log { get; } = new();
 
+    // Gehalten, damit der GC das Tray-Icon nicht wegräumt.
+    private static TrayHost? _tray;
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -59,24 +62,27 @@ public partial class App : Application
             token = Tokens.LoadToken();
         }
 
-        // 3a. Start ohne Dateien: Send-To-Einträge synchronisieren und still beenden.
-        //     Der User nutzt den Explorer-"Senden an"-Kontext statt eines Datei-Dialogs.
+        // 3a. Start ohne Dateien: Send-To-Einträge synchronisieren und dauerhaft
+        //     als Tray-Icon laufen. Der User nutzt den Explorer-"Senden an"-Kontext
+        //     zum Drucken; über das Tray-Icon sind GUI/Einstellungen/Abmelden
+        //     jederzeit erreichbar.
         if (files.Length == 0)
         {
-            Log.Info("Keine Dateien übergeben — synchronisiere 'Senden an' und beende.");
+            Log.Info("Keine Dateien übergeben — synchronisiere 'Senden an' und zeige Tray.");
             await SyncSendToMenuAsync();
+            _tray = new TrayHost();
+            _tray.Show();
             // Kurzer Hinweis beim ersten Mal, danach still (keine Dialog-Flut)
             if (!Config.SendToHintShown)
             {
                 MessageBox.Show(
-                    "Printix Send ist eingerichtet.\n\n" +
+                    "Printix Send ist eingerichtet und läuft im Infobereich (neben der Uhr).\n\n" +
                     "Rechtsklick auf eine Datei \u2192 \u201eSenden an\u201c \u2192 waehle dein Ziel " +
                     "(z. B. \u201eMein Secure Print\u201c oder einen Delegate).\n\n" +
-                    "Die Ziele werden automatisch aus dem Server uebernommen.",
+                    "Ein Klick auf das Tray-Icon öffnet Status und Einstellungen.",
                     "Printix Send", MessageBoxButton.OK, MessageBoxImage.Information);
                 Config.SendToHintShown = true;
             }
-            Shutdown();
             return;
         }
 

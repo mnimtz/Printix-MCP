@@ -12,9 +12,9 @@
     <ApplicationIcon Condition="Exists('Resources\app.ico')">Resources\app.ico</ApplicationIcon>
     <AssemblyName>PrintixSend</AssemblyName>
     <RootNamespace>PrintixSend</RootNamespace>
-    <Version>6.7.47</Version>
-    <FileVersion>6.7.47.0</FileVersion>
-    <AssemblyVersion>6.7.47.0</AssemblyVersion>
+    <Version>6.7.48</Version>
+    <FileVersion>6.7.48.0</FileVersion>
+    <AssemblyVersion>6.7.48.0</AssemblyVersion>
     <Company>Printix MCP Project</Company>
     <Product>Printix Send</Product>
     <Copyright>© 2026 Printix MCP</Copyright>
@@ -34,10 +34,15 @@
     <None Update="Resources\app.ico" Condition="Exists('Resources\app.ico')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- Zusätzlich als WPF-Resource einbetten, damit wir das Icon im
+         Tray-Host via pack:// ansprechen können, auch im single-file-Publish. -->
+    <Resource Include="Resources\app.ico" Condition="Exists('Resources\app.ico')" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <!-- Tray-Icon (systray neben der Uhr). Reine WPF-Implementierung. -->
+    <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
   </ItemGroup>
 
 </Project>
