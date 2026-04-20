@@ -35,11 +35,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task { await state.bootstrap() }
 
+        // queue: .main stellt sicher, dass wir schon auf dem Main-Thread landen.
+        // `MainActor.assumeIsolated` sagt dem Compiler, dass er davon ausgehen
+        // kann — so vermeiden wir die "captured var 'self' in concurrently-
+        // executing code"-Errors unter Swift 5.10+, die eine Task {…}-Wrapper
+        // mit [weak self] nicht mehr akzeptiert.
         NotificationCenter.default.addObserver(forName: .targetsDidChange, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.rebuildMenu() }
+            MainActor.assumeIsolated { self?.rebuildMenu() }
         }
         NotificationCenter.default.addObserver(forName: .loginStateDidChange, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.rebuildMenu() }
+            MainActor.assumeIsolated { self?.rebuildMenu() }
         }
     }
 

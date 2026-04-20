@@ -44,15 +44,21 @@ final class LoginWindowController: NSObject, NSWindowDelegate {
 
 // ─────────────────────────────────────────────────────────────────
 
+@MainActor
 private struct LoginView: View {
     let onClose: () -> Void
 
-    @State private var username = AppState.shared.config.lastUsername ?? ""
-    @State private var password = ""
-    @State private var serverUrl = AppState.shared.config.serverUrl
+    @State private var username:  String = ""
+    @State private var password:  String = ""
+    @State private var serverUrl: String = ""
     @State private var busy = false
     @State private var error: String?
     @State private var showEntra = false
+
+    private func loadDefaults() {
+        if username.isEmpty  { username  = AppState.shared.config.lastUsername ?? "" }
+        if serverUrl.isEmpty { serverUrl = AppState.shared.config.serverUrl }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -97,6 +103,7 @@ private struct LoginView: View {
         }
         .padding(20)
         .frame(width: 420)
+        .onAppear { loadDefaults() }
         .sheet(isPresented: $showEntra) {
             EntraDeviceView(onClose: { showEntra = false; onClose() })
         }

@@ -7,6 +7,7 @@ import PrintixSendCore
 // und pollen parallel /desktop/auth/entra/poll bis "success" oder
 // "error". Parallel zur Windows-EntraDeviceWindow.xaml.
 
+@MainActor
 struct EntraDeviceView: View {
     let onClose: () -> Void
 

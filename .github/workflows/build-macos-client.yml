@@ -48,48 +48,11 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
 
-      - name: Diagnose environment
-        run: |
-          echo "PWD=$PWD"
-          ls -la
-          which swift
-          which git
-          git --version
-          git rev-parse --show-toplevel
-          git rev-parse HEAD
-          env | grep -iE 'swift|dev|xcode|path' | sort
-          sudo xcode-select -p || true
-
-      - name: Build arm64 (capture log)
-        id: build_arm64
-        run: |
-          set -x
-          set +e
-          swift build --arch arm64 -c release -v 2>&1 | tee /tmp/build-arm64.log
-          rc=${PIPESTATUS[0]}
-          echo "Swift build exited with $rc"
-          exit $rc
-
-      - name: Upload arm64 build log (always)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-arm64-log
-          path: /tmp/build-arm64.log
-          if-no-files-found: ignore
+      - name: Build arm64
+        run: swift build --arch arm64 -c release
 
       - name: Build x86_64
-        run: |
-          set -x
-          swift build --arch x86_64 -c release 2>&1 | tee /tmp/build-x86_64.log
-
-      - name: Upload x86_64 build log (always)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-x86_64-log
-          path: /tmp/build-x86_64.log
-          if-no-files-found: ignore
+        run: swift build --arch x86_64 -c release
 
       - name: Make universal binaries
         run: |

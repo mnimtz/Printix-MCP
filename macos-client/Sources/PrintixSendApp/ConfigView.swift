@@ -5,11 +5,17 @@ import PrintixSendCore
 // PrintixSendMenuApp eingebettet und per Cmd+, aufgerufen.
 // Enthält: Server-URL, Device-Name, Status der letzten Synchronisation.
 
+@MainActor
 struct ConfigView: View {
-    @State private var serverUrl  = AppState.shared.config.serverUrl
-    @State private var deviceName = AppState.shared.config.deviceName
+    @State private var serverUrl:  String = ""
+    @State private var deviceName: String = ""
     @State private var saved = false
     @State private var syncMsg: String?
+
+    private func loadIfEmpty() {
+        if serverUrl.isEmpty  { serverUrl  = AppState.shared.config.serverUrl }
+        if deviceName.isEmpty { deviceName = AppState.shared.config.deviceName }
+    }
 
     var body: some View {
         Form {
@@ -56,5 +62,6 @@ struct ConfigView: View {
         }
         .padding(20)
         .frame(width: 480)
+        .onAppear { loadIfEmpty() }
     }
 }
