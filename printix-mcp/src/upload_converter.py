@@ -174,7 +174,10 @@ def _convert_libreoffice(data: bytes, src_ext: str) -> bytes:
         proc = subprocess.run(
             [binary, "--headless", "--convert-to", "pdf",
              "--outdir", out_dir, in_path],
-            env=env, timeout=120,
+            # v6.7.40: 120s war beim ersten DOCX-Send zu knapp — LibreOffice-
+            # Coldstart im Container frisst ~60-90s nur fürs Profil-Init, dann
+            # kommt noch die eigentliche Konvertierung. 300s gibt genug Luft.
+            env=env, timeout=300,
             capture_output=True,
         )
         if proc.returncode != 0:

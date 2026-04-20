@@ -38,6 +38,10 @@ from fastapi.templating import Jinja2Templates
 
 logger = logging.getLogger("printix.employee")
 
+# Empfohlene Printix-Send-Client-Version für den Download-Tab.
+# Bei einem neuen Client-Release hier bumpen (oder künftig als Setting pflegen).
+RECOMMENDED_CLIENT_VERSION = "6.7.48"
+
 # i18n-Keys beim Import patchen
 try:
     from cloudprint.i18n_employee import patch_translations
@@ -854,6 +858,18 @@ def register_employee_routes(
             "ipps_public_url": ipps_public_url,
             "ipps_public_host": ipps_public_host,
             "flash": flash,
+            **t_ctx(request),
+        })
+
+    @app.get("/my/send-to", response_class=HTMLResponse)
+    async def my_send_to(request: Request):
+        user = _require_employee(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+
+        return templates.TemplateResponse("employee/my_send_to.html", {
+            "request": request, "user": user,
+            "client_version": RECOMMENDED_CLIENT_VERSION,
             **t_ctx(request),
         })
 
