@@ -23,11 +23,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # SPM ruft intern `git describe` auf; mit shallow-Clone schlägt das fehl (exit 128)
+
+      - name: Configure git safe.directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Show Xcode / Swift version
         run: |
           xcodebuild -version
           swift --version
+          xcrun --sdk macosx --show-sdk-path
 
       - name: Derive version from tag
         id: ver
