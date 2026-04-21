@@ -78,11 +78,9 @@
       <!-- TestFlight-Kachel: Button + Hinweis -->
       <div>
         <ol style="margin:0 0 14px 20px;padding:0;font-size:.9em;color:#334155;line-height:1.7;">
-          <li>Installiere zuerst die <strong>TestFlight</strong>-App aus dem
-              App Store (einmalig, Apple-eigene Beta-Verteilung).</li>
-          <li>Tippe anschließend auf den Button — TestFlight öffnet sich und
-              bietet „Printix MobilePrint“ zum Installieren an.</li>
-          <li>Nach Updates erhältst du automatisch eine Benachrichtigung.</li>
+          <li>{{ _('emp_mobile_app_tf_step1') | safe }}</li>
+          <li>{{ _('emp_mobile_app_tf_step2') }}</li>
+          <li>{{ _('emp_mobile_app_tf_step3') }}</li>
         </ol>
 
         <a href="{{ testflight_url }}"
@@ -92,7 +90,7 @@
                   padding:12px 20px;border-radius:10px;font-weight:600;
                   font-size:.95em;box-shadow:0 2px 8px rgba(0,102,255,.25);">
           <span style="font-size:1.2em;">📱</span>
-          In TestFlight öffnen
+          {{ _('emp_mobile_app_tf_button') }}
         </a>
 
         <div style="margin-top:10px;font-size:.8em;color:#64748b;word-break:break-all;">
@@ -104,7 +102,7 @@
       <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;
                   padding:20px;text-align:center;">
         <div style="font-size:.9em;font-weight:600;margin-bottom:10px;color:#0f172a;">
-          QR-Code scannen
+          {{ _('emp_mobile_app_tf_qr_title') }}
         </div>
         <img src="/my/mobile-app/testflight-qr.png"
              alt="TestFlight QR"
@@ -112,7 +110,7 @@
                     border-radius:8px;background:white;padding:8px;
                     box-shadow:0 2px 6px rgba(0,0,0,.08);" />
         <div style="font-size:.78em;color:#64748b;margin-top:10px;line-height:1.5;">
-          Mit dem Smartphone scannen → TestFlight öffnet den Einladungslink.
+          {{ _('emp_mobile_app_tf_qr_desc') }}
         </div>
       </div>
     </div>
