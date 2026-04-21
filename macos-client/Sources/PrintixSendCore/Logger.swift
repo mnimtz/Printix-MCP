@@ -25,8 +25,19 @@ public final class AppLogger: @unchecked Sendable {
     }
 
     private var logDir: URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent("Library/Logs/PrintixSend", isDirectory: true)
+        // Auf macOS: ~/Library/Logs/PrintixSend/
+        // Auf iOS (Sandbox): <App>/Library/Caches/PrintixSend/
+        //   — `homeDirectoryForCurrentUser` gibt's auf iOS nicht;
+        //   stattdessen nehmen wir den Library-Ordner der Sandbox.
+        #if os(macOS)
+        let lib = FileManager.default.urls(for: .libraryDirectory,
+                                           in: .userDomainMask).first!
+        return lib.appendingPathComponent("Logs/PrintixSend", isDirectory: true)
+        #else
+        let caches = FileManager.default.urls(for: .cachesDirectory,
+                                              in: .userDomainMask).first!
+        return caches.appendingPathComponent("PrintixSend", isDirectory: true)
+        #endif
     }
 
     private var logFile: URL {

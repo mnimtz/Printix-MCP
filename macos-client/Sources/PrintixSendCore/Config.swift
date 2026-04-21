@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // Einfache JSON-Konfig nach dem Muster des Windows-Clients.
 // Liegt unter ~/Library/Application Support/PrintixSend/config.json
@@ -10,7 +13,18 @@ public struct AppConfig: Codable, Sendable {
     public var lastUsername: String?
 
     public static var defaultDeviceName: String {
-        Host.current().localizedName ?? "Mac"
+        // Plattform-Split:
+        //  - macOS: Host.current().localizedName ("Marcus' MacBook Pro")
+        //  - iOS:   UIDevice.current.name ("Marcus' iPhone")
+        // Beides ergibt einen menschenlesbaren Geräte-Namen, den die
+        // Printix-API in der Device-Liste anzeigt.
+        #if os(macOS)
+        return Host.current().localizedName ?? "Mac"
+        #elseif canImport(UIKit)
+        return UIDevice.current.name
+        #else
+        return "Device"
+        #endif
     }
 
     public init(serverUrl: String = "",
