@@ -107,6 +107,11 @@ struct TargetsView: View {
         defer { loading = false }
         do {
             targets = try await client.targets()
+            // Label-Cache aktualisieren, damit UploadView die
+            // Anzeigenamen statt nur die IDs rendert.
+            var labels: [String: String] = [:]
+            for t in targets { labels[t.id] = t.label }
+            settings.targetLabels = labels
             // Falls noch nichts ausgewaehlt ist: erstes Ziel als Default
             // setzen, damit der Upload-Button nicht sofort disabled ist.
             if settings.selectedTargetIds.isEmpty, let first = targets.first {

@@ -25,6 +25,7 @@ final class SettingsStore: ObservableObject {
         static let userFullName      = "userFullName"
         static let lastTargetId      = "lastTargetId"      // legacy/single (Share-Ext)
         static let selectedTargetIds = "selectedTargetIds" // JSON-Array (Multi)
+        static let targetLabels      = "targetLabels"      // JSON-Dict id→label
         static let deviceName        = "deviceName"
     }
 
@@ -69,6 +70,19 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Cache von id → Anzeigename (Label) der Ziele. TargetsView
+    /// befuellt das beim reload(), UploadView liest daraus, damit
+    /// wir unter "Ziele" im Upload-Form "Marketing-Drucker" zeigen
+    /// koennen statt nur die rohe ID (Gruende: API-Roundtrip sparen
+    /// und offline-freundlich bleiben).
+    @Published var targetLabels: [String: String] {
+        didSet {
+            if let data = try? JSONEncoder().encode(targetLabels) {
+                defaults.set(data, forKey: Keys.targetLabels)
+            }
+        }
+    }
+
     @Published var deviceName: String {
         didSet { defaults.set(deviceName, forKey: Keys.deviceName) }
     }
@@ -89,6 +103,12 @@ final class SettingsStore: ObservableObject {
             self.selectedTargetIds = arr
         } else {
             self.selectedTargetIds = legacyTarget.isEmpty ? [] : [legacyTarget]
+        }
+        if let data = defaults.data(forKey: Keys.targetLabels),
+           let dict = try? JSONDecoder().decode([String: String].self, from: data) {
+            self.targetLabels = dict
+        } else {
+            self.targetLabels = [:]
         }
         let storedDeviceName = defaults.string(forKey: Keys.deviceName) ?? ""
         self.deviceName = storedDeviceName.isEmpty ? Self.defaultDeviceName() : storedDeviceName

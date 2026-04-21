@@ -16,9 +16,18 @@ struct UploadView: View {
     @State private var comment: String = ""
 
     @State private var isSending: Bool = false
-    @State private var resultText: String = ""
+    /// Ein Eintrag pro Ziel — strukturiert statt String-Soup, damit
+    /// wir pro Zeile Icon/Titel/Subzeile sauber rendern koennen.
+    @State private var sendResults: [SendOutcome] = []
     @State private var errorText: String = ""
     @State private var showImporter: Bool = false
+
+    struct SendOutcome: Identifiable {
+        let id = UUID()
+        let targetDisplay: String
+        let ok: Bool
+        let detail: String   // Status, Job-Id oder Fehlermeldung
+    }
     // Foto-Picker nutzt PhotosUI, nicht fileImporter — die Fotos-
     // Mediathek kriegt man ueber den Files-Picker nicht erreicht.
     @State private var photoItem: PhotosPickerItem?
@@ -86,10 +95,12 @@ struct UploadView: View {
                             .font(.footnote)
                             .foregroundColor(.secondary)
                         ForEach(settings.selectedTargetIds, id: \.self) { id in
-                            Text(id)
-                                .font(.footnote.monospaced())
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
+                            HStack {
+                                Image(systemName: "printer.fill")
+                                    .foregroundColor(.secondary)
+                                Text(settings.targetLabels[id] ?? id)
+                                    .lineLimit(1)
+                            }
                         }
                     }
                 }
@@ -117,9 +128,25 @@ struct UploadView: View {
                     }
                 }
 
-                if !resultText.isEmpty {
+                if !sendResults.isEmpty {
                     Section("Ergebnis") {
-                        Text(resultText).font(.footnote).textSelection(.enabled)
+                        ForEach(sendResults) { r in
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: r.ok
+                                      ? "checkmark.circle.fill"
+                                      : "exclamationmark.triangle.fill")
+                                    .foregroundColor(r.ok ? .green : .orange)
+                                    .font(.title3)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(r.targetDisplay)
+                                        .fontWeight(.medium)
+                                    Text(r.detail)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
                     }
                 }
             }
@@ -174,7 +201,7 @@ struct UploadView: View {
     @MainActor
     private func sendNow() async {
         errorText = ""
-        resultText = ""
+        sendResults = []
         guard let fileURL = pickedURL else {
             errorText = "Bitte zuerst eine Datei auswählen."
             return
@@ -200,9 +227,9 @@ struct UploadView: View {
             // anschliessend an — ein Fehler bei einem Ziel bricht den
             // Rest nicht ab (z.B. wenn ein Drucker offline ist, soll
             // der andere trotzdem losgehen).
-            var successes: [String] = []
-            var failures:  [String] = []
+            var outcomes: [SendOutcome] = []
             for targetId in settings.selectedTargetIds {
+                let display = settings.targetLabels[targetId] ?? targetId
                 do {
                     let result = try await client.sendData(data,
                                                            filename: filename,
@@ -212,36 +239,35 @@ struct UploadView: View {
                                                            color: color,
                                                            duplex: duplex)
                     if result.ok == true || result.status?.lowercased() == "queued" {
-                        successes.append("✅ \(targetId): \(shortResult(result))")
+                        outcomes.append(SendOutcome(targetDisplay: display,
+                                                    ok: true,
+                                                    detail: successDetail(result)))
                     } else {
-                        failures.append("⚠️ \(targetId): \(result.error ?? result.message ?? "Unbekannter Fehler")")
+                        outcomes.append(SendOutcome(targetDisplay: display,
+                                                    ok: false,
+                                                    detail: result.error ?? result.message ?? "Unbekannter Fehler"))
                     }
                 } catch {
-                    failures.append("⚠️ \(targetId): \(error.localizedDescription)")
+                    outcomes.append(SendOutcome(targetDisplay: display,
+                                                ok: false,
+                                                detail: error.localizedDescription))
                 }
             }
-            resultText = successes.joined(separator: "\n")
-            errorText  = failures.joined(separator: "\n")
+            sendResults = outcomes
         } catch {
             errorText = error.localizedDescription
         }
     }
 
-    private func shortResult(_ r: SendResult) -> String {
-        var parts: [String] = []
-        if let s = r.status { parts.append(s) }
-        if let j = r.jobId { parts.append("job=\(j)") }
-        return parts.isEmpty ? "gesendet" : parts.joined(separator: " ")
+    /// Detailzeile fuer einen erfolgreichen Send — lesbar statt
+    /// "queued job=abc". Wir zeigen den Status kapitalisiert und
+    /// haengen die Job-Id nur an wenn vorhanden.
+    private func successDetail(_ r: SendResult) -> String {
+        let status = (r.status ?? "gesendet").capitalized
+        if let job = r.jobId, !job.isEmpty {
+            return "\(status) · Job \(job)"
+        }
+        return status
     }
 
-    private func format(result: SendResult) -> String {
-        var parts: [String] = []
-        parts.append("✅ Gesendet")
-        if let s = result.status { parts.append("Status: \(s)") }
-        if let j = result.jobId { parts.append("Job-Id: \(j)") }
-        if let p = result.printixJobId { parts.append("Printix-Job: \(p)") }
-        if let t = result.target { parts.append("Target: \(t)") }
-        if let f = result.filename { parts.append("Datei: \(f)") }
-        return parts.joined(separator: "\n")
-    }
 }
