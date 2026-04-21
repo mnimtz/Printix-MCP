@@ -17405,6 +17405,56 @@ for lang, extra in EMP_SEND_TO_TRANSLATIONS.items():
     TRANSLATIONS.setdefault(lang, {}).update(extra)
 
 
+# ── Mobile App (iOS) ─────────────────────────────────────────────────────
+#
+# Keys für /my/mobile-app, /my-Dashboard-Kachel „Mobile App" und die
+# Sub-Nav. Nur DE + EN — andere Sprachen fallen automatisch auf EN zurück
+# (siehe get_translator()).
+EMP_MOBILE_APP_TRANSLATIONS: dict[str, dict[str, str]] = {
+    "de": {
+        "emp_mobile_app":          "Mobile App",
+        "emp_mobile_app_title":    "Mobile Print — iOS-App",
+        "emp_mobile_app_intro":    "Drucke unterwegs direkt vom iPhone in deine SecurePrint-Queue. Aus jeder App heraus per \u201eTeilen \u2192 Mobile Print\u201c.",
+        "emp_mobile_app_qr_title": "QR-Code zum Einrichten",
+        "emp_mobile_app_qr_desc":  "In der App auf \u201eQR scannen\u201c tippen und diesen Code erfassen. Die Server-URL wird \u00fcbernommen \u2014 du musst sie nicht abtippen.",
+        "emp_mobile_app_how_title":    "So richtest du ein",
+        "emp_mobile_app_step_install": "Mobile Print via TestFlight auf dem iPhone installieren.",
+        "emp_mobile_app_step_scan":    "App \u00f6ffnen \u2192 Setup \u2192 \u201eQR scannen\u201c und den QR oben erfassen.",
+        "emp_mobile_app_step_login":   "Mit deinen Portal-Zugangsdaten anmelden (oder per Microsoft).",
+        "emp_mobile_app_step_target":  "Unter \u201eZiele\u201c deine bevorzugte Druck-Queue w\u00e4hlen \u2014 fertig.",
+        "emp_mobile_app_manual_title": "Oder manuell eintragen",
+        "emp_mobile_app_manual_desc":  "Falls dein Gerät keinen QR-Code scannen kann, diese Server-URL im Setup-Screen der App eintragen:",
+        "emp_mobile_app_download_title":   "Installation via TestFlight",
+        "emp_mobile_app_download_desc":    "Die App wird aktuell über Apples TestFlight verteilt. Frag deinen Admin nach dem Einladungs-Link — auf einem frischen Gerät braucht es einmalig die TestFlight-App aus dem App Store.",
+        "emp_mobile_app_testflight_note":  "Hinweis: Solange die App in TestFlight läuft, können einzelne Builds ein Ablaufdatum haben (90 Tage). Nach einem Update einfach neu einloggen, falls nötig.",
+        "emp_dash_tile_mobile_app":      "Mobile App",
+        "emp_dash_tile_mobile_app_sub":  "QR scannen & unterwegs drucken",
+    },
+    "en": {
+        "emp_mobile_app":          "Mobile app",
+        "emp_mobile_app_title":    "Mobile Print — iOS app",
+        "emp_mobile_app_intro":    "Print straight from your iPhone into your SecurePrint queue — from any app via “Share → Mobile Print”.",
+        "emp_mobile_app_qr_title": "Setup QR code",
+        "emp_mobile_app_qr_desc":  "Tap “Scan QR” in the app and capture this code. The server URL is filled in — no typing required.",
+        "emp_mobile_app_how_title":    "How to set up",
+        "emp_mobile_app_step_install": "Install Mobile Print on your iPhone via TestFlight.",
+        "emp_mobile_app_step_scan":    "Open the app → Setup → “Scan QR” and capture the code above.",
+        "emp_mobile_app_step_login":   "Sign in with your portal credentials (or via Microsoft).",
+        "emp_mobile_app_step_target":  "Pick your preferred print queue under “Targets” — done.",
+        "emp_mobile_app_manual_title": "Or enter manually",
+        "emp_mobile_app_manual_desc":  "If your device can't scan QR codes, enter this server URL on the app's Setup screen:",
+        "emp_mobile_app_download_title":   "Install via TestFlight",
+        "emp_mobile_app_download_desc":    "The app is distributed via Apple TestFlight. Ask your admin for the invitation link — you'll need Apple's TestFlight app from the App Store once.",
+        "emp_mobile_app_testflight_note":  "Note: While in TestFlight, individual builds may expire (90 days). After an update just sign in again if needed.",
+        "emp_dash_tile_mobile_app":      "Mobile app",
+        "emp_dash_tile_mobile_app_sub":  "Scan QR and print on the go",
+    },
+}
+
+for lang, extra in EMP_MOBILE_APP_TRANSLATIONS.items():
+    TRANSLATIONS.setdefault(lang, {}).update(extra)
+
+
 EMP_BULK_IMPORT_TRANSLATIONS: dict[str, dict[str, str]] = {
     "de": {
         "emp_bulk_import_action": "Alle einladen & hinzufügen",

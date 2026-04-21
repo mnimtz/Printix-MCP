@@ -25,3 +25,9 @@ python-dateutil>=2.9.0
 # Reporting — Ausgabeformate (v3.1)
 fpdf2>=2.7.0
 openpyxl>=3.1.0
+
+# QR-Code-Generator (Mobile-App-Onboarding, /my/mobile-app/qr.png).
+# segno ist pure-python und zieht kein Pillow mit rein — sonst würden
+# wir für einen popeligen QR-Code ~10 MB Image-Lib in den Container
+# schleppen.
+segno>=1.6.0

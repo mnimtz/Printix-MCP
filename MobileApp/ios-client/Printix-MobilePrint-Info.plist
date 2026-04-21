@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDisplayName</key>
+	<string>Mobile Print</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Mobile Print nutzt die Kamera, um den QR-Code aus dem Mitarbeiter-Portal zu scannen und den Server automatisch einzurichten.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

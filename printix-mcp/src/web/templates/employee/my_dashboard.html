@@ -12,6 +12,7 @@
     <a href="/my/cloud-print" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_cloud_print') }}</a>
     <a href="/my/send-to" class="btn btn-secondary" style="font-size:.85em;">💻 {{ _('emp_send_to') }}</a>
     {% endif %}
+    <a href="/my/mobile-app" class="btn btn-secondary" style="font-size:.85em;">📱 {{ _('emp_mobile_app') }}</a>
     {% if user.role_type != 'employee' %}
     <a href="/my/employees" class="btn btn-secondary" style="font-size:.85em;">{{ _('nav_employees') }}</a>
     <a href="/my/setup-guide" class="btn btn-secondary" style="font-size:.85em;">{{ _('emp_setup_guide') }}</a>
@@ -72,6 +73,20 @@
         <div style="font-size:2.4em;line-height:1;margin-bottom:8px;">🌳</div>
         <div style="font-size:1.1em;font-weight:700;">{{ _('emp_dash_tile_environment') }}</div>
         <div style="font-size:.85em;opacity:.8;margin-top:4px;">{{ _('emp_dash_tile_environment_sub') }}</div>
+      </a>
+
+      <!-- Kachel: Mobile App (iOS) -->
+      <a href="/my/mobile-app" class="feature-card" data-tone="violet"
+         style="text-decoration:none;display:flex;flex-direction:column;
+                padding:24px 20px;border-radius:12px;
+                background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+                border:1px solid #c4b5fd;color:#3b0764;
+                transition:transform .15s ease,box-shadow .15s ease;"
+         onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 20px rgba(139,92,246,.18)'"
+         onmouseout="this.style.transform='';this.style.boxShadow=''">
+        <div style="font-size:2.4em;line-height:1;margin-bottom:8px;">📱</div>
+        <div style="font-size:1.1em;font-weight:700;">{{ _('emp_dash_tile_mobile_app') }}</div>
+        <div style="font-size:.85em;opacity:.8;margin-top:4px;">{{ _('emp_dash_tile_mobile_app_sub') }}</div>
       </a>
 
     </div>

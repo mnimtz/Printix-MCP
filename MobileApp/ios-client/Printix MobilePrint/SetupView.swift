@@ -9,6 +9,8 @@ struct SetupView: View {
 
     @State private var draftURL: String = ""
     @State private var showLogin: Bool = false
+    @State private var showScanner: Bool = false
+    @State private var scanNote: String = ""
 
     var body: some View {
         NavigationStack {
@@ -18,6 +20,21 @@ struct SetupView: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
+
+                    Button {
+                        scanNote = ""
+                        showScanner = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "qrcode.viewfinder")
+                            Text("QR scannen")
+                            Spacer()
+                        }
+                    }
+
+                    if !scanNote.isEmpty {
+                        Text(scanNote).font(.footnote).foregroundColor(.secondary)
+                    }
                 }
 
                 Section {
@@ -45,6 +62,24 @@ struct SetupView: View {
             .onAppear { draftURL = settings.serverURL }
             .navigationDestination(isPresented: $showLogin) {
                 LoginView()
+            }
+            .sheet(isPresented: $showScanner) {
+                QRScannerView { value in
+                    showScanner = false
+                    guard let v = value, !v.isEmpty else {
+                        scanNote = "Scan abgebrochen oder Kamera nicht verfügbar."
+                        return
+                    }
+                    // Nur akzeptieren, wenn es nach URL aussieht — sonst
+                    // blenden wir den Rohwert als Hinweis ein.
+                    if v.lowercased().hasPrefix("http://") || v.lowercased().hasPrefix("https://") {
+                        draftURL = v
+                        scanNote = "Server-URL aus QR übernommen."
+                    } else {
+                        scanNote = "QR enthält keine gültige Server-URL."
+                    }
+                }
+                .ignoresSafeArea()
             }
         }
     }

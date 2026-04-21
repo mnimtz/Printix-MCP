@@ -873,6 +873,81 @@ def register_employee_routes(
             **t_ctx(request),
         })
 
+    # ── Mobile App (iOS) — QR-Onboarding ──────────────────────────────────
+    #
+    # Die iOS-App „Mobile Print" braucht zum Einrichten nur die
+    # Server-URL; User-Login läuft danach in der App selbst. Statt URLs
+    # abzutippen, scannt der Benutzer hier einen QR-Code mit genau der
+    # Basis-URL (optional plus Hinweis-Payload für zukünftige Keys).
+    #
+    # Kein personalisiertes Token — die Verbindung ist rein öffentlich,
+    # echte Anmeldung passiert via /desktop/auth/login gegen den gleichen
+    # Tenant-Kontext wie am Desktop.
+
+    def _public_base_url(request: Request) -> str:
+        """Basis-URL für mobile Clients: DB-Setting bevorzugt, sonst
+        ableiten aus der Request. `ipp_public_url` ist für IPP, hier
+        wollen wir die HTTPS-API-URL."""
+        from db import get_setting
+        candidate = (get_setting("public_url", "") or "").strip().rstrip("/")
+        if candidate:
+            return candidate
+        # Fallback aus der aktuellen Request — für lokale Tests.
+        return str(request.base_url).rstrip("/")
+
+    @app.get("/my/mobile-app", response_class=HTMLResponse)
+    async def my_mobile_app(request: Request):
+        user = _require_employee(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+
+        base_url = _public_base_url(request)
+        return templates.TemplateResponse("employee/my_mobile_app.html", {
+            "request": request, "user": user,
+            "mobile_base_url": base_url,
+            # Der Payload, der im QR steckt — identisch mit dem, was der
+            # iOS-Scanner erwartet. JSON hält die Tür offen für künftige
+            # Felder (z. B. default_target oder brand).
+            "mobile_qr_payload_hint": (
+                '{"v":1,"server":"' + base_url + '"}'
+            ),
+            **t_ctx(request),
+        })
+
+    @app.get("/my/mobile-app/qr.png")
+    async def my_mobile_app_qr(request: Request):
+        """PNG-QR mit einem schlanken JSON-Payload:
+        `{"v":1,"server":"https://..."}`.
+        Der iOS-Scanner erkennt `server` und springt direkt in den
+        Login-Screen — ohne URL-Tippen.
+        """
+        user = _require_employee(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+
+        import json, io
+        try:
+            import segno
+        except ImportError:
+            # Wenn das Paket fehlt, nicht hart crashen — der User bekommt
+            # stattdessen die Server-URL im Text auch ohne QR angezeigt.
+            from fastapi.responses import Response
+            return Response(status_code=503, content="segno not installed")
+
+        base_url = _public_base_url(request)
+        payload = json.dumps({"v": 1, "server": base_url}, separators=(",", ":"))
+        qr = segno.make(payload, error="m")
+        buf = io.BytesIO()
+        # scale=10 → ~370 px Kante bei typischem Payload; kein Border,
+        # damit die Kachel im Template sauber eingebettet ist.
+        qr.save(buf, kind="png", scale=10, border=2, dark="#0f172a", light="#ffffff")
+        from fastapi.responses import Response
+        return Response(
+            content=buf.getvalue(),
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=60"},
+        )
+
     @app.post("/my/cloud-print/save")
     async def my_cloud_print_save(
         request: Request,
