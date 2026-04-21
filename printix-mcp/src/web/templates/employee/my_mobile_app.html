@@ -67,12 +67,54 @@
     </div>
   </div>
 
-  <!-- Testflight / Download-Hinweis -->
+  <!-- Testflight / Download -->
   <div class="card" style="margin-top:16px;">
     <div class="section-title">{{ _('emp_mobile_app_download_title') }}</div>
     <div class="section-sub">{{ _('emp_mobile_app_download_desc') }}</div>
-    <div style="margin-top:12px;font-size:.9em;color:#334155;line-height:1.6;">
-      {{ _('emp_mobile_app_testflight_note') }}
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+                gap:24px;margin-top:20px;align-items:start;">
+
+      <!-- TestFlight-Kachel: Button + Hinweis -->
+      <div>
+        <ol style="margin:0 0 14px 20px;padding:0;font-size:.9em;color:#334155;line-height:1.7;">
+          <li>Installiere zuerst die <strong>TestFlight</strong>-App aus dem
+              App Store (einmalig, Apple-eigene Beta-Verteilung).</li>
+          <li>Tippe anschließend auf den Button — TestFlight öffnet sich und
+              bietet „Printix MobilePrint“ zum Installieren an.</li>
+          <li>Nach Updates erhältst du automatisch eine Benachrichtigung.</li>
+        </ol>
+
+        <a href="{{ testflight_url }}"
+           target="_blank" rel="noopener"
+           style="display:inline-flex;align-items:center;gap:10px;
+                  background:#0066ff;color:white;text-decoration:none;
+                  padding:12px 20px;border-radius:10px;font-weight:600;
+                  font-size:.95em;box-shadow:0 2px 8px rgba(0,102,255,.25);">
+          <span style="font-size:1.2em;">📱</span>
+          In TestFlight öffnen
+        </a>
+
+        <div style="margin-top:10px;font-size:.8em;color:#64748b;word-break:break-all;">
+          {{ testflight_url }}
+        </div>
+      </div>
+
+      <!-- QR-Kachel fuer den TestFlight-Link (vom Handy scannbar) -->
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;
+                  padding:20px;text-align:center;">
+        <div style="font-size:.9em;font-weight:600;margin-bottom:10px;color:#0f172a;">
+          QR-Code scannen
+        </div>
+        <img src="/my/mobile-app/testflight-qr.png"
+             alt="TestFlight QR"
+             style="width:220px;height:220px;max-width:100%;
+                    border-radius:8px;background:white;padding:8px;
+                    box-shadow:0 2px 6px rgba(0,0,0,.08);" />
+        <div style="font-size:.78em;color:#64748b;margin-top:10px;line-height:1.5;">
+          Mit dem Smartphone scannen → TestFlight öffnet den Einladungslink.
+        </div>
+      </div>
     </div>
   </div>
 </div>

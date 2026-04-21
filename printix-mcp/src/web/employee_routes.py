@@ -912,9 +912,15 @@ def register_employee_routes(
             return RedirectResponse("/login", status_code=302)
 
         base_url = _public_base_url(request)
+        # TestFlight-Einladungs-URL. Hart verdrahtet, weil wir derzeit
+        # nur einen Beta-Kanal fahren; spaeter ggf. via Config. Wichtig:
+        # der Link oeffnet in der TestFlight-App (muss der User vorher
+        # einmal aus dem App Store installieren — Hinweis im Template).
+        testflight_url = "https://testflight.apple.com/join/skx3gZnk"
         return templates.TemplateResponse("employee/my_mobile_app.html", {
             "request": request, "user": user,
             "mobile_base_url": base_url,
+            "testflight_url": testflight_url,
             # Der Payload, der im QR steckt — identisch mit dem, was der
             # iOS-Scanner erwartet. JSON hält die Tür offen für künftige
             # Felder (z. B. default_target oder brand).
@@ -956,6 +962,35 @@ def register_employee_routes(
             content=buf.getvalue(),
             media_type="image/png",
             headers={"Cache-Control": "private, max-age=60"},
+        )
+
+    @app.get("/my/mobile-app/testflight-qr.png")
+    async def my_mobile_app_testflight_qr(request: Request):
+        """PNG-QR mit der TestFlight-Einladungs-URL. Gleiche Rendering-
+        Pipeline wie der Server-QR — nur anderer Payload. So vermeiden
+        wir einen externen QR-API-Aufruf im Template (Datenschutz +
+        Offline-Tauglichkeit).
+        """
+        user = _require_employee(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+
+        import io
+        try:
+            import segno
+        except ImportError:
+            from fastapi.responses import Response
+            return Response(status_code=503, content="segno not installed")
+
+        testflight_url = "https://testflight.apple.com/join/skx3gZnk"
+        qr = segno.make(testflight_url, error="m")
+        buf = io.BytesIO()
+        qr.save(buf, kind="png", scale=10, border=2, dark="#0f172a", light="#ffffff")
+        from fastapi.responses import Response
+        return Response(
+            content=buf.getvalue(),
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=3600"},
         )
 
     @app.post("/my/cloud-print/save")
