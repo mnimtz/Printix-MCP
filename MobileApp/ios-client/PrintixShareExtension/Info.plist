@@ -6,15 +6,22 @@
 	<dict>
 		<key>NSExtensionAttributes</key>
 		<dict>
+			<!--
+			  Aktivierungsregeln fuer die Share-Extension.
+			  Trennung nach Attachment-Typ — iOS entscheidet anhand der
+			  UTType-Conformance des Items, welche Extension im Share-Sheet
+			  auftaucht:
+			    - Fotos-App teilt als "Image"  → Image-Keys
+			    - Files-App / Safari-PDF teilt als "File" → File-Keys
+			  "Strings" und "URLs" lassen wir bewusst weg — Drucken von Text
+			  oder Links ist kein Mobile-Print-Usecase.
+			-->
 			<key>NSExtensionActivationRule</key>
 			<dict>
-				<key>NSExtensionActivationSupportsFileWithTypes</key>
-				<array>
-					<string>public.image</string>
-					<string>public.pdf</string>
-				</array>
+				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
+				<integer>10</integer>
 				<key>NSExtensionActivationSupportsFileWithMaxCount</key>
-				<integer>1</integer>
+				<integer>10</integer>
 			</dict>
 		</dict>
 		<key>NSExtensionMainStoryboard</key>
