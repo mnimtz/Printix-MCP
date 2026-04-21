@@ -59,4 +59,18 @@ if __name__ == "__main__":
     app = create_app(session_secret=session_secret)
 
     logger.info("Starte Web-Verwaltungsoberfläche auf %s:%d", host, port)
-    uvicorn.run(app, host=host, port=port, log_level=log_lvl)
+    # proxy_headers=True + forwarded_allow_ips="*" lässt Uvicorn die
+    # X-Forwarded-Proto/-Host/-For Header auswerten. Ohne das liefert
+    # request.base_url nur das interne Schema (http) und den internen
+    # Host, was z.B. den Mobile-App-QR mit "http://..." statt
+    # "https://..." bestückt, wenn man via Cloudflare Tunnel / Reverse
+    # Proxy kommt. "*" ist hier ok, weil wir im Container hinter HA
+    # laufen und externer Traffic immer proxied reinkommt.
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_level=log_lvl,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
