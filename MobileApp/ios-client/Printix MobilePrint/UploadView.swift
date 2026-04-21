@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import UniformTypeIdentifiers
 import PhotosUI
 import PrintixSendCore
@@ -122,6 +123,15 @@ struct UploadView: View {
                                     .lineLimit(1)
                             }
                         }
+                        // Countdown-Banner: laeuft live mit (TimelineView
+                        // tickt sekuendlich) und ruft den Reset-Check auf,
+                        // damit bei Ablauf auf SecurePrint zurueckgeschaltet
+                        // wird — ohne dass der User aktiv was tun muss.
+                        if settings.selectionExpiresAt != nil {
+                            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                                autoResetBanner(now: ctx.date)
+                            }
+                        }
                     }
                 }
 
@@ -166,8 +176,38 @@ struct UploadView: View {
                 guard let newItem else { return }
                 Task { await importPhoto(newItem) }
             }
+            .onAppear {
+                settings.resetToDefaultIfExpired()
+            }
+            .onReceive(resetTick) { _ in
+                settings.resetToDefaultIfExpired()
+            }
         }
     }
+
+    /// Reines Anzeige-Helper — Countdown, keine Mutation.
+    /// Der tatsaechliche Reset passiert im onReceive am Form unten,
+    /// damit wir nicht waehrend eines View-Builds State mutieren.
+    @ViewBuilder
+    private func autoResetBanner(now: Date) -> some View {
+        if let expiry = settings.selectionExpiresAt {
+            let remaining = max(0, Int(expiry.timeIntervalSince(now)))
+            let mm = remaining / 60
+            let ss = remaining % 60
+            HStack {
+                Image(systemName: "clock.fill")
+                    .foregroundColor(.orange)
+                Text(String(format: "Zurück zu SecurePrint in %d:%02d", mm, ss))
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    /// 1-Sekunden-Timer fuer den Reset-Check. Wir haengen das
+    /// oben an die Form via .onReceive — so bleibt der Publisher
+    /// an den View-Lifecycle gebunden (kein Leak bei Dismiss).
+    private let resetTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     /// PhotosPickerItem → temporaere Datei im Tmp-Verzeichnis.
     /// Der Rest von sendNow() kann dann ueber pickedURL wie gewohnt

@@ -26,8 +26,20 @@ final class SettingsStore: ObservableObject {
         static let lastTargetId      = "lastTargetId"      // legacy/single (Share-Ext)
         static let selectedTargetIds = "selectedTargetIds" // JSON-Array (Multi)
         static let targetLabels      = "targetLabels"      // JSON-Dict id→label
+        static let selectionExpiresAt = "selectionExpiresAt" // Auto-Reset-Timer
         static let deviceName        = "deviceName"
     }
+
+    /// Default-Ziel, auf das der Auto-Reset-Timer zurueckfaellt.
+    /// "print:self" ist die magische Printix-ID fuer das eigene
+    /// SecurePrint-Konto — immer vorhanden, kein API-Lookup noetig.
+    static let defaultTargetId = "print:self"
+
+    /// Wie lange eine abweichende Zielauswahl (Delegate/Capture/...)
+    /// aktiv bleibt, bevor sie auf SecurePrint zurueckgestellt wird.
+    /// 10 min ist ein Kompromiss: lang genug um mehrere Dokumente
+    /// zu senden, kurz genug um "vergessen"-Drucke zu vermeiden.
+    static let autoResetInterval: TimeInterval = 10 * 60
 
     private let defaults: UserDefaults
 
@@ -83,6 +95,19 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Zeitpunkt, zu dem die aktuelle (nicht-default) Zielauswahl
+    /// automatisch auf `defaultTargetId` zurueckgesetzt wird. `nil`
+    /// bedeutet: entweder Default aktiv oder Timer inaktiv.
+    @Published var selectionExpiresAt: Date? {
+        didSet {
+            if let d = selectionExpiresAt {
+                defaults.set(d, forKey: Keys.selectionExpiresAt)
+            } else {
+                defaults.removeObject(forKey: Keys.selectionExpiresAt)
+            }
+        }
+    }
+
     @Published var deviceName: String {
         didSet { defaults.set(deviceName, forKey: Keys.deviceName) }
     }
@@ -110,8 +135,40 @@ final class SettingsStore: ObservableObject {
         } else {
             self.targetLabels = [:]
         }
+        self.selectionExpiresAt = defaults.object(forKey: Keys.selectionExpiresAt) as? Date
         let storedDeviceName = defaults.string(forKey: Keys.deviceName) ?? ""
         self.deviceName = storedDeviceName.isEmpty ? Self.defaultDeviceName() : storedDeviceName
+    }
+
+    // MARK: - Auto-Reset
+
+    /// Nach jeder User-Auswahl aufrufen. Setzt oder loescht den
+    /// Auto-Reset-Timer je nachdem, ob die aktuelle Auswahl dem
+    /// Default entspricht. Bestehender Timer wird NICHT verlaengert
+    /// — sonst koennte man durch wiederholtes Tippen ewig bei einem
+    /// Delegate haengen bleiben (das wollen wir genau verhindern).
+    func applyAutoResetPolicy() {
+        let isDefault = selectedTargetIds == [Self.defaultTargetId]
+                     || selectedTargetIds.isEmpty
+        if isDefault {
+            selectionExpiresAt = nil
+        } else if selectionExpiresAt == nil {
+            selectionExpiresAt = Date().addingTimeInterval(Self.autoResetInterval)
+        }
+    }
+
+    /// Prueft ob der Timer abgelaufen ist und setzt ggf. zurueck.
+    /// Wird von UploadView periodisch aufgerufen (TimelineView).
+    /// Rueckgabewert signalisiert, ob ein Reset passiert ist —
+    /// UploadView kann dann ein kurzes Toast/Feedback zeigen.
+    @discardableResult
+    func resetToDefaultIfExpired() -> Bool {
+        guard let expiry = selectionExpiresAt, Date() >= expiry else {
+            return false
+        }
+        selectedTargetIds = [Self.defaultTargetId]
+        selectionExpiresAt = nil
+        return true
     }
 
     // MARK: - Derived

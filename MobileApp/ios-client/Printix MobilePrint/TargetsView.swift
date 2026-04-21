@@ -21,6 +21,14 @@ struct TargetsView: View {
                     }
                 }
 
+                if settings.selectionExpiresAt != nil {
+                    Section {
+                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                            autoResetHint(now: ctx.date)
+                        }
+                    }
+                }
+
                 Section("Druck-Ziele") {
                     if loading && targets.isEmpty {
                         HStack { ProgressView(); Text("Lade Ziele …") }
@@ -87,12 +95,35 @@ struct TargetsView: View {
         return n.isEmpty ? e : "\(n) · \(e)"
     }
 
+    @ViewBuilder
+    private func autoResetHint(now: Date) -> some View {
+        if let expiry = settings.selectionExpiresAt {
+            let remaining = max(0, Int(expiry.timeIntervalSince(now)))
+            let mm = remaining / 60
+            let ss = remaining % 60
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .foregroundColor(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(format: "Auto-Reset in %d:%02d", mm, ss))
+                        .fontWeight(.medium)
+                    Text("Auswahl wird danach auf SecurePrint zurückgesetzt, damit du nicht versehentlich dauerhaft an ein Delegate druckst.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
     private func toggle(_ t: Target) {
         if let idx = settings.selectedTargetIds.firstIndex(of: t.id) {
             settings.selectedTargetIds.remove(at: idx)
         } else {
             settings.selectedTargetIds.append(t.id)
         }
+        // Auto-Reset-Timer nachziehen: abweichende Auswahl → 10-min-
+        // Timer starten, Rueckkehr zum Default → Timer loeschen.
+        settings.applyAutoResetPolicy()
     }
 
     @MainActor
