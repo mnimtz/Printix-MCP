@@ -4,6 +4,13 @@
 <dict>
 	<key>CFBundleDisplayName</key>
 	<string>Mobile Print</string>
+	<!-- Export Compliance: Wir nutzen ausschliesslich iOS-Standard-
+	     Verschlüsselung (HTTPS via URLSession). Das befreit uns von
+	     der jaehrlichen Export-Erklaerung nach US-Recht. Setzt den
+	     Flag auf "false", damit App Store Connect bei jedem Upload
+	     NICHT erneut "Fehlende Compliance" anzeigt. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Mobile Print nutzt die Kamera, um den QR-Code aus dem Mitarbeiter-Portal zu scannen und den Server automatisch einzurichten.</string>
 	<key>CFBundleURLTypes</key>
