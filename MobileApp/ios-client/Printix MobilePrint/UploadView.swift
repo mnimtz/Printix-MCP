@@ -86,6 +86,26 @@ struct UploadView: View {
                         .autocorrectionDisabled()
                 }
 
+                // Senden-Button zuerst — kuerzerer Weg vom Datei-
+                // Picker zum Absenden. Der User will in der Regel nur
+                // drucken; die Ziel-Liste steht informativ drunter.
+                Section {
+                    Button {
+                        Task { await sendNow() }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if isSending { ProgressView() }
+                            else {
+                                Image(systemName: "paperplane.fill")
+                                Text("An Printix senden").fontWeight(.semibold)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(isSending || pickedURL == nil || settings.selectedTargetIds.isEmpty)
+                }
+
                 Section("Ziele") {
                     if settings.selectedTargetIds.isEmpty {
                         Text("Kein Ziel gewählt — unter „Ziele“ auswählen.")
@@ -103,23 +123,6 @@ struct UploadView: View {
                             }
                         }
                     }
-                }
-
-                Section {
-                    Button {
-                        Task { await sendNow() }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if isSending { ProgressView() }
-                            else {
-                                Image(systemName: "paperplane.fill")
-                                Text("An Printix senden").fontWeight(.semibold)
-                            }
-                            Spacer()
-                        }
-                    }
-                    .disabled(isSending || pickedURL == nil || settings.selectedTargetIds.isEmpty)
                 }
 
                 if !errorText.isEmpty {
