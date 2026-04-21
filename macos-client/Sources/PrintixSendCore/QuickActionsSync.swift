@@ -1,5 +1,10 @@
 import Foundation
 
+// macOS-only: der iOS-Client nutzt die iOS Share-Extension statt
+// Finder-Quick-Actions. Auf anderen Plattformen wird die gesamte
+// Datei übersprungen, damit PrintixSendCore auch für iOS baut.
+#if os(macOS)
+
 // macOS-Pendant zu windows-client/PrintixSend/Services/SendToSync.cs.
 //
 // Erzeugt pro Target einen Finder-Dienst ("Quick Action") unter
@@ -175,3 +180,5 @@ public struct QuickActionsSync {
         try? task.run()
     }
 }
+
+#endif // os(macOS)

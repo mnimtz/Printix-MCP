@@ -139,6 +139,18 @@ public final class ApiClient: @unchecked Sendable {
         let url = URL(fileURLWithPath: filePath)
         let fileData = try Data(contentsOf: url)
         let filename = url.lastPathComponent
+        return try await sendData(fileData, filename: filename, targetId: targetId,
+                                  comment: comment, copies: copies, color: color, duplex: duplex)
+    }
+
+    /// In-Memory-Variante: nötig für den iOS-Share-Extension-Pfad, der oft
+    /// nur Data erhält (z. B. bereits aus Bild→PDF-Rendering) und nichts
+    /// auf Disk schreiben möchte.
+    public func sendData(_ fileData: Data, filename: String, targetId: String,
+                         comment: String? = nil,
+                         copies: Int = 1,
+                         color: Bool = false,
+                         duplex: Bool = false) async throws -> SendResult {
         log.info("POST /desktop/send — target=\(targetId) file=\(filename) size=\(fileData.count)")
 
         let boundary = "Boundary-\(UUID().uuidString)"
@@ -173,7 +185,8 @@ public final class ApiClient: @unchecked Sendable {
 
         append("--\(boundary)\r\n")
         append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
-        append("Content-Type: \(guessMime(url.pathExtension))\r\n\r\n")
+        let ext = (filename as NSString).pathExtension
+        append("Content-Type: \(guessMime(ext))\r\n\r\n")
         body.append(fileData)
         append("\r\n--\(boundary)--\r\n")
 

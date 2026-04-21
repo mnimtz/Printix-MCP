@@ -1,0 +1,4 @@
+# Xcode user-specific state — never belongs in the repo
+**/xcuserdata/
+**/*.xcuserstate
+**/project.xcworkspace/xcuserdata/

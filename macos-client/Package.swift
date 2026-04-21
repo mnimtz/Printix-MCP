@@ -1,22 +1,26 @@
 // swift-tools-version:5.9
 //
-// Printix Send — macOS-Client
-// ============================
-// Drei Targets:
-//  - PrintixSendCore : Shared-Lib (API, Keychain, Models, Config, Logger)
-//  - printix-send-cli: Worker, der von Quick-Actions aufgerufen wird
-//  - PrintixSendApp  : Menu-Bar-App (Login, Config, Quick-Action-Sync)
+// Printix Send — Shared Swift Package
+// ===================================
+// Targets:
+//  - PrintixSendCore  : Cross-platform lib (API, Keychain, Models, Config,
+//                        Logger, optional Notifications). Wird von macOS-
+//                        und iOS-Client gemeinsam genutzt.
+//  - printix-send-cli : macOS-Worker für Quick-Actions (macOS-only)
+//  - PrintixSendApp   : macOS-Menu-Bar-App (macOS-only)
 //
-// Gebaut wird per `swift build -c release --arch arm64 --arch x86_64`
-// (Universal-Binary). Das .app-Bundle wird via scripts/make-app-bundle.sh
-// aus dem Build-Output zusammengesteckt.
+// iOS-Client (MobileApp/ios-client/) linkt das Core-Target via Xcode
+// als lokales SPM-Package — nur `PrintixSendCore` wird dort gebaut;
+// die beiden Executable-Targets sind für iOS implizit ausgeschlossen,
+// da sie AppKit-Abhängigkeiten haben.
 
 import PackageDescription
 
 let package = Package(
     name: "PrintixSend",
     platforms: [
-        .macOS(.v13)  // macOS 13 Ventura — deckt 2022+ ab
+        .macOS(.v13),  // macOS 13 Ventura
+        .iOS(.v16),    // iOS 16 — deckt praktisch alle aktiven Geräte ab
     ],
     products: [
         .library(name: "PrintixSendCore", targets: ["PrintixSendCore"]),
