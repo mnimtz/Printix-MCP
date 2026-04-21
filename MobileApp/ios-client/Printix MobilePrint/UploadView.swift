@@ -77,14 +77,20 @@ struct UploadView: View {
                         .autocorrectionDisabled()
                 }
 
-                Section("Ziel") {
-                    if settings.lastTargetId.isEmpty {
+                Section("Ziele") {
+                    if settings.selectedTargetIds.isEmpty {
                         Text("Kein Ziel gewählt — unter „Ziele“ auswählen.")
                             .foregroundColor(.secondary)
                     } else {
-                        Text("target_id: \(settings.lastTargetId)")
-                            .font(.footnote.monospaced())
+                        Text("\(settings.selectedTargetIds.count) Ziel(e) ausgewählt")
+                            .font(.footnote)
                             .foregroundColor(.secondary)
+                        ForEach(settings.selectedTargetIds, id: \.self) { id in
+                            Text(id)
+                                .font(.footnote.monospaced())
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
 
@@ -102,7 +108,7 @@ struct UploadView: View {
                             Spacer()
                         }
                     }
-                    .disabled(isSending || pickedURL == nil || settings.lastTargetId.isEmpty)
+                    .disabled(isSending || pickedURL == nil || settings.selectedTargetIds.isEmpty)
                 }
 
                 if !errorText.isEmpty {
@@ -189,21 +195,43 @@ struct UploadView: View {
         do {
             let data = try Data(contentsOf: fileURL)
             let filename = fileURL.lastPathComponent
-            let result = try await client.sendData(data,
-                                                   filename: filename,
-                                                   targetId: settings.lastTargetId,
-                                                   comment: comment.isEmpty ? nil : comment,
-                                                   copies: copies,
-                                                   color: color,
-                                                   duplex: duplex)
-            if result.ok == true || result.status?.lowercased() == "queued" {
-                resultText = format(result: result)
-            } else {
-                errorText = "⚠️ \(result.error ?? result.message ?? "Unbekannter Fehler")"
+            // Multi-Target: pro ausgewaehltem Ziel einmal senden.
+            // Wir sammeln Erfolge/Fehler pro Ziel und zeigen die Liste
+            // anschliessend an — ein Fehler bei einem Ziel bricht den
+            // Rest nicht ab (z.B. wenn ein Drucker offline ist, soll
+            // der andere trotzdem losgehen).
+            var successes: [String] = []
+            var failures:  [String] = []
+            for targetId in settings.selectedTargetIds {
+                do {
+                    let result = try await client.sendData(data,
+                                                           filename: filename,
+                                                           targetId: targetId,
+                                                           comment: comment.isEmpty ? nil : comment,
+                                                           copies: copies,
+                                                           color: color,
+                                                           duplex: duplex)
+                    if result.ok == true || result.status?.lowercased() == "queued" {
+                        successes.append("✅ \(targetId): \(shortResult(result))")
+                    } else {
+                        failures.append("⚠️ \(targetId): \(result.error ?? result.message ?? "Unbekannter Fehler")")
+                    }
+                } catch {
+                    failures.append("⚠️ \(targetId): \(error.localizedDescription)")
+                }
             }
+            resultText = successes.joined(separator: "\n")
+            errorText  = failures.joined(separator: "\n")
         } catch {
             errorText = error.localizedDescription
         }
+    }
+
+    private func shortResult(_ r: SendResult) -> String {
+        var parts: [String] = []
+        if let s = r.status { parts.append(s) }
+        if let j = r.jobId { parts.append("job=\(j)") }
+        return parts.isEmpty ? "gesendet" : parts.joined(separator: " ")
     }
 
     private func format(result: SendResult) -> String {

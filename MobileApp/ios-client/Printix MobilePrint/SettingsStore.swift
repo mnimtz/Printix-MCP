@@ -19,12 +19,13 @@ final class SettingsStore: ObservableObject {
     static let appGroupID = "group.com.mnimtz.printixmobileprint"
 
     private enum Keys {
-        static let serverURL    = "serverURL"
-        static let bearerToken  = "bearerToken"
-        static let userEmail    = "userEmail"
-        static let userFullName = "userFullName"
-        static let lastTargetId = "lastTargetId"
-        static let deviceName   = "deviceName"
+        static let serverURL         = "serverURL"
+        static let bearerToken       = "bearerToken"
+        static let userEmail         = "userEmail"
+        static let userFullName      = "userFullName"
+        static let lastTargetId      = "lastTargetId"      // legacy/single (Share-Ext)
+        static let selectedTargetIds = "selectedTargetIds" // JSON-Array (Multi)
+        static let deviceName        = "deviceName"
     }
 
     private let defaults: UserDefaults
@@ -49,6 +50,25 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(lastTargetId, forKey: Keys.lastTargetId) }
     }
 
+    /// Multi-Select: Liste der aktuell ausgewaehlten Ziel-Ids.
+    /// Die Haupt-App nutzt diese fuer den "Gleichzeitig an mehrere
+    /// Ziele"-Upload. Wir halten `lastTargetId` parallel auf das erste
+    /// Element synchron, damit die Share-Extension (die nur ein Ziel
+    /// kennt) weiter funktioniert — die lesen wir nicht um, damit die
+    /// Extension keinen Build-Anschluss an den JSON-Parser braucht.
+    @Published var selectedTargetIds: [String] {
+        didSet {
+            if let data = try? JSONEncoder().encode(selectedTargetIds) {
+                defaults.set(data, forKey: Keys.selectedTargetIds)
+            }
+            // Share-Extension bleibt auf single-target → primaeres Ziel mirror'n.
+            let primary = selectedTargetIds.first ?? ""
+            if lastTargetId != primary {
+                lastTargetId = primary
+            }
+        }
+    }
+
     @Published var deviceName: String {
         didSet { defaults.set(deviceName, forKey: Keys.deviceName) }
     }
@@ -61,7 +81,15 @@ final class SettingsStore: ObservableObject {
         self.bearerToken  = defaults.string(forKey: Keys.bearerToken)  ?? ""
         self.userEmail    = defaults.string(forKey: Keys.userEmail)    ?? ""
         self.userFullName = defaults.string(forKey: Keys.userFullName) ?? ""
-        self.lastTargetId = defaults.string(forKey: Keys.lastTargetId) ?? ""
+        let legacyTarget = defaults.string(forKey: Keys.lastTargetId) ?? ""
+        self.lastTargetId = legacyTarget
+        // Multi-Target aus JSON laden; Fallback = Single aus Legacy-Key.
+        if let data = defaults.data(forKey: Keys.selectedTargetIds),
+           let arr  = try? JSONDecoder().decode([String].self, from: data) {
+            self.selectedTargetIds = arr
+        } else {
+            self.selectedTargetIds = legacyTarget.isEmpty ? [] : [legacyTarget]
+        }
         let storedDeviceName = defaults.string(forKey: Keys.deviceName) ?? ""
         self.deviceName = storedDeviceName.isEmpty ? Self.defaultDeviceName() : storedDeviceName
     }

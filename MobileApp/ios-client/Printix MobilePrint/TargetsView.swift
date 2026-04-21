@@ -30,7 +30,7 @@ struct TargetsView: View {
                     } else {
                         ForEach(targets) { t in
                             Button {
-                                settings.lastTargetId = t.id
+                                toggle(t)
                             } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
@@ -40,9 +40,16 @@ struct TargetsView: View {
                                         }
                                     }
                                     Spacer()
-                                    if settings.lastTargetId == t.id {
+                                    // Multi-Select: Haken wenn das Ziel in der
+                                    // ausgewaehlten Liste steht. Tap toggelt
+                                    // Mitgliedschaft — so kann man delegate1 +
+                                    // capture1 gleichzeitig anvisieren.
+                                    if settings.selectedTargetIds.contains(t.id) {
                                         Image(systemName: "checkmark.circle.fill")
                                             .foregroundColor(.accentColor)
+                                    } else {
+                                        Image(systemName: "circle")
+                                            .foregroundColor(.secondary)
                                     }
                                 }
                             }
@@ -80,6 +87,14 @@ struct TargetsView: View {
         return n.isEmpty ? e : "\(n) · \(e)"
     }
 
+    private func toggle(_ t: Target) {
+        if let idx = settings.selectedTargetIds.firstIndex(of: t.id) {
+            settings.selectedTargetIds.remove(at: idx)
+        } else {
+            settings.selectedTargetIds.append(t.id)
+        }
+    }
+
     @MainActor
     private func reload() async {
         error = ""
@@ -92,9 +107,10 @@ struct TargetsView: View {
         defer { loading = false }
         do {
             targets = try await client.targets()
-            // Falls noch kein Default gesetzt: erstes Ziel nehmen.
-            if settings.lastTargetId.isEmpty, let first = targets.first {
-                settings.lastTargetId = first.id
+            // Falls noch nichts ausgewaehlt ist: erstes Ziel als Default
+            // setzen, damit der Upload-Button nicht sofort disabled ist.
+            if settings.selectedTargetIds.isEmpty, let first = targets.first {
+                settings.selectedTargetIds = [first.id]
             }
         } catch {
             self.error = error.localizedDescription
