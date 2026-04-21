@@ -885,14 +885,24 @@ def register_employee_routes(
     # Tenant-Kontext wie am Desktop.
 
     def _public_base_url(request: Request) -> str:
-        """Basis-URL für mobile Clients: DB-Setting bevorzugt, sonst
-        ableiten aus der Request. `ipp_public_url` ist für IPP, hier
-        wollen wir die HTTPS-API-URL."""
-        from db import get_setting
-        candidate = (get_setting("public_url", "") or "").strip().rstrip("/")
-        if candidate:
-            return candidate
-        # Fallback aus der aktuellen Request — für lokale Tests.
+        """Basis-URL für die Mobile-App.
+
+        **Wichtig**: Die iOS-App spricht /desktop/auth/login und /desktop/*
+        an — diese Endpunkte leben auf der **Web-App** (WEB_PORT, frei
+        konfigurierbar in HA, z. B. 8010), NICHT auf dem MCP-Server
+        (MCP_PORT, Default 8765), wo die BearerAuthMiddleware jeden
+        unauthenticated Request mit 401 abfängt.
+
+        Deshalb benutzen wir ausschließlich die URL, unter der der User
+        gerade /my/mobile-app aufgerufen hat (request.base_url). Die
+        enthält automatisch Schema, Host UND den echten WEB_PORT
+        (oder die Reverse-Proxy-URL, wenn Uvicorn mit
+        --proxy-headers / ProxyHeadersMiddleware läuft) — also genau
+        das, was die iOS-App braucht, um /desktop/* zu erreichen.
+
+        Hinweis: die config.yaml-Setting `public_url` ist bewusst NICHT
+        der Fallback, weil sie typischerweise auf den MCP-Server zeigt.
+        """
         return str(request.base_url).rstrip("/")
 
     @app.get("/my/mobile-app", response_class=HTMLResponse)

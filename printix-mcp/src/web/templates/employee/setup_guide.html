@@ -14,8 +14,8 @@
     <a href="/my/send-to" class="btn btn-secondary" style="font-size:.85em;">💻 {{ _('emp_send_to') }}</a>
     {% endif %}
     <a href="/my/mobile-app" class="btn btn-secondary" style="font-size:.85em;">📱 {{ _('emp_mobile_app') }}</a>
-{% if user.role_type != 'employee' %}
- class="btn btn-secondary" style="font-size:.85em;">{{ _('nav_employees') }}</a>
+    {% if user.role_type != 'employee' %}
+    <a href="/my/employees" class="btn btn-secondary" style="font-size:.85em;">{{ _('nav_employees') }}</a>
     <a href="/my/setup-guide" class="btn btn-primary" style="font-size:.85em;">{{ _('emp_setup_guide') }}</a>
     {% endif %}
   </div>
