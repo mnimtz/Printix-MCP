@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import PhotosUI
 import PrintixSendCore
 
 /// Haupt-Upload-Screen: Datei aus dem Files-Picker wählen, optional
@@ -18,6 +19,9 @@ struct UploadView: View {
     @State private var resultText: String = ""
     @State private var errorText: String = ""
     @State private var showImporter: Bool = false
+    // Foto-Picker nutzt PhotosUI, nicht fileImporter — die Fotos-
+    // Mediathek kriegt man ueber den Files-Picker nicht erreicht.
+    @State private var photoItem: PhotosPickerItem?
 
     // Alle unterstützten Upload-Typen — der Server nimmt mehr als nur
     // PDF entgegen (LibreOffice-Konvertierung im MCP). PDF/Bilder sind
@@ -33,17 +37,35 @@ struct UploadView: View {
         NavigationStack {
             Form {
                 Section("Datei") {
+                    // Datei aus der Files-App (PDF, Office, Textdateien etc.)
                     Button {
                         showImporter = true
                     } label: {
                         HStack {
-                            Image(systemName: "doc.fill")
-                            Text("Datei auswählen")
+                            Image(systemName: "folder.fill")
+                            Text("Aus Dateien wählen")
                             Spacer()
-                            Text(pickedURL?.lastPathComponent ?? "—")
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
                         }
+                    }
+                    // Foto aus der Fotos-Mediathek — nutzt PhotosPicker,
+                    // damit der User wirklich an seine Fotos/Screenshots
+                    // rankommt ohne Umweg ueber "In Dateien speichern".
+                    PhotosPicker(selection: $photoItem,
+                                 matching: .any(of: [.images, .screenshots]),
+                                 photoLibrary: .shared()) {
+                        HStack {
+                            Image(systemName: "photo.fill")
+                            Text("Aus Fotos wählen")
+                            Spacer()
+                        }
+                    }
+                    // Anzeige der aktuell gewaehlten Quelle
+                    HStack {
+                        Image(systemName: "doc.text")
+                            .foregroundColor(.secondary)
+                        Text(pickedURL?.lastPathComponent ?? "Noch nichts ausgewählt")
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
                     }
                 }
 
@@ -104,7 +126,43 @@ struct UploadView: View {
                 case .failure(let err):  errorText = err.localizedDescription
                 }
             }
+            .onChange(of: photoItem) { _, newItem in
+                guard let newItem else { return }
+                Task { await importPhoto(newItem) }
+            }
         }
+    }
+
+    /// PhotosPickerItem → temporaere Datei im Tmp-Verzeichnis.
+    /// Der Rest von sendNow() kann dann ueber pickedURL wie gewohnt
+    /// arbeiten (security-scoped entfaellt, weil /tmp uns gehoert).
+    @MainActor
+    private func importPhoto(_ item: PhotosPickerItem) async {
+        errorText = ""
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                errorText = "Konnte das Foto nicht laden."
+                return
+            }
+            // Dateiendung bestmoeglich raten — bei HEIC/JPEG steht das
+            // im ersten Content-Type-Eintrag, sonst Fallback auf .jpg.
+            let ext = fileExtension(for: item.supportedContentTypes.first) ?? "jpg"
+            let name = "photo-\(Int(Date().timeIntervalSince1970)).\(ext)"
+            let url  = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+            try data.write(to: url, options: .atomic)
+            pickedURL = url
+        } catch {
+            errorText = "Foto-Import: \(error.localizedDescription)"
+        }
+    }
+
+    private func fileExtension(for type: UTType?) -> String? {
+        guard let type else { return nil }
+        if type.conforms(to: .png)  { return "png" }
+        if type.conforms(to: .jpeg) { return "jpg" }
+        if type.conforms(to: .heic) { return "heic" }
+        if type.conforms(to: .gif)  { return "gif" }
+        return type.preferredFilenameExtension
     }
 
     @MainActor
