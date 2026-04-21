@@ -587,12 +587,14 @@
             {% else %}
               {% if user.is_admin %}<a href="/admin">{{ _('nav_admin') }}</a>{% endif %}
               <a href="/dashboard">{{ _('nav_dashboard') }}</a>
-              <a href="/settings">{{ _('nav_settings') }}</a>
+              {# v6.7.65: Printix Management + Printjob Management sind unsere
+                 beiden Haupt-Arbeitsbereiche — prominent gleich nach Dashboard. #}
               <a href="/tenant">{{ _('nav_tenant') }}</a>
+              <a href="/my">{{ _('nav_my_portal') }}</a>
+              <a href="/settings">{{ _('nav_settings') }}</a>
               <a href="/cards">{{ _('nav_cards') }}</a>
               <a href="/reports">{{ _('nav_reports') }}</a>
               <a href="/capture">{{ _('nav_capture') }}</a>
-              <a href="/my">{{ _('nav_my_portal') }}</a>
               <a href="/logs">{{ _('nav_logs') }}</a>
               <a href="/help">{{ _('nav_help') }}</a>
               {# v6.7.29: Feedback in Roadmap-Suggestions integriert. Nav-Link entfernt;
@@ -644,12 +646,13 @@
           <a href="/admin" onclick="closeMobileMenu()">⚙️ {{ _('nav_admin') }}</a>
         {% endif %}
         <a href="/dashboard" onclick="closeMobileMenu()">🏠 {{ _('nav_dashboard') }}</a>
-        <a href="/settings"  onclick="closeMobileMenu()">⚙️ {{ _('nav_settings') }}</a>
+        {# v6.7.65: Printix Management + Printjob Management oben. #}
         <a href="/tenant" onclick="closeMobileMenu()">🖨️ {{ _('nav_tenant') }}</a>
+        <a href="/my"        onclick="closeMobileMenu()">📄 {{ _('nav_my_portal') }}</a>
+        <a href="/settings"  onclick="closeMobileMenu()">⚙️ {{ _('nav_settings') }}</a>
         <a href="/cards"     onclick="closeMobileMenu()">{{ _('nav_cards') }}</a>
         <a href="/reports"   onclick="closeMobileMenu()">📊 {{ _('nav_reports') }}</a>
         <a href="/capture"   onclick="closeMobileMenu()">📥 {{ _('nav_capture') }}</a>
-        <a href="/my"        onclick="closeMobileMenu()">🧑‍💼 {{ _('nav_my_portal') }}</a>
         <a href="/logs"      onclick="closeMobileMenu()">📋 {{ _('nav_logs') }}</a>
         <a href="/help"      onclick="closeMobileMenu()">❓ {{ _('nav_help') }}</a>
         {# v6.7.29: Feedback in Roadmap integriert — Mobile-Nav-Link weg. #}
