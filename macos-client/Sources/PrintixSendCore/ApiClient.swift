@@ -18,7 +18,35 @@ public enum ApiError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidUrl:              return "Ungültige Server-URL"
-        case .http(let c, let body):   return "HTTP \(c) — \(body.prefix(200))"
+        case .http(let c, let body):
+            // Server liefert {"error":"...","code":"..."} — wir ziehen die
+            // lesbare Message raus statt den Raw-JSON anzuzeigen. Das Code-
+            // Feld nehmen wir als Fallback fuer bekannte Zustaende.
+            if let data = body.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let code = (obj["code"] as? String) ?? ""
+                let msg  = (obj["error"] as? String) ?? (obj["message"] as? String) ?? ""
+                switch code {
+                case "no_printix_user":
+                    return "Dein Account ist nicht mit Printix verknüpft. Bitte im Server-Portal den Printix-Login verbinden."
+                case "printix_uuid_invalid", "manager_cannot_register_cards":
+                    return "Die gespeicherte Printix-User-ID ist ein interner Platzhalter, keine echte UUID. Bitte im Portal die echte UUID aus der Printix-Admin-URL eintragen — oder einen Druckjob über die App schicken, dann wird sie automatisch übernommen."
+                case "no_tenant":
+                    return "Kein Printix-Tenant fuer diesen Account konfiguriert."
+                case "forbidden":
+                    return "Keine Berechtigung fuer diese Aktion."
+                case "auth_required":
+                    return "Anmeldung abgelaufen — bitte erneut einloggen."
+                case "printix_error":
+                    return "Printix-API hat abgelehnt: \(msg.isEmpty ? "unbekannter Fehler" : msg)"
+                case "transform_error":
+                    return "Der eingegebene Wert kann nicht ins Zielformat umgewandelt werden."
+                default:
+                    if !msg.isEmpty { return "Server (HTTP \(c)): \(msg)" }
+                    return "Server-Fehler HTTP \(c)"
+                }
+            }
+            return "HTTP \(c) — \(body.prefix(200))"
         case .decode(let msg):         return "Antwort nicht lesbar: \(msg)"
         case .transport(let msg):      return "Verbindung: \(msg)"
         }
@@ -238,6 +266,42 @@ public final class ApiClient: @unchecked Sendable {
         return try JSONDecoder().decode(EntraPollResponse.self, from: data)
     }
 
+    // MARK: - Management (iOS "Printix Management" Tab, Server v6.7.66+)
+
+    /// Live-Zählerübersicht fürs Dashboard des Management-Tabs.
+    /// Jeder Aufruf feuert Printix-Requests — Server cached nicht.
+    public func managementStats() async throws -> MgmtStatsResponse {
+        log.info("GET /desktop/management/stats")
+        let req = buildRequest("desktop/management/stats")
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        return try JSONDecoder().decode(MgmtStatsResponse.self, from: data)
+    }
+
+    public func managementPrinters() async throws -> MgmtPrintersResponse {
+        log.info("GET /desktop/management/printers")
+        let req = buildRequest("desktop/management/printers")
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        return try JSONDecoder().decode(MgmtPrintersResponse.self, from: data)
+    }
+
+    public func managementUsers() async throws -> MgmtUsersResponse {
+        log.info("GET /desktop/management/users")
+        let req = buildRequest("desktop/management/users")
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        return try JSONDecoder().decode(MgmtUsersResponse.self, from: data)
+    }
+
+    public func managementWorkstations() async throws -> MgmtWorkstationsResponse {
+        log.info("GET /desktop/management/workstations")
+        let req = buildRequest("desktop/management/workstations")
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        return try JSONDecoder().decode(MgmtWorkstationsResponse.self, from: data)
+    }
+
     // MARK: - Version
 
     public func latestVersion() async -> VersionResponse? {
@@ -249,6 +313,91 @@ public final class ApiClient: @unchecked Sendable {
         } catch {
             return nil
         }
+    }
+
+    // MARK: - Cards (iOS-Tab, Server v6.7.90+)
+
+    /// Liste der eigenen Karten des angemeldeten Users. Gate auf Server-
+    /// Seite: role_type ∈ {admin, user} — Employees bekommen 403.
+    public func listCards() async throws -> [Card] {
+        log.info("GET /desktop/cards")
+        let req = buildRequest("desktop/cards")
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        let result = try JSONDecoder().decode(CardsResponse.self, from: data)
+        log.info("Cards: \(result.cards.count) Eintrag/Einträge")
+        return result.cards
+    }
+
+    /// Alle Transformations-Profile (builtin + custom) des Tenants.
+    public func listCardProfiles() async throws -> [CardProfile] {
+        let (profiles, _) = try await listCardProfilesWithDefault()
+        return profiles
+    }
+
+    /// Wie `listCardProfiles()`, liefert zusaetzlich die vom Admin
+    /// gesetzte Default-Profil-ID zurueck (leer = kein Default → Client
+    /// soll Picker zeigen; gesetzt → Client nutzt dieses Profil still).
+    public func listCardProfilesWithDefault() async throws -> ([CardProfile], String) {
+        log.info("GET /desktop/cards/profiles")
+        let req = buildRequest("desktop/cards/profiles")
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        let result = try JSONDecoder().decode(CardProfilesResponse.self, from: data)
+        return (result.profiles, result.defaultProfileId ?? "")
+    }
+
+    /// Dry-Run: zeigt wie `rawValue` mit dem gewaehlten Profil transformiert
+    /// wuerde, ohne zu speichern und ohne Printix-Call. Fuer die Preview-
+    /// Anzeige im Add-Dialog.
+    public func previewCard(rawValue: String, profileId: String? = nil) async throws -> CardPreview {
+        log.info("POST /desktop/cards/preview — profile=\(profileId ?? "-")")
+        var req = buildRequest("desktop/cards/preview", method: "POST")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Preview ist reiner Transform, kein Printix-Call — 15s reichen.
+        req.timeoutInterval = 15
+        var body: [String: String] = ["raw_value": rawValue]
+        if let p = profileId, !p.isEmpty { body["profile_id"] = p }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        let result = try JSONDecoder().decode(CardPreviewResponse.self, from: data)
+        return result.preview
+    }
+
+    /// Neue Karte anlegen — Server transformiert, pusht an Printix, speichert
+    /// lokales Mapping und liefert den fertigen Card-Record zurueck.
+    public func createCard(rawValue: String,
+                           profileId: String? = nil,
+                           notes: String? = nil) async throws -> Card {
+        log.info("POST /desktop/cards — profile=\(profileId ?? "-")")
+        var req = buildRequest("desktop/cards", method: "POST")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Card-Create macht 3 Printix-API-Calls (list before/after + register).
+        // 60s ist grosszuegig und sorgt dafuer, dass der User bei Hang
+        // innerhalb einer Minute einen Fehler sieht — nicht nach 15min.
+        req.timeoutInterval = 60
+        var body: [String: String] = ["raw_value": rawValue]
+        if let p = profileId, !p.isEmpty { body["profile_id"] = p }
+        if let n = notes, !n.isEmpty { body["notes"] = n }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        let result = try JSONDecoder().decode(CardCreateResponse.self, from: data)
+        log.info("Card angelegt — id=\(result.card.id) printix=\(result.card.printixCardId)")
+        return result.card
+    }
+
+    /// Karte loeschen. Server ruft zuerst Printix DELETE auf — schlaegt das
+    /// fehl, bleibt das lokale Mapping erhalten damit der User es nochmal
+    /// probieren kann.
+    public func deleteCard(id: Int) async throws {
+        log.info("DELETE /desktop/cards/\(id)")
+        let req = buildRequest("desktop/cards/\(id)", method: "DELETE")
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
     }
 
     // MARK: - Helpers

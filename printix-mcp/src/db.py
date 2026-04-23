@@ -190,6 +190,13 @@ def init_db() -> None:
             conn.execute("ALTER TABLE tenants ADD COLUMN um_client_id TEXT NOT NULL DEFAULT ''")
         if "um_client_secret" not in existing_t:
             conn.execute("ALTER TABLE tenants ADD COLUMN um_client_secret TEXT NOT NULL DEFAULT ''")
+        # v6.7.92: Firmen-Default fuer Karten-Transform-Profile — legt fest
+        # welches Profil die iOS-App (oder andere Clients) automatisch
+        # benutzt, so dass Mitarbeiter nicht selbst waehlen muessen.
+        # Wert ist die id eines card_profiles-Eintrags (Builtin oder Custom).
+        # Leer = kein Default gesetzt → Client zeigt Picker "Ohne Profil".
+        if "default_card_profile_id" not in existing_t:
+            conn.execute("ALTER TABLE tenants ADD COLUMN default_card_profile_id TEXT NOT NULL DEFAULT ''")
     # v3.9.1: bearer_token_hash — indexierter SHA-256-Lookup (O(1) statt
     # Full-Table-Scan über alle Tenants bei jedem authenticated Request).
     # Der Hash ist nicht sensitiv: der Bearer-Token hat 48 Bytes Zufall (>384 Bit),
@@ -245,6 +252,30 @@ def init_db() -> None:
             conn.execute("ALTER TABLE audit_log ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log (created_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log (tenant_id, created_at DESC)")
+    # v6.7.111: Back-fill tenant_id fuer Legacy-Rows. Bis v6.7.110 haben
+    # die meisten audit()-Call-Sites in web/app.py den tenant_id-Parameter
+    # nicht mitgegeben → alle Zeilen hatten tenant_id=''. Dadurch liefert
+    # printix_query_audit_log mit Tenant-Filter 0 Treffer, obwohl Daten
+    # da sind. Hier wird einmalig aus users.tenant_id nachgetragen.
+    with _conn() as conn:
+        try:
+            # v6.7.112: korrigierter JOIN-Pfad. users hat keine tenant_id;
+            # die Zuordnung kommt aus der tenants-Tabelle via t.user_id.
+            updated = conn.execute(
+                "UPDATE audit_log SET tenant_id = ("
+                "   SELECT t.id FROM tenants t WHERE t.user_id = audit_log.user_id"
+                ") "
+                "WHERE (tenant_id = '' OR tenant_id IS NULL) "
+                "  AND user_id IS NOT NULL "
+                "  AND user_id IN (SELECT user_id FROM tenants WHERE id <> '')"
+            ).rowcount
+            if updated and updated > 0:
+                logger.info(
+                    "Migration audit_log.tenant_id: %d Legacy-Eintrag/-Eintraege "
+                    "via users.tenant_id nachgetragen", updated
+                )
+        except Exception as e:
+            logger.warning("Migration audit_log.tenant_id fehlgeschlagen: %s", e)
     # Feature-Requests / Ticketsystem (v3.9.0+)
     with _conn() as conn:
         conn.execute("""
@@ -937,6 +968,7 @@ def get_tenant_full_by_user_id(user_id: str) -> Optional[dict]:
         "alert_recipients":    d.get("alert_recipients", ""),
         "alert_min_level":     d.get("alert_min_level", "ERROR"),
         "poller_state":        d.get("poller_state", "{}"),
+        "default_card_profile_id": d.get("default_card_profile_id", ""),
     }
 
 
@@ -1169,10 +1201,22 @@ def audit(
     strukturierten Admin-Audit-Trail-Report.
     """
     with _conn() as conn:
+        # v6.7.111: Wenn kein tenant_id mitgegeben wurde, aus der users-Tabelle
+        # auflösen. Vorher wurden alle Einträge mit tenant_id='' geschrieben,
+        # wodurch der Audit-Report pro Tenant leer blieb.
+        resolved_tenant_id = tenant_id or ""
+        if not resolved_tenant_id and user_id:
+            # v6.7.112: users hat keine tenant_id-Spalte. Tenant-Zuordnung
+            # kommt aus der tenants-Tabelle via t.user_id = users.id.
+            row = conn.execute(
+                "SELECT id FROM tenants WHERE user_id = ?", (user_id,)
+            ).fetchone()
+            if row and row["id"]:
+                resolved_tenant_id = row["id"]
         conn.execute(
             "INSERT INTO audit_log (user_id, action, details, created_at, object_type, object_id, tenant_id) "
             "VALUES (?,?,?,?,?,?,?)",
-            (user_id, action, details, _now(), object_type or "", object_id or "", tenant_id or ""),
+            (user_id, action, details, _now(), object_type or "", object_id or "", resolved_tenant_id),
         )
 
 
@@ -1213,7 +1257,12 @@ def query_audit_log_range(
         where.append("a.created_at <= ?")
         params.append(f"{end_date}T23:59:59+00:00")
     if tenant_id:
-        where.append("a.tenant_id = ?")
+        # v6.7.112: Legacy-Rows haben a.tenant_id='' — akzeptiere sie auch
+        # wenn der zum user_id gehoerende Tenant denselben Tenant hat.
+        # users hat keine tenant_id-Spalte; deshalb separater JOIN auf
+        # tenants via t.user_id = a.user_id.
+        where.append("(a.tenant_id = ? OR (a.tenant_id = '' AND t.id = ?))")
+        params.append(tenant_id)
         params.append(tenant_id)
     if action_prefix:
         where.append("a.action LIKE ?")
@@ -1226,6 +1275,7 @@ def query_audit_log_range(
                    a.action, a.object_type, a.object_id, a.details, a.tenant_id
             FROM audit_log a
             LEFT JOIN users u ON u.id = a.user_id
+            LEFT JOIN tenants t ON t.user_id = a.user_id
             {wsql}
             ORDER BY a.created_at DESC
             LIMIT ?

@@ -42,7 +42,7 @@ struct TargetsView: View {
                             } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(t.label).foregroundColor(.primary)
+                                        Text(localizedTargetLabel(t)).foregroundColor(.primary)
                                         if let s = t.subtitle, !s.isEmpty {
                                             Text(s).font(.caption).foregroundColor(.secondary)
                                         }
@@ -105,7 +105,7 @@ struct TargetsView: View {
                 Image(systemName: "clock.arrow.circlepath")
                     .foregroundColor(.orange)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(String(format: "Auto-Reset in %d:%02d", mm, ss))
+                    Text(String(format: String(localized: "Auto-Reset in %d:%02d"), mm, ss))
                         .fontWeight(.medium)
                     Text("Auswahl wird danach auf SecurePrint zurückgesetzt, damit du nicht versehentlich dauerhaft an ein Delegate druckst.")
                         .font(.caption)
@@ -126,12 +126,32 @@ struct TargetsView: View {
         settings.applyAutoResetPolicy()
     }
 
+    /// Server liefert hardcodierte deutsche Labels ("Mein Secure Print",
+    /// "Delegate: ...", "Capture: ..."). Wir mappen die auf Basis des
+    /// Target-Typs auf lokalisierte Strings — Namen/Emails bleiben
+    /// natuerlich unveraendert.
+    private func localizedTargetLabel(_ t: Target) -> String {
+        switch t.type {
+        case "print_secure":
+            return String(localized: "Mein Secure Print")
+        case "print_delegate":
+            // Format: "Delegate: <name>" — Prefix gegen lokalisierten tauschen
+            let name = t.label.replacingOccurrences(of: "Delegate: ", with: "")
+            return String(format: String(localized: "Delegate: %@"), name)
+        case "capture_profile":
+            let name = t.label.replacingOccurrences(of: "Capture: ", with: "")
+            return String(format: String(localized: "Capture: %@"), name)
+        default:
+            return t.label
+        }
+    }
+
     @MainActor
     private func reload() async {
         error = ""
         guard let client = ApiClientFactory.make(baseURL: settings.serverURL,
                                                  token: settings.bearerToken) else {
-            error = "Keine gültige Server-Konfiguration."
+            error = String(localized: "Keine gültige Server-Konfiguration.")
             return
         }
         loading = true
@@ -141,7 +161,7 @@ struct TargetsView: View {
             // Label-Cache aktualisieren, damit UploadView die
             // Anzeigenamen statt nur die IDs rendert.
             var labels: [String: String] = [:]
-            for t in targets { labels[t.id] = t.label }
+            for t in targets { labels[t.id] = localizedTargetLabel(t) }
             settings.targetLabels = labels
             // Falls noch nichts ausgewaehlt ist: erstes Ziel als Default
             // setzen, damit der Upload-Button nicht sofort disabled ist.

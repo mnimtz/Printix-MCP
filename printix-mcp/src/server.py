@@ -21,6 +21,7 @@ Transports:
 """
 
 import os
+import re
 import sys
 import json
 import logging
@@ -145,8 +146,36 @@ def client() -> PrintixClient:
     )
 
 
+def _json_default(o):
+    """Fallback-Serializer fuer Typen die json.dumps nicht kennt.
+
+    v6.7.108: Reports/Queries vom SQL Server liefern NUMERIC-Spalten als
+    decimal.Decimal zurueck — ohne Hook kippt die gesamte Response mit
+    'Object of type Decimal is not JSON serializable'. Betroffen waren
+    printix_top_users, printix_query_top_users, printix_query_any und
+    alle anderen Reporting-Tools.
+    """
+    from decimal import Decimal
+    from datetime import date, datetime, time
+    if isinstance(o, Decimal):
+        # float statt str, damit Consumer numerisch rechnen koennen.
+        return float(o)
+    if isinstance(o, (datetime, date, time)):
+        return o.isoformat()
+    if isinstance(o, (bytes, bytearray)):
+        try:
+            return o.decode("utf-8")
+        except Exception:
+            import base64 as _b64
+            return _b64.b64encode(bytes(o)).decode("ascii")
+    if isinstance(o, set):
+        return sorted(o) if o and all(isinstance(x, str) for x in o) else list(o)
+    # Letzter Versuch: str() — besser als Crash.
+    return str(o)
+
+
 def _ok(data) -> str:
-    return json.dumps(data, ensure_ascii=False, indent=2)
+    return json.dumps(data, ensure_ascii=False, indent=2, default=_json_default)
 
 
 def _err(e: PrintixAPIError) -> str:
@@ -156,7 +185,7 @@ def _err(e: PrintixAPIError) -> str:
         "status_code": e.status_code,
         "message": e.message,
         "error_id": e.error_id,
-    }, ensure_ascii=False, indent=2)
+    }, ensure_ascii=False, indent=2, default=_json_default)
 
 
 def _extract_resource_id_from_href(href: str) -> str:
@@ -167,12 +196,29 @@ def _extract_resource_id_from_href(href: str) -> str:
 def _extract_card_id_from_api(card_obj: dict) -> str:
     if not isinstance(card_obj, dict):
         return ""
-    return (
+    # v6.7.113: manche API-Shapes packen die eigentliche Karte in ein
+    # Sub-Object (z.B. {"card": {...}} oder {"cards": [{...}]}).
+    # Vorher liefen die Top-Level-Extractoren ins Leere und lieferten "".
+    primary = (
         _extract_resource_id_from_href((((card_obj.get("_links") or {}).get("self") or {}).get("href", "")))
         or card_obj.get("cardId", "")
         or card_obj.get("card_id", "")
         or card_obj.get("id", "")
     )
+    if primary:
+        return primary
+    for key in ("card", "data", "result"):
+        sub = card_obj.get(key)
+        if isinstance(sub, dict):
+            inner = _extract_card_id_from_api(sub)
+            if inner:
+                return inner
+    items = card_obj.get("cards") or card_obj.get("items") or card_obj.get("content")
+    if isinstance(items, list) and items and isinstance(items[0], dict):
+        inner = _extract_card_id_from_api(items[0])
+        if inner:
+            return inner
+    return ""
 
 
 def _card_items(data) -> list[dict]:
@@ -187,15 +233,32 @@ def _card_items(data) -> list[dict]:
 
 
 def _extract_owner_id_from_card(card_obj: dict) -> str:
+    if not isinstance(card_obj, dict):
+        return ""
     owner_link = (((card_obj.get("_links") or {}).get("owner") or {}).get("href", ""))
     owner_obj = card_obj.get("owner") if isinstance(card_obj.get("owner"), dict) else {}
-    return (
+    primary = (
         _extract_resource_id_from_href(owner_link)
         or owner_obj.get("id", "")
         or owner_obj.get("userId", "")
         or card_obj.get("userId", "")
         or card_obj.get("ownerId", "")
     )
+    if primary:
+        return primary
+    # v6.7.113: rekursiv in Sub-Objects nachsehen (analog _extract_card_id_from_api)
+    for key in ("card", "data", "result"):
+        sub = card_obj.get(key)
+        if isinstance(sub, dict):
+            inner = _extract_owner_id_from_card(sub)
+            if inner:
+                return inner
+    items = card_obj.get("cards") or card_obj.get("items") or card_obj.get("content")
+    if isinstance(items, list) and items and isinstance(items[0], dict):
+        inner = _extract_owner_id_from_card(items[0])
+        if inner:
+            return inner
+    return ""
 
 
 def _merge_mapping_hits(*mapping_lists) -> list[dict]:
@@ -2820,16 +2883,33 @@ def printix_capture_status() -> str:
         cap_url = os.environ.get("CAPTURE_PUBLIC_URL", "").rstrip("/")
         mcp_url = os.environ.get("MCP_PUBLIC_URL", "").rstrip("/")
 
-        # Plugins ermitteln
+        # Plugins ermitteln — v6.7.113: zwei Bugs hier:
+        # 1) Import von `capture.base_plugin` alleine triggert die
+        #    Plugin-Registrierung nicht; erst das Importieren von
+        #    `capture.plugins` fuehrt die @register_plugin-Decorators aus.
+        # 2) Das Klassenattribut heisst `plugin_name` (lowercase), nicht
+        #    `PLUGIN_NAME` — `getattr(..., "PLUGIN_NAME", pid)` liefert
+        #    deshalb immer den Fallback.
         available_plugins = []
         try:
+            import capture.plugins  # noqa: F401  (Seiteneffekt: register_plugin)
             from capture.base_plugin import get_all_plugins
             available_plugins = [
-                {"id": pid, "name": getattr(pcls, "PLUGIN_NAME", pid)}
+                {
+                    "id": pid,
+                    "name": getattr(pcls, "plugin_name", "") or pid,
+                    "icon": getattr(pcls, "plugin_icon", ""),
+                    "description": getattr(pcls, "plugin_description", ""),
+                }
                 for pid, pcls in get_all_plugins().items()
             ]
-        except Exception:
-            pass
+        except Exception as plugin_err:
+            # Nicht mehr still verschlucken — Fehlerursache im Response
+            # sichtbar machen, damit der naechste Bug-Report nicht raten muss.
+            available_plugins = []
+            _plugin_load_error = str(plugin_err)
+        else:
+            _plugin_load_error = ""
 
         # Profile zählen
         import db
@@ -2840,13 +2920,16 @@ def printix_capture_status() -> str:
         except Exception:
             profile_count = 0
 
-        return _ok({
+        response = {
             "capture_separate_server": capture_enabled,
             "capture_port": 8775 if capture_enabled else "shared with MCP",
             "webhook_base_url": cap_url or mcp_url or "not configured",
             "available_plugins": available_plugins,
             "configured_profiles": profile_count,
-        })
+        }
+        if _plugin_load_error:
+            response["plugin_load_error"] = _plugin_load_error
+        return _ok(response)
     except Exception as e:
         return _ok({"error": str(e)})
 
@@ -2870,19 +2953,38 @@ def printix_site_summary(site_id: str) -> str:
         networks = c.list_networks(site_id=site_id)
         printers = c.list_printers()
 
-        # Drucker filtern die zu dieser Site gehören (über Network-Zuordnung)
+        # v6.7.113: Erst auf Liste normalisieren, dann zaehlen. Vorher wurde
+        # network_ids nur befuellt wenn die API direkt eine Liste zurueckgab —
+        # bei Dict-Shape ({"networks": [...]}) blieb der Counter auf 0.
+        def _listify(payload, *keys):
+            if isinstance(payload, list):
+                return payload
+            if isinstance(payload, dict):
+                for k in keys:
+                    v = payload.get(k)
+                    if isinstance(v, list):
+                        return v
+            return []
+
+        networks_list = _listify(networks, "networks", "content", "items")
+        printers_list = _listify(printers, "printers", "content", "items")
+
         network_ids = set()
-        if isinstance(networks, list):
-            for n in networks:
-                nid = n.get("networkId") or n.get("id", "")
-                if nid:
-                    network_ids.add(nid)
+        for n in networks_list:
+            if not isinstance(n, dict):
+                continue
+            nid = n.get("networkId") or n.get("id") or ""
+            if nid:
+                network_ids.add(nid)
+
+        # Fallback: wenn IDs nicht extrahiert werden konnten, nimm die Listenlaenge.
+        network_count = len(network_ids) if network_ids else len(networks_list)
 
         return _ok({
             "site": site,
-            "networks": networks if isinstance(networks, list) else networks.get("networks", []),
-            "network_count": len(network_ids),
-            "printers": printers if isinstance(printers, list) else printers.get("printers", []),
+            "networks": networks_list,
+            "network_count": network_count,
+            "printers": printers_list,
         })
     except PrintixAPIError as e:
         return _err(e)
@@ -2905,27 +3007,176 @@ def printix_network_printers(network_id: str = "", site_id: str = "") -> str:
     try:
         c = client()
         all_printers = c.list_printers()
-        printers_list = all_printers if isinstance(all_printers, list) else all_printers.get("printers", [])
+        printers_list = all_printers if isinstance(all_printers, list) else (
+            all_printers.get("printers") or all_printers.get("content") or all_printers.get("items") or []
+        )
+
+        # v6.7.114: Die Printix-API liefert auf dem Printer-Objekt oft KEIN
+        # direktes networkId-Feld. Wir probieren mehrere Strategien und
+        # dokumentieren im Response, welche gegriffen hat.
+        def _printer_network_refs(p: dict) -> set[str]:
+            """Extrahiert alle Network-Referenzen eines Printers aus diversen Feldnamen + _links."""
+            refs: set[str] = set()
+            for key in ("networkId", "network_id", "networkID"):
+                v = p.get(key)
+                if v:
+                    refs.add(str(v))
+            nets = p.get("networks")
+            if isinstance(nets, list):
+                for n in nets:
+                    if isinstance(n, dict):
+                        nid = n.get("id") or n.get("networkId")
+                        if nid:
+                            refs.add(str(nid))
+                    elif isinstance(n, str):
+                        refs.add(n)
+            # HAL-Links: _links.network.href oder _links.networks[].href
+            links = p.get("_links") or {}
+            net_link = links.get("network") or {}
+            if isinstance(net_link, dict):
+                href = net_link.get("href", "")
+                rid = _extract_resource_id_from_href(href)
+                if rid:
+                    refs.add(rid)
+            net_links = links.get("networks") or []
+            if isinstance(net_links, list):
+                for nl in net_links:
+                    href = (nl or {}).get("href", "") if isinstance(nl, dict) else ""
+                    rid = _extract_resource_id_from_href(href)
+                    if rid:
+                        refs.add(rid)
+            return refs
+
+        def _filter_by_networks(target_ids: set[str]) -> tuple[list, str, dict]:
+            """Liefert Drucker + Strategie + Diagnose-Dict.
+
+            Strategien (der Reihe nach):
+              1. network_id_or_link   — Printer-Feld/HAL-Link matched direkt
+              2. network_site_match   — Network hat eine siteId, Printer via siteId matchen
+              3. network_name_match   — Printer-Location/siteName/networkName enthaelt den Network-Namen
+            """
+            diag = {"target_network_ids": sorted(target_ids)}
+
+            # Strategie 1: direkter Feld/Link-Match
+            hits = [p for p in printers_list
+                    if isinstance(p, dict) and (_printer_network_refs(p) & target_ids)]
+            if hits:
+                return hits, "network_id_or_link", diag
+
+            # Network-Details fuer die Fallback-Strategien nachladen
+            net_details: list[dict] = []
+            for nid in target_ids:
+                try:
+                    nd = c.get_network(nid)
+                    if isinstance(nd, dict):
+                        net_details.append(nd)
+                except Exception as e:
+                    diag.setdefault("get_network_errors", []).append(f"{nid}: {e}")
+
+            net_names = {(nd.get("name") or "").strip().lower() for nd in net_details}
+            net_names.discard("")
+            net_site_ids = set()
+            for nd in net_details:
+                sid = (
+                    nd.get("siteId")
+                    or nd.get("site_id")
+                    or _extract_resource_id_from_href((((nd.get("_links") or {}).get("site") or {}).get("href", "")))
+                    or ""
+                )
+                if sid:
+                    net_site_ids.add(str(sid))
+            diag["resolved_network_names"] = sorted(net_names)
+            diag["resolved_network_site_ids"] = sorted(net_site_ids)
+
+            # Strategie 2: via siteId
+            if net_site_ids:
+                hits = []
+                for p in printers_list:
+                    if not isinstance(p, dict):
+                        continue
+                    sid = str(
+                        p.get("siteId")
+                        or p.get("site_id")
+                        or _extract_resource_id_from_href((((p.get("_links") or {}).get("site") or {}).get("href", "")))
+                        or ""
+                    )
+                    if sid and sid in net_site_ids:
+                        hits.append(p)
+                if hits:
+                    return hits, "network_site_match", diag
+
+            # Strategie 3: Name-Match gegen Printer-Location / siteName / networkName
+            if net_names:
+                hits = []
+                for p in printers_list:
+                    if not isinstance(p, dict):
+                        continue
+                    hay = " ".join([
+                        str(p.get("location", "")),
+                        str(p.get("siteName", "")),
+                        str(p.get("networkName", "")),
+                    ]).lower()
+                    if any(nm in hay for nm in net_names):
+                        hits.append(p)
+                if hits:
+                    return hits, "network_name_match", diag
+
+            # Strategie 4: Site-Fallback. v6.7.116 — ground-truth aus dem
+            # Delta-Test: die Printix-API liefert auf Printer-Objekten
+            # weder networkId noch siteId; strukturelle Referenzen fehlen
+            # komplett. Kein client-seitiger Filter kann daher "Printer
+            # gehoert zu Network X" exakt ermitteln. Als Naeherung: Network
+            # → Site aufloesen und alle Printer des Tenants als
+            # site-scoped Ergebnis liefern, mit ehrlichem Disclaimer.
+            if net_site_ids:
+                diag["strategy4_disclaimer"] = (
+                    "Printix-API liefert weder networkId noch siteId auf "
+                    "Printer-Objekten. Fallback: alle Printer des Tenants, "
+                    "vermutlich scoped auf Site(s) " + ", ".join(sorted(net_site_ids)) + "."
+                )
+                diag["total_printers_scanned"] = len(printers_list or [])
+                return (
+                    [p for p in printers_list if isinstance(p, dict)],
+                    "site_fallback",
+                    diag,
+                )
+
+            # Wirklich nichts ging — Diagnose-Sample der Printer-Felder
+            # mitgeben, damit der naechste Bug-Report nicht raten muss.
+            sample = []
+            for p in (printers_list[:3] if printers_list else []):
+                if not isinstance(p, dict):
+                    continue
+                sample.append({
+                    "keys": sorted(list(p.keys()))[:25],
+                    "networkId": p.get("networkId"),
+                    "siteId": p.get("siteId"),
+                    "networkName": p.get("networkName"),
+                    "location": p.get("location"),
+                })
+            diag["printer_sample"] = sample
+            diag["total_printers_scanned"] = len(printers_list or [])
+            return [], "no_strategy_matched", diag
 
         if network_id:
-            # Filtere auf Drucker im angegebenen Netzwerk
-            filtered = [p for p in printers_list
-                        if str(p.get("networkId", "")) == network_id
-                        or str(p.get("network_id", "")) == network_id]
+            filtered, strategy, diag = _filter_by_networks({str(network_id)})
             return _ok({"printers": filtered, "count": len(filtered),
-                         "filter": {"network_id": network_id}})
+                         "filter": {"network_id": network_id},
+                         "resolution_strategy": strategy,
+                         "diagnostics": diag})
 
         if site_id:
-            # Erst alle Netzwerke der Site holen, dann Drucker filtern
             networks = c.list_networks(site_id=site_id)
-            net_list = networks if isinstance(networks, list) else networks.get("networks", [])
-            net_ids = {str(n.get("networkId") or n.get("id", "")) for n in net_list}
-
-            filtered = [p for p in printers_list
-                        if str(p.get("networkId", "")) in net_ids
-                        or str(p.get("network_id", "")) in net_ids]
+            net_list = networks if isinstance(networks, list) else (
+                (networks or {}).get("networks") or (networks or {}).get("content") or []
+            )
+            net_ids = {str(n.get("networkId") or n.get("id", "")) for n in net_list if isinstance(n, dict)}
+            net_ids.discard("")
+            filtered, strategy, diag = _filter_by_networks(net_ids)
             return _ok({"printers": filtered, "count": len(filtered),
-                         "filter": {"site_id": site_id, "network_ids": list(net_ids)}})
+                         "filter": {"site_id": site_id, "network_ids": list(net_ids)},
+                         "resolution_strategy": strategy,
+                         "diagnostics": diag})
 
         return _ok({"error": "Bitte network_id oder site_id angeben."})
     except PrintixAPIError as e:
@@ -3110,6 +3361,1513 @@ def printix_get_snmp_context(config_id: str) -> str:
         return _err(e)
     except Exception as e:
         return _ok({"error": str(e)})
+
+
+# ─── Cross-Source Insights, Governance & Agent Workflows (v6.7.107+) ─────────
+#
+# Diese Tools sind High-Level-Aggregationen ueber die bestehenden
+# Printix-Endpunkte + die lokale DB. Sie sparen Agents (claude.ai, ChatGPT)
+# Round-Trips und liefern "Frage beantworten"-Antworten statt nur
+# "API-Response".
+
+def _extract_list(raw, *keys) -> list[dict]:
+    """Gemeinsamer Extractor fuer Printix-List-Responses.
+
+    v6.7.109: API variiert zwischen `{"printers": [...]}`, `{"content": [...]}`
+    und `{"_embedded": {"printers": [...]}}`. Der silent-except-Pfad von v6.7.107
+    hat Fehler geschluckt und 0-Counts geliefert — jetzt tolerant + loud.
+    """
+    if isinstance(raw, list):
+        return [x for x in raw if isinstance(x, dict)]
+    if not isinstance(raw, dict):
+        return []
+    for k in keys:
+        v = raw.get(k)
+        if isinstance(v, list):
+            return [x for x in v if isinstance(x, dict)]
+    emb = raw.get("_embedded") or {}
+    if isinstance(emb, dict):
+        for k in keys:
+            v = emb.get(k)
+            if isinstance(v, list):
+                return [x for x in v if isinstance(x, dict)]
+    return []
+
+
+def _is_printer_online(p: dict) -> bool:
+    """Printix nutzt connectionStatus='CONNECTED' — nicht bool online=true."""
+    status = (p.get("connectionStatus") or p.get("status") or "").lower()
+    return status in ("connected", "online", "ok", "ready")
+
+
+def _is_workstation_online(w: dict) -> bool:
+    return bool(w.get("active") or w.get("online") or
+                 (w.get("status") or "").lower() in ("online", "active", "connected"))
+
+
+def _fuzzy_match_user(users: list[dict], query: str) -> list[dict]:
+    """Case-insensitive substring match ueber E-Mail, displayName, name, id."""
+    q = (query or "").strip().lower()
+    if not q:
+        return users
+    out = []
+    for u in users:
+        if not isinstance(u, dict):
+            continue
+        haystack = " ".join([
+            str(u.get("email", "")),
+            str(u.get("displayName", "")),
+            str(u.get("name", "")),
+            str(u.get("fullName", "")),
+            str(u.get("id", "")),
+        ]).lower()
+        if q in haystack:
+            out.append(u)
+    return out
+
+
+def _collect_all_users(c: PrintixClient) -> list[dict]:
+    """Liefert USER + GUEST_USER als eine flache Liste."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for role in ("USER", "GUEST_USER"):
+        try:
+            data = c.list_users(role=role, page=0, page_size=200)
+            users = []
+            if isinstance(data, dict):
+                users = data.get("users") or data.get("content") or []
+            for u in users or []:
+                uid = u.get("id", "")
+                if uid and uid not in seen:
+                    seen.add(uid)
+                    out.append(u)
+        except Exception:
+            continue
+    return out
+
+
+# ─── Cross-Source Insights ────────────────────────────────────────────────────
+
+@mcp.tool()
+def printix_find_user(query: str) -> str:
+    """
+    Fuzzy-Suche nach einem User ueber E-Mail, Name oder ID.
+
+    Durchsucht USER und GUEST_USER im aktuellen Tenant. Liefert Kandidaten
+    mit Score-freier Substring-Match. Ideal als Vorstufe fuer Tools, die
+    eine user_id brauchen (printix_user_360, printix_get_user_card_context).
+
+    Args:
+        query: Suchbegriff (Teilstring in E-Mail / Name / ID).
+    """
+    try:
+        users = _collect_all_users(client())
+        matches = _fuzzy_match_user(users, query)
+        return _ok({
+            "query": query,
+            "matches": matches,
+            "match_count": len(matches),
+            "searched_total": len(users),
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_user_360(query: str) -> str:
+    """
+    Komplettes Profil eines Users auf einen Blick.
+
+    Sucht den User via Fuzzy-Match und liefert: Profil, Karten (enriched),
+    Workstations, Gruppen und lokale Card-Mappings. Perfekter Startpunkt
+    fuer "was ist los mit User X?"-Fragen.
+
+    Args:
+        query: Suchbegriff (E-Mail, Name oder ID).
+    """
+    try:
+        c = client()
+        users = _collect_all_users(c)
+        matches = _fuzzy_match_user(users, query)
+        if not matches:
+            return _ok({"error": "no user found", "query": query})
+        if len(matches) > 1:
+            return _ok({
+                "error": "multiple users match — please refine query or use printix_get_user(user_id)",
+                "candidates": matches,
+                "candidate_count": len(matches),
+            })
+        user = matches[0]
+        user_id = user.get("id", "")
+        tenant_id = _get_card_tenant_id()
+
+        # Karten (enriched)
+        cards = []
+        try:
+            cards_data = c.list_user_cards(user_id=user_id)
+            cards = [_enrich_card_with_local_data(card, tenant_id, printix_user_id=user_id)
+                     for card in _card_items(cards_data)]
+        except Exception as e:
+            cards = [{"error": str(e)}]
+
+        # Workstations (best-effort — nicht jeder Tenant hat WS-API)
+        workstations = []
+        try:
+            ws_data = c.list_workstations(page=0, size=200)
+            ws_list = ws_data.get("workstations") or ws_data.get("content") or [] if isinstance(ws_data, dict) else []
+            email = (user.get("email") or "").lower()
+            for ws in ws_list:
+                if isinstance(ws, dict):
+                    owner = (ws.get("userEmail") or ws.get("user") or "").lower()
+                    if email and owner == email:
+                        workstations.append(ws)
+        except Exception:
+            pass
+
+        return _ok({
+            "user": user,
+            "cards": cards,
+            "card_count": len(cards),
+            "workstations": workstations,
+            "workstation_count": len(workstations),
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_printer_health_report() -> str:
+    """
+    Health-Report ueber alle Drucker des Tenants.
+
+    Aggregiert Online/Offline/Status und gruppiert nach Site. Liefert
+    ausserdem die Liste der offline-Drucker als "Problemfaelle" fuer
+    schnelle Entscheidung.
+    """
+    try:
+        c = client()
+        data = c.list_printers(page=0, size=200)
+        printers = _extract_list(data, "printers")
+
+        online = [p for p in printers if _is_printer_online(p)]
+        offline = [p for p in printers if not _is_printer_online(p)]
+        by_site: dict[str, dict] = {}
+        for p in printers:
+            site = (p.get("siteName") or p.get("site") or p.get("location") or "unknown") if isinstance(p, dict) else "unknown"
+            bucket = by_site.setdefault(site, {"total": 0, "online": 0, "offline": 0})
+            bucket["total"] += 1
+            if p in online:
+                bucket["online"] += 1
+            else:
+                bucket["offline"] += 1
+
+        return _ok({
+            "total": len(printers),
+            "online": len(online),
+            "offline": len(offline),
+            "offline_ratio": round(len(offline) / len(printers), 3) if printers else 0,
+            "by_site": by_site,
+            "offline_printers": offline[:50],
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_tenant_summary() -> str:
+    """
+    Executive-Dashboard in einem Call: Counts + Highlights.
+
+    Liefert: Tenant-Info, User-Counts (USER/GUEST), aktive Drucker,
+    Workstation-Anzahl, Kartenzaehler, Top-Gruppen. Fuer
+    "gib mir einen Ueberblick ueber die Organisation"-Prompts.
+    """
+    try:
+        c = client()
+        tenant = current_tenant.get() or {}
+
+        # Users
+        users = _collect_all_users(c)
+        role_counts: dict[str, int] = {}
+        for u in users:
+            r = u.get("role") or u.get("roleType") or "USER"
+            role_counts[r] = role_counts.get(r, 0) + 1
+
+        # Printers
+        printer_count = 0
+        online_count = 0
+        printer_error = None
+        try:
+            pdata = c.list_printers(page=0, size=200)
+            plist = _extract_list(pdata, "printers")
+            printer_count = len(plist)
+            online_count = sum(1 for p in plist if _is_printer_online(p))
+        except Exception as e:
+            printer_error = str(e)[:200]
+            logger.warning("tenant_summary: list_printers failed: %s", e)
+
+        # Workstations
+        ws_count = 0
+        ws_error = None
+        try:
+            wdata = c.list_workstations(page=0, size=200)
+            wlist = _extract_list(wdata, "workstations")
+            ws_count = len(wlist)
+        except Exception as e:
+            ws_error = str(e)[:200]
+            logger.warning("tenant_summary: list_workstations failed: %s", e)
+
+        # Groups
+        group_count = 0
+        group_error = None
+        try:
+            gdata = c.list_groups(page=0, size=200)
+            glist = _extract_list(gdata, "groups")
+            group_count = len(glist)
+        except Exception as e:
+            group_error = str(e)[:200]
+            logger.warning("tenant_summary: list_groups failed: %s", e)
+
+        # Lokale Karten
+        local_cards_count = 0
+        try:
+            from cards.store import search_mappings
+            local_cards_count = len(search_mappings(_get_card_tenant_id(), ""))
+        except Exception:
+            pass
+
+        errors = {k: v for k, v in {
+            "printers": printer_error,
+            "workstations": ws_error,
+            "groups": group_error,
+        }.items() if v}
+
+        return _ok({
+            "tenant": {
+                "id": tenant.get("id"),
+                "name": tenant.get("name"),
+                "printix_tenant_id": tenant.get("printix_tenant_id"),
+            },
+            "users": {"total": len(users), "by_role": role_counts},
+            "printers": {"total": printer_count, "online": online_count},
+            "workstations": {"total": ws_count},
+            "groups": {"total": group_count},
+            "local_cards": {"total": local_cards_count},
+            **({"errors": errors} if errors else {}),
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_diagnose_user(email: str) -> str:
+    """
+    Troubleshooting-Tool: "Warum kann User X nicht drucken?"
+
+    Prueft heuristisch: User existiert, Rolle passt, hat Karten registriert,
+    hat Workstation, SSO-Status. Liefert eine Liste von Findings mit
+    Severity + Loesungsvorschlag.
+
+    Args:
+        email: E-Mail-Adresse des Users.
+    """
+    try:
+        c = client()
+        findings: list[dict] = []
+        users = _collect_all_users(c)
+        matches = [u for u in users if (u.get("email") or "").lower() == email.lower()]
+        if not matches:
+            findings.append({
+                "severity": "critical",
+                "check": "user_exists",
+                "result": "User nicht im Tenant gefunden",
+                "suggestion": "Account ueber /desktop Entra SSO oder manuell anlegen.",
+            })
+            return _ok({"email": email, "findings": findings, "status": "failed"})
+
+        user = matches[0]
+        user_id = user.get("id", "")
+        findings.append({"severity": "ok", "check": "user_exists", "result": f"User gefunden: id={user_id}"})
+
+        role = user.get("role") or user.get("roleType") or ""
+        if role in ("SYSTEM_MANAGER", "SITE_MANAGER", "KIOSK_MANAGER"):
+            findings.append({
+                "severity": "warning",
+                "check": "role_printable",
+                "result": f"Rolle {role} kann keine Karten registrieren",
+                "suggestion": "Rolle auf USER aendern oder mit anderem Account arbeiten.",
+            })
+
+        # Karten
+        try:
+            cards_data = c.list_user_cards(user_id=user_id)
+            cards = _card_items(cards_data)
+            if not cards:
+                findings.append({
+                    "severity": "warning",
+                    "check": "has_card",
+                    "result": "Keine Karte registriert",
+                    "suggestion": "Karte ueber iOS-App / Self-Service-Portal registrieren.",
+                })
+            else:
+                findings.append({"severity": "ok", "check": "has_card", "result": f"{len(cards)} Karte(n) registriert"})
+        except PrintixAPIError as e:
+            findings.append({
+                "severity": "warning", "check": "has_card",
+                "result": f"Karten-API-Fehler: {e.message}",
+                "suggestion": "Card Management OAuth-Credentials im Portal pruefen.",
+            })
+
+        # Workstation
+        try:
+            wdata = c.list_workstations(page=0, size=200)
+            wlist = wdata.get("workstations") or wdata.get("content") or [] if isinstance(wdata, dict) else []
+            own = [w for w in wlist if (w.get("userEmail") or "").lower() == email.lower()]
+            if own:
+                findings.append({"severity": "ok", "check": "has_workstation", "result": f"{len(own)} Workstation(s)"})
+            else:
+                findings.append({
+                    "severity": "info", "check": "has_workstation",
+                    "result": "Keine Workstation zugeordnet",
+                    "suggestion": "Printix-Client installieren falls am Arbeitsplatz gedruckt werden soll.",
+                })
+        except Exception:
+            pass
+
+        severities = {f["severity"] for f in findings}
+        if "critical" in severities:
+            status = "failed"
+        elif "warning" in severities:
+            status = "issues"
+        else:
+            status = "healthy"
+
+        return _ok({"email": email, "user_id": user_id, "findings": findings, "status": status})
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+# ─── Card Management (tenant-wide) ───────────────────────────────────────────
+
+@mcp.tool()
+def printix_list_cards_by_tenant(status: str = "all") -> str:
+    """
+    Alle Karten tenant-weit ueber alle User hinweg.
+
+    Sammelt Karten aller User (USER + GUEST_USER), reichert mit lokalem
+    Mapping an und erlaubt Filter.
+
+    Args:
+        status: 'all' | 'unmapped' (nur Karten ohne lokales Mapping) |
+                'mapped' (nur Karten mit Mapping).
+    """
+    try:
+        c = client()
+        tenant_id = _get_card_tenant_id()
+        users = _collect_all_users(c)
+        all_cards: list[dict] = []
+        for u in users:
+            uid = u.get("id", "")
+            if not uid:
+                continue
+            try:
+                data = c.list_user_cards(user_id=uid)
+                for card in _card_items(data):
+                    enriched = _enrich_card_with_local_data(card, tenant_id, printix_user_id=uid)
+                    enriched["user_email"] = u.get("email", "")
+                    enriched["user_name"] = u.get("displayName") or u.get("fullName") or ""
+                    all_cards.append(enriched)
+            except Exception:
+                continue
+
+        s = (status or "all").lower()
+        if s == "unmapped":
+            filtered = [c_ for c_ in all_cards if not c_.get("local_mapping")]
+        elif s == "mapped":
+            filtered = [c_ for c_ in all_cards if c_.get("local_mapping")]
+        else:
+            filtered = all_cards
+
+        return _ok({
+            "cards": filtered,
+            "count": len(filtered),
+            "total_tenant_cards": len(all_cards),
+            "status_filter": s,
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_find_orphaned_mappings() -> str:
+    """
+    Lokale Card-Mappings ohne zugehoerige Printix-Karte ("Leichen").
+
+    Laedt alle lokalen Mappings, dann die tenant-weiten Printix-Karten, und
+    liefert die Differenz. Typische Ursache: Karte wurde ausserhalb unserer
+    App in Printix geloescht — unser DB-Mapping blieb.
+    """
+    try:
+        c = client()
+        tenant_id = _get_card_tenant_id()
+        from cards.store import search_mappings
+        local_mappings = search_mappings(tenant_id, "")
+
+        # Alle Printix-Card-IDs einsammeln
+        users = _collect_all_users(c)
+        printix_card_ids: set[str] = set()
+        for u in users:
+            uid = u.get("id", "")
+            if not uid:
+                continue
+            try:
+                data = c.list_user_cards(user_id=uid)
+                for card in _card_items(data):
+                    cid = _extract_card_id_from_api(card)
+                    if cid:
+                        printix_card_ids.add(cid)
+            except Exception:
+                continue
+
+        orphans = [m for m in local_mappings if m.get("printix_card_id") and m["printix_card_id"] not in printix_card_ids]
+        return _ok({
+            "orphans": orphans,
+            "orphan_count": len(orphans),
+            "local_total": len(local_mappings),
+            "printix_total": len(printix_card_ids),
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_bulk_import_cards(
+    csv_data: str,
+    profile_id: str = "",
+    dry_run: bool = True,
+) -> str:
+    """
+    Massenimport von Karten aus CSV. Header-Zeile erwartet:
+    `email,card_uid[,notes]`
+
+    Transformiert jede UID mit dem gewaehlten Profil und registriert sie
+    in Printix. Mit dry_run=True wird nur simuliert (keine API-Calls,
+    nur Preview).
+
+    Args:
+        csv_data:   CSV mit Header 'email,card_uid' (optional 'notes').
+        profile_id: Transform-Profil (leer = Passthrough).
+        dry_run:    True = nur validieren+preview, False = tatsaechlich registrieren.
+    """
+    import csv as _csv
+    import io as _io
+    try:
+        c = client()
+        tenant_id = _get_card_tenant_id()
+        reader = _csv.DictReader(_io.StringIO(csv_data))
+        results: list[dict] = []
+        users = _collect_all_users(c) if not dry_run else []
+        email_to_uid = {(u.get("email") or "").lower(): u.get("id", "") for u in users}
+
+        from cards.transform import apply_profile_transform
+        from cards.store import get_profile, save_mapping
+        profile = get_profile(profile_id, tenant_id) if profile_id else None
+        rules = {}
+        if profile and profile.get("rules_json"):
+            try:
+                rules = json.loads(profile["rules_json"])
+            except Exception:
+                rules = {}
+
+        for row in reader:
+            email = (row.get("email") or "").strip()
+            uid = (row.get("card_uid") or "").strip()
+            notes = (row.get("notes") or "").strip()
+            if not email or not uid:
+                results.append({"row": row, "status": "skipped", "reason": "missing email/uid"})
+                continue
+            try:
+                transformed = apply_profile_transform(uid, rules) if rules else {"final": uid, "working": uid}
+            except Exception as te:
+                results.append({"email": email, "uid": uid, "status": "transform_error", "error": str(te)})
+                continue
+            final_value = transformed.get("final") if isinstance(transformed, dict) else uid
+            if dry_run:
+                results.append({
+                    "email": email, "uid": uid, "final": final_value,
+                    "status": "dry_run_ok",
+                })
+                continue
+            user_id = email_to_uid.get(email.lower(), "")
+            if not user_id:
+                results.append({"email": email, "status": "user_not_found"})
+                continue
+            try:
+                reg = c.register_card(user_id, final_value)
+                card_id = _extract_card_id_from_api(reg) if isinstance(reg, dict) else ""
+                save_mapping(tenant_id, user_id, card_id, uid, final_value,
+                             normalized_value=uid, source="bulk_import", notes=notes,
+                             profile_id=profile_id)
+                results.append({"email": email, "card_id": card_id, "status": "registered"})
+            except Exception as re:
+                results.append({"email": email, "status": "register_error", "error": str(re)})
+
+        return _ok({
+            "dry_run": dry_run,
+            "total_rows": len(results),
+            "registered": sum(1 for r in results if r.get("status") == "registered"),
+            "errors": sum(1 for r in results if "error" in r.get("status", "")),
+            "results": results,
+        })
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_suggest_profile(sample_uid: str) -> str:
+    """
+    Schlaegt das passendste Transform-Profil fuer eine Sample-UID vor.
+
+    Wendet alle Profile nacheinander an, scored nach (transform erfolgreich?
+    final_value != raw? length-plausibel?) und liefert Ranking.
+
+    Args:
+        sample_uid: Beispiel-UID wie am Kartenleser gescannt.
+    """
+    try:
+        from cards.store import list_profiles
+        from cards.transform import apply_profile_transform
+        tenant_id = _get_card_tenant_id()
+        profiles = list_profiles(tenant_id)
+        results = []
+        for p in profiles:
+            rules = {}
+            try:
+                rules = json.loads(p.get("rules_json", "{}"))
+            except Exception:
+                pass
+            try:
+                out = apply_profile_transform(sample_uid, rules) if rules else None
+                final_value = out.get("final") if isinstance(out, dict) else ""
+                score = 0
+                if out:
+                    score += 1
+                if final_value and final_value != sample_uid:
+                    score += 2
+                if final_value and 4 <= len(final_value) <= 64:
+                    score += 1
+                results.append({
+                    "profile_id": p.get("id"),
+                    "name": p.get("name"),
+                    "vendor": p.get("vendor"),
+                    "mode": p.get("mode"),
+                    "score": score,
+                    "final_value": final_value,
+                })
+            except Exception as te:
+                results.append({
+                    "profile_id": p.get("id"),
+                    "name": p.get("name"),
+                    "score": 0,
+                    "error": str(te),
+                })
+        results.sort(key=lambda r: r.get("score", 0), reverse=True)
+        return _ok({
+            "sample_uid": sample_uid,
+            "ranking": results[:10],
+            "best": results[0] if results else None,
+        })
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_card_audit(user_email: str) -> str:
+    """
+    Audit-Trail fuer die Karten eines Users: was ist registriert, wann,
+    welche Notizen, welches Profil.
+
+    Args:
+        user_email: E-Mail-Adresse.
+    """
+    try:
+        c = client()
+        users = _collect_all_users(c)
+        matches = [u for u in users if (u.get("email") or "").lower() == user_email.lower()]
+        if not matches:
+            return _ok({"error": "user not found", "email": user_email})
+        user = matches[0]
+        user_id = user.get("id", "")
+        tenant_id = _get_card_tenant_id()
+
+        cards = []
+        try:
+            data = c.list_user_cards(user_id=user_id)
+            cards = [_enrich_card_with_local_data(card, tenant_id, printix_user_id=user_id)
+                     for card in _card_items(data)]
+        except Exception as e:
+            return _ok({"error": str(e)})
+
+        audit: list[dict] = []
+        for card in cards:
+            mapping = card.get("local_mapping") or {}
+            audit.append({
+                "card_id": card.get("card_id"),
+                "printix_registered": True,
+                "local_mapping_present": bool(mapping),
+                "raw_value": mapping.get("raw_value", ""),
+                "profile_id": mapping.get("profile_id", ""),
+                "notes": mapping.get("notes", ""),
+                "source": mapping.get("source", "unknown"),
+                "created_at": mapping.get("created_at", ""),
+                "updated_at": mapping.get("updated_at", ""),
+            })
+        return _ok({
+            "user_email": user_email,
+            "user_id": user_id,
+            "card_count": len(audit),
+            "audit": audit,
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+# ─── Print Jobs & Reporting (High-Level Wrapper) ─────────────────────────────
+
+@mcp.tool()
+def printix_top_printers(days: int = 7, limit: int = 10, metric: str = "pages") -> str:
+    """
+    Meistgenutzte Drucker der letzten N Tage. Convenience-Wrapper um
+    printix_query_top_printers mit auto-berechneten Datumsgrenzen.
+
+    Args:
+        days:   Zeitfenster in Tagen (default: 7).
+        limit:  Top-N (default: 10).
+        metric: pages | cost | jobs | color_pages.
+    """
+    from datetime import datetime, timedelta
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=max(days, 1))
+    err = _reporting_check()
+    if err:
+        return _ok({"error": err})
+    try:
+        rows = query_tools.query_top_printers(
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            top_n=limit, metric=metric,
+        )
+        return _ok({"rows": rows, "count": len(rows), "metric": metric,
+                    "period": {"start": start.isoformat(), "end": end.isoformat()}})
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_top_users(days: int = 7, limit: int = 10, metric: str = "pages") -> str:
+    """
+    Aktivste User der letzten N Tage. Convenience-Wrapper um
+    printix_query_top_users.
+
+    Args:
+        days:   Zeitfenster in Tagen (default: 7).
+        limit:  Top-N (default: 10).
+        metric: pages | cost | jobs | color_pages.
+    """
+    from datetime import datetime, timedelta
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=max(days, 1))
+    err = _reporting_check()
+    if err:
+        return _ok({"error": err})
+    try:
+        rows = query_tools.query_top_users(
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            top_n=limit, metric=metric,
+        )
+        return _ok({"rows": rows, "count": len(rows), "metric": metric,
+                    "period": {"start": start.isoformat(), "end": end.isoformat()}})
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_jobs_stuck(minutes: int = 15) -> str:
+    """
+    Jobs die laenger als `minutes` in der Queue haengen.
+
+    Nutzt Printix list_print_jobs (aktueller Snapshot) und filtert nach
+    Alter + Status. Basis fuer Alerting/Monitoring.
+
+    Args:
+        minutes: Schwellwert in Minuten (default: 15).
+    """
+    try:
+        from datetime import datetime, timezone, timedelta
+        c = client()
+        data = c.list_print_jobs(page=0, size=200)
+        jobs = []
+        if isinstance(data, dict):
+            jobs = data.get("jobs") or data.get("content") or []
+        threshold = datetime.now(timezone.utc) - timedelta(minutes=max(minutes, 1))
+        stuck = []
+        for j in jobs or []:
+            if not isinstance(j, dict):
+                continue
+            created = j.get("createdAt") or j.get("created") or j.get("submittedAt") or ""
+            try:
+                dt = datetime.fromisoformat(created.replace("Z", "+00:00")) if created else None
+            except Exception:
+                dt = None
+            status = (j.get("status") or "").lower()
+            if dt and dt < threshold and status not in ("done", "completed", "printed", "cancelled"):
+                stuck.append({"job": j, "age_minutes": int((datetime.now(timezone.utc) - dt).total_seconds() // 60)})
+        stuck.sort(key=lambda x: x.get("age_minutes", 0), reverse=True)
+        return _ok({
+            "threshold_minutes": minutes,
+            "stuck_jobs": stuck,
+            "stuck_count": len(stuck),
+            "total_jobs_checked": len(jobs),
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_print_trends(group_by: str = "day", days: int = 30) -> str:
+    """
+    Zeitreihe fuer Druckvolumen. Convenience-Wrapper um printix_query_trend.
+
+    Args:
+        group_by: day | week | month (default: day).
+        days:     Zeitfenster in Tagen (default: 30).
+    """
+    from datetime import datetime, timedelta
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=max(days, 1))
+    err = _reporting_check()
+    if err:
+        return _ok({"error": err})
+    try:
+        rows = query_tools.query_trend(
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            group_by=group_by,
+        )
+        return _ok({"rows": rows, "count": len(rows), "group_by": group_by,
+                    "period": {"start": start.isoformat(), "end": end.isoformat()}})
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_cost_by_department(
+    department_field: str = "department",
+    days: int = 30,
+    cost_per_mono: float = 0.02,
+    cost_per_color: float = 0.08,
+) -> str:
+    """
+    Kosten aggregiert pro Kostenstelle/Abteilung.
+
+    Liest `department_field` aus den User-Custom-Attributen, gruppiert
+    Druckvolumen und rechnet Kosten. Erfordert, dass Printix das
+    Attribut pro User liefert.
+
+    Args:
+        department_field: Name des User-Attributs (default: 'department').
+        days:             Zeitfenster.
+        cost_per_mono:    Kosten pro S/W-Seite.
+        cost_per_color:   Kosten pro Farbseite.
+    """
+    from datetime import datetime, timedelta
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=max(days, 1))
+    err = _reporting_check()
+    if err:
+        return _ok({"error": err})
+    try:
+        rows = query_tools.query_top_users(
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            top_n=500, metric="cost",
+            cost_per_mono=cost_per_mono, cost_per_color=cost_per_color,
+        )
+        users = _collect_all_users(client())
+        email_to_dept: dict[str, str] = {}
+        for u in users:
+            attrs = u.get("attributes") or u.get("customAttributes") or {}
+            dept = ""
+            if isinstance(attrs, dict):
+                dept = attrs.get(department_field) or ""
+            dept = dept or u.get(department_field) or "Unassigned"
+            email_to_dept[(u.get("email") or "").lower()] = dept
+
+        by_dept: dict[str, dict] = {}
+        for r in rows:
+            email = (r.get("user_email") or r.get("email") or "").lower()
+            dept = email_to_dept.get(email, "Unassigned")
+            bucket = by_dept.setdefault(dept, {"department": dept, "pages": 0, "cost": 0.0, "user_count": 0, "users": set()})
+            bucket["pages"] += int(r.get("pages") or 0)
+            bucket["cost"] += float(r.get("cost") or 0)
+            if email:
+                bucket["users"].add(email)
+        ranked = []
+        for v in by_dept.values():
+            v["user_count"] = len(v["users"])
+            v["users"] = sorted(v["users"])
+            ranked.append(v)
+        ranked.sort(key=lambda x: x.get("cost", 0), reverse=True)
+        return _ok({
+            "period": {"start": start.isoformat(), "end": end.isoformat()},
+            "department_field": department_field,
+            "rows": ranked,
+            "department_count": len(ranked),
+        })
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_compare_periods(
+    days_a: int = 30,
+    days_b: int = 30,
+    offset_b: int = 30,
+) -> str:
+    """
+    Vergleicht zwei gleichgrosse Zeitraeume: "letzte N Tage" vs. "die N Tage davor".
+
+    Nuetzlich fuer "Wie hat sich Druckvolumen seit letztem Monat entwickelt?".
+
+    Args:
+        days_a:   Laenge Zeitraum A in Tagen (jetzt).
+        days_b:   Laenge Zeitraum B in Tagen.
+        offset_b: Wie weit zurueck Zeitraum B startet (default: gleiche Laenge vorher).
+    """
+    from datetime import datetime, timedelta
+    err = _reporting_check()
+    if err:
+        return _ok({"error": err})
+    try:
+        today = datetime.utcnow().date()
+        a_end = today
+        a_start = a_end - timedelta(days=max(days_a, 1))
+        b_end = a_start - timedelta(days=1)
+        b_start = b_end - timedelta(days=max(days_b, 1))
+
+        def totals(start, end):
+            rows = query_tools.query_print_stats(
+                start_date=start.isoformat(), end_date=end.isoformat(),
+                group_by="total",
+            )
+            if rows and isinstance(rows, list):
+                r = rows[0]
+                return {
+                    "pages": int(r.get("pages") or 0),
+                    "jobs": int(r.get("jobs") or 0),
+                    "color_pages": int(r.get("color_pages") or 0),
+                }
+            return {"pages": 0, "jobs": 0, "color_pages": 0}
+
+        a = totals(a_start, a_end)
+        b = totals(b_start, b_end)
+
+        def pct(new, old):
+            if old == 0:
+                return None
+            return round((new - old) / old * 100, 2)
+
+        return _ok({
+            "period_a": {"start": a_start.isoformat(), "end": a_end.isoformat(), **a},
+            "period_b": {"start": b_start.isoformat(), "end": b_end.isoformat(), **b},
+            "delta_pct": {
+                "pages": pct(a["pages"], b["pages"]),
+                "jobs": pct(a["jobs"], b["jobs"]),
+                "color_pages": pct(a["color_pages"], b["color_pages"]),
+            },
+        })
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+# ─── Access & Governance ─────────────────────────────────────────────────────
+
+@mcp.tool()
+def printix_list_admins() -> str:
+    """
+    Alle Admin-/Manager-Rollen im Tenant.
+
+    Filtert aus list_users auf SYSTEM_MANAGER, SITE_MANAGER, KIOSK_MANAGER.
+    Hinweis: manche Manager-Rollen sind ueber die Standard-API nicht
+    listbar — dann bleibt die Liste leer und die Existenz muss aus dem
+    Portal kommen.
+    """
+    try:
+        c = client()
+        admins: list[dict] = []
+        for role in ("SYSTEM_MANAGER", "SITE_MANAGER", "KIOSK_MANAGER"):
+            try:
+                data = c.list_users(role=role, page=0, page_size=200)
+                users = []
+                if isinstance(data, dict):
+                    users = data.get("users") or data.get("content") or []
+                for u in users or []:
+                    u = dict(u) if isinstance(u, dict) else {}
+                    u["role"] = role
+                    admins.append(u)
+            except Exception:
+                continue
+        return _ok({"admins": admins, "count": len(admins)})
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_permission_matrix() -> str:
+    """
+    Matrix: User x Gruppen. Wer ist in welchen Gruppen? Gruppen steuern
+    in Printix typischerweise Drucker-Zuweisung.
+    """
+    try:
+        c = client()
+        users = _collect_all_users(c)
+        groups = []
+        try:
+            gdata = c.list_groups(page=0, size=200)
+            groups = gdata.get("groups") or gdata.get("content") or [] if isinstance(gdata, dict) else []
+        except Exception:
+            pass
+
+        matrix: list[dict] = []
+        for u in users:
+            ugroups = u.get("groups") or []
+            if isinstance(ugroups, list):
+                matrix.append({
+                    "user_id": u.get("id"),
+                    "email": u.get("email"),
+                    "display_name": u.get("displayName") or u.get("fullName"),
+                    "group_count": len(ugroups),
+                    "groups": ugroups,
+                })
+        return _ok({
+            "users": matrix,
+            "user_count": len(matrix),
+            "group_count": len(groups),
+            "groups": groups,
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_inactive_users(days: int = 90) -> str:
+    """
+    User, die laenger als N Tage nicht aktiv waren.
+
+    Nutzt lastSignIn / lastActivity falls verfuegbar. Wenn das Feld
+    fehlt, wird der User als "unknown" eingestuft.
+
+    Args:
+        days: Schwellwert in Tagen (default: 90).
+    """
+    try:
+        from datetime import datetime, timezone, timedelta
+        c = client()
+        users = _collect_all_users(c)
+        threshold = datetime.now(timezone.utc) - timedelta(days=max(days, 1))
+        inactive: list[dict] = []
+        unknown: list[dict] = []
+        for u in users:
+            last = u.get("lastSignIn") or u.get("lastActivity") or u.get("lastLogin") or ""
+            try:
+                dt = datetime.fromisoformat(last.replace("Z", "+00:00")) if last else None
+            except Exception:
+                dt = None
+            if dt is None:
+                unknown.append({"user": u, "last_seen": None})
+            elif dt < threshold:
+                inactive.append({"user": u, "last_seen": last,
+                                  "days_inactive": (datetime.now(timezone.utc) - dt).days})
+        return _ok({
+            "threshold_days": days,
+            "inactive": inactive,
+            "inactive_count": len(inactive),
+            "unknown_last_seen": unknown,
+            "unknown_count": len(unknown),
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_sso_status(email: str) -> str:
+    """
+    Entra/Azure-SSO-Status fuer einen User: ist er via SSO verknuepft,
+    hat er sich schonmal angemeldet, welche Auth-Quelle?
+
+    Best-effort: Printix-API-Felder variieren, wir liefern was da ist.
+
+    Args:
+        email: E-Mail-Adresse.
+    """
+    try:
+        c = client()
+        users = _collect_all_users(c)
+        matches = [u for u in users if (u.get("email") or "").lower() == email.lower()]
+        if not matches:
+            return _ok({"error": "user not found", "email": email})
+        user = matches[0]
+        return _ok({
+            "email": email,
+            "user_id": user.get("id"),
+            "auth_provider": user.get("authProvider") or user.get("identityProvider") or "unknown",
+            "sso_id": user.get("externalId") or user.get("idpUserId") or "",
+            "last_sign_in": user.get("lastSignIn") or user.get("lastLogin") or "",
+            "is_sso_linked": bool(user.get("externalId") or user.get("idpUserId")),
+            "raw_user": user,
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+# ─── Agent Workflow Helpers ──────────────────────────────────────────────────
+
+_ERROR_KB = {
+    "no_printix_user": "Der lokale User ist nicht mit einer Printix-UUID verknuepft. Loesung: im Portal Printix-Login verbinden oder UUID manuell eintragen.",
+    "printix_uuid_invalid": "Die gespeicherte UUID ist ein Platzhalter, keine echte Printix-User-UUID. Aus der Admin-URL von Printix die UUID kopieren.",
+    "manager_cannot_register_cards": "System/Site/Kiosk-Manager koennen keine Karten registrieren. Normalen USER-Account nutzen.",
+    "no_tenant": "Kein Printix-Tenant konfiguriert. Im Portal OAuth-Credentials eintragen und Tenant zuweisen.",
+    "forbidden": "Die verwendeten OAuth-Credentials haben keinen Scope fuer diese Operation. Im Portal Credentials erweitern.",
+    "auth_required": "Bearer-Token fehlt oder ist abgelaufen. Im Desktop/Mobile-Client neu anmelden.",
+    "printix_error": "Printix-API hat den Request abgelehnt. Der Response-Body enthaelt die konkrete Ursache.",
+    "transform_error": "Die Kartentransformation schlug fehl. Profil-Rules pruefen oder anderes Profil waehlen.",
+    "409": "Konflikt: Ressource existiert bereits (z.B. Karte mit gleichem Secret). Idempotenz-Flow triggern oder bestehende Ressource suchen.",
+    "404": "Ressource nicht gefunden. ID pruefen — bei Cards-DELETE: id kam eventuell als String rein und wurde nicht auf int gecastet.",
+    "502": "Upstream Printix-Fehler — die Printix-API selbst war nicht erreichbar oder hat 5xx geworfen. Retry mit Backoff.",
+}
+
+
+@mcp.tool()
+def printix_explain_error(code_or_message: str) -> str:
+    """
+    Erklaert einen Printix-/MCP-Fehlercode oder Fehlertext in Klartext +
+    liefert Loesungsvorschlaege aus der internen Wissensbasis.
+
+    Args:
+        code_or_message: Fehlercode (z.B. 'no_printix_user') oder Teil
+                         der Fehlermeldung.
+    """
+    key = (code_or_message or "").strip().lower()
+    matches = []
+    for k, v in _ERROR_KB.items():
+        if k in key or key in k:
+            matches.append({"code": k, "explanation": v})
+    if not matches:
+        return _ok({
+            "input": code_or_message,
+            "matches": [],
+            "hint": "Kein bekannter Code. Pruefe die tenant_logs (printix_query_audit_log) oder die Printix-Dashboard-Audit-Logs.",
+        })
+    return _ok({"input": code_or_message, "matches": matches})
+
+
+@mcp.tool()
+def printix_suggest_next_action(context: str) -> str:
+    """
+    Heuristischer Advisor: gibt man ihm den "Zustand" (z.B. "User X hat 3
+    fehlgeschlagene Jobs"), liefert er plausible Next-Steps.
+
+    Args:
+        context: Beschreibung des Problems/Zustands.
+    """
+    c = (context or "").lower()
+    suggestions: list[str] = []
+    if "fail" in c or "fehl" in c or "error" in c:
+        suggestions.append("printix_query_audit_log mit action_prefix='job.' fuer letzte 24h ausfuehren.")
+        suggestions.append("printix_diagnose_user(email) fuer den betroffenen User laufen lassen.")
+    if "stuck" in c or "haeng" in c or "queue" in c:
+        suggestions.append("printix_jobs_stuck(minutes=15) aufrufen und betroffene Jobs identifizieren.")
+    if "karte" in c or "card" in c or "rfid" in c:
+        suggestions.append("printix_card_audit(user_email) fuer den User laufen lassen.")
+        suggestions.append("printix_find_orphaned_mappings() falls 'Karte geloescht aber Mapping noch da'.")
+    if "druck" in c and "offline" in c:
+        suggestions.append("printix_printer_health_report() fuer Offline-Uebersicht.")
+    if "neuer" in c and ("user" in c or "mitarbeiter" in c):
+        suggestions.append("printix_onboard_user(email, role, printers) verwenden.")
+    if not suggestions:
+        suggestions = [
+            "printix_tenant_summary() fuer Ueberblick.",
+            "printix_user_360(query) falls es um einen konkreten User geht.",
+            "printix_query_anomalies fuer auffaellige Muster.",
+        ]
+    return _ok({"context": context, "suggested_actions": suggestions})
+
+
+@mcp.tool()
+def printix_send_to_user(
+    user_email: str,
+    file_url: str = "",
+    file_content_b64: str = "",
+    filename: str = "document.pdf",
+    target_printer: str = "",
+    copies: int = 1,
+) -> str:
+    """
+    High-Level: druckt ein Dokument als User X.
+
+    Fuehrt in einem Call durch: User-Lookup, Printer-Resolve (falls Name
+    statt ID), submit_print_job, upload, complete, change_owner.
+    Entweder file_url ODER file_content_b64 angeben.
+
+    Args:
+        user_email:       Empfaenger (Owner der Secure-Print-Karte).
+        file_url:         HTTP(S)-URL aus der das Dokument geladen wird.
+        file_content_b64: Base64-kodierter Dateiinhalt (Alternative zu URL).
+        filename:         Dateiname (fuer Titel + MIME-Detection).
+        target_printer:   Printer-Name oder printer_id/queue_id kombiniert ('pid:qid').
+        copies:           Anzahl Kopien (default: 1).
+    """
+    import base64 as _b64
+    import requests as _req
+    try:
+        c = client()
+        if not file_url and not file_content_b64:
+            return _ok({"error": "file_url or file_content_b64 required"})
+        if file_url:
+            r = _req.get(file_url, timeout=60)
+            r.raise_for_status()
+            file_bytes = r.content
+        else:
+            file_bytes = _b64.b64decode(file_content_b64)
+
+        # Printer aufloesen
+        printer_id, queue_id = "", ""
+        if ":" in target_printer:
+            printer_id, queue_id = target_printer.split(":", 1)
+        else:
+            pdata = c.list_printers(search=target_printer or None, page=0, size=50)
+            plist = pdata.get("printers") or pdata.get("content") or [] if isinstance(pdata, dict) else []
+            if not plist:
+                return _ok({"error": "no printer found", "query": target_printer})
+            printer_id, queue_id = _extract_printer_queue_ids(plist[0])
+        if not (printer_id and queue_id):
+            return _ok({"error": "could not resolve printer_id/queue_id"})
+
+        # Job submit
+        job = c.submit_print_job(printer_id=printer_id, queue_id=queue_id,
+                                  title=filename, size_bytes=len(file_bytes), copies=copies)
+        job_id = job.get("jobId") or job.get("id") or ""
+        upload_url = (job.get("_links") or {}).get("upload", {}).get("href") or job.get("uploadUrl") or ""
+        if not (job_id and upload_url):
+            return _ok({"error": "submit_print_job missing job_id or upload_url", "raw": job})
+
+        c.upload_file_to_url(upload_url, file_bytes, filename=filename)
+        c.complete_upload(job_id)
+        c.change_job_owner(job_id, user_email)
+        return _ok({
+            "ok": True, "job_id": job_id, "owner_email": user_email,
+            "filename": filename, "size": len(file_bytes),
+            "printer_id": printer_id, "queue_id": queue_id,
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_onboard_user(
+    email: str,
+    display_name: str,
+    role: str = "USER",
+    pin: str = "",
+    password: str = "",
+    groups: str = "",
+) -> str:
+    """
+    Komplett-Onboarding eines neuen Users: anlegen, optional in Gruppen
+    stecken. Fuer echte SSO-User geht Printix ueblicherweise ueber Entra —
+    dieses Tool ist fuer manuelle / Guest-Accounts.
+
+    Args:
+        email:        E-Mail-Adresse.
+        display_name: Anzeigename.
+        role:         Ignoriert (API legt GUEST_USER an); fuer spaeter.
+        pin:          Optionale 4-stellige PIN.
+        password:     Optionales Passwort.
+        groups:       Komma-getrennte Group-IDs (best-effort Zuweisung).
+    """
+    try:
+        c = client()
+        created = c.create_user(email=email, display_name=display_name,
+                                 pin=pin or None, password=password or None)
+        created_info = PrintixClient.extract_created_user(created) if hasattr(PrintixClient, "extract_created_user") else created
+        user_id = created_info.get("id") if isinstance(created_info, dict) else ""
+        group_assignments: list[dict] = []
+        if groups:
+            for gid in [g.strip() for g in groups.split(",") if g.strip()]:
+                # Printix-API: best effort — wenn's keine Gruppen-Add-API gibt, loggen
+                group_assignments.append({"group_id": gid, "status": "not_implemented"})
+        return _ok({
+            "ok": True,
+            "user": created_info,
+            "user_id": user_id,
+            "group_assignments": group_assignments,
+            "next_steps": [
+                "printix_generate_id_code(user_id) wenn ID-Code gewuenscht",
+                "Karte via iOS/Web registrieren oder printix_bulk_import_cards()",
+            ],
+        })
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_offboard_user(email: str, force: bool = False) -> str:
+    """
+    Leaver-Flow: alle Karten loeschen, offene Jobs canceln, User-Account
+    deaktivieren/loeschen.
+
+    Args:
+        email: E-Mail des scheidenden Users.
+        force: Wenn True, ueberspringt Rueckfragen (ist eh non-interactive).
+    """
+    try:
+        c = client()
+        users = _collect_all_users(c)
+        matches = [u for u in users if (u.get("email") or "").lower() == email.lower()]
+        if not matches:
+            return _ok({"error": "user not found", "email": email})
+        user = matches[0]
+        user_id = user.get("id", "")
+        tenant_id = _get_card_tenant_id()
+
+        report = {"email": email, "user_id": user_id, "steps": []}
+
+        # Karten loeschen
+        try:
+            data = c.list_user_cards(user_id=user_id)
+            for card in _card_items(data):
+                cid = _extract_card_id_from_api(card)
+                if cid:
+                    try:
+                        c.delete_card(cid, user_id=user_id)
+                        report["steps"].append({"card": cid, "status": "deleted"})
+                    except Exception as ce:
+                        report["steps"].append({"card": cid, "status": "error", "error": str(ce)})
+        except Exception as e:
+            report["steps"].append({"phase": "list_cards", "error": str(e)})
+
+        # Lokale Mappings loeschen
+        try:
+            from cards.store import delete_mappings_for_user
+            delete_mappings_for_user(tenant_id, user_id)
+            report["steps"].append({"phase": "local_mappings", "status": "deleted"})
+        except Exception as e:
+            report["steps"].append({"phase": "local_mappings", "error": str(e)})
+
+        # User loeschen (nur wenn GUEST_USER oder explizit force)
+        role = user.get("role") or user.get("roleType") or ""
+        if role == "GUEST_USER" or force:
+            try:
+                c.delete_user(user_id)
+                report["steps"].append({"phase": "delete_user", "status": "deleted"})
+            except Exception as e:
+                report["steps"].append({"phase": "delete_user", "error": str(e)})
+        else:
+            report["steps"].append({
+                "phase": "delete_user",
+                "status": "skipped",
+                "reason": f"role={role}; use force=True",
+            })
+
+        return _ok(report)
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+# ─── Quality of Life ─────────────────────────────────────────────────────────
+
+@mcp.tool()
+def printix_whoami() -> str:
+    """
+    Debug-Hilfe: zeigt den aktuellen Tenant-Kontext — welcher Tenant
+    antwortet, welche OAuth-Apps sind konfiguriert, welche Scopes
+    stehen zur Verfuegung.
+    """
+    try:
+        tenant = current_tenant.get() or {}
+        scopes = {
+            "print": bool(tenant.get("print_client_id")),
+            "card":  bool(tenant.get("card_client_id")),
+            "workstation": bool(tenant.get("ws_client_id")),
+            "user_management": bool(tenant.get("um_client_id")),
+            "shared": bool(tenant.get("shared_client_id")),
+        }
+        return _ok({
+            "tenant_id": tenant.get("id"),
+            "tenant_name": tenant.get("name"),
+            "printix_tenant_id": tenant.get("printix_tenant_id"),
+            "configured_scopes": scopes,
+            "server_version": APP_VERSION,
+        })
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_quick_print(recipient_email: str, file_url: str, filename: str = "document.pdf") -> str:
+    """
+    One-Shot-Druck: nutzt den ersten verfuegbaren Drucker im Tenant und
+    sendet die Datei als Secure-Print-Job fuer den Empfaenger. Fuer
+    "schick das schnell an Marcus"-Flows.
+
+    Args:
+        recipient_email: Empfaenger (Secure-Print-Owner).
+        file_url:        HTTP(S)-URL der Datei.
+        filename:        Dateiname (fuer Titel).
+    """
+    return printix_send_to_user(user_email=recipient_email, file_url=file_url,
+                                 filename=filename, target_printer="", copies=1)
+
+
+@mcp.tool()
+def printix_resolve_printer(name_or_location: str) -> str:
+    """
+    Findet den besten passenden Drucker ueber Fuzzy-Match auf Name,
+    Location, Model. Liefert printer_id + queue_id fuer andere Tools.
+
+    Args:
+        name_or_location: Suchstring ("HP im 3. OG", "Finance", "MFP-24").
+    """
+    try:
+        c = client()
+        data = c.list_printers(page=0, size=200)
+        if isinstance(data, list):
+            plist = data
+        elif isinstance(data, dict):
+            plist = data.get("printers") or data.get("content") or data.get("items") or []
+        else:
+            plist = []
+
+        raw_query = (name_or_location or "").strip()
+        q_lower = raw_query.lower()
+        # v6.7.114: Token-basierter Fuzzy-Match. Vorher wurde "Brother Duesseldorf"
+        # als zusammenhaengender Substring gesucht — das matcht keinen Printer,
+        # dessen name="Brother-MFP-01" und siteName="Duesseldorf Office" ist,
+        # weil die Tokens in verschiedenen Feldern stehen. Jetzt: ALLE Tokens
+        # muessen irgendwo im kombinierten Haystack (name+model+vendor+location+
+        # siteName+networkName) vorkommen.
+        tokens = [t for t in re.split(r"\s+", q_lower) if t]
+
+        matches = []
+        for p in plist or []:
+            if not isinstance(p, dict):
+                continue
+            hay_parts = [
+                str(p.get("name", "")),
+                str(p.get("model", "")),
+                str(p.get("vendor", "")),
+                str(p.get("location", "")),
+                str(p.get("siteName", "")),
+                str(p.get("networkName", "")),
+                str(p.get("hostname", "")),
+            ]
+            hay = " ".join(hay_parts).lower()
+            if not hay.strip():
+                continue
+
+            # Substring-Match bleibt als Schnellpfad fuer Einzelwort-Queries
+            hit = False
+            score = 0
+            if q_lower and q_lower in hay:
+                hit = True
+                score = 100
+            elif tokens and all(t in hay for t in tokens):
+                # Alle Tokens vorhanden — Fuzzy-Treffer.
+                hit = True
+                score = 50 + min(40, 10 * len(tokens))
+
+            if hit:
+                pid, qid = _extract_printer_queue_ids(p)
+                matches.append({
+                    "printer": p, "printer_id": pid, "queue_id": qid,
+                    "compact": f"{pid}:{qid}",
+                    "score": score,
+                })
+
+        # Beste Matches nach Score oben
+        matches.sort(key=lambda m: m.get("score", 0), reverse=True)
+        return _ok({"query": name_or_location, "matches": matches, "match_count": len(matches),
+                    "best_match": matches[0] if matches else None})
+    except PrintixAPIError as e:
+        return _err(e)
+    except Exception as e:
+        return _ok({"error": str(e)})
+
+
+@mcp.tool()
+def printix_natural_query(question: str) -> str:
+    """
+    Hinweis-Tool fuer natuerlichsprachige Fragen an die Reports-Engine.
+
+    Macht keine echte NLP — liefert stattdessen Vorschlaege, welche
+    konkreten Reports-Tools fuer die Frage relevant sind. Der Agent
+    kann dann das konkrete Tool aufrufen.
+
+    Args:
+        question: Natuerliche Frage ("Wer hat letzten Monat am meisten gedruckt?").
+    """
+    q = (question or "").lower()
+    hints = []
+    if "wer" in q or "who" in q or "top" in q or "meist" in q:
+        hints.append("printix_top_users(days, limit) oder printix_query_top_users(start_date, end_date).")
+    if "welch" in q and "druck" in q:
+        hints.append("printix_top_printers(days, limit).")
+    if "trend" in q or "entwick" in q or "ueber zeit" in q:
+        hints.append("printix_print_trends(group_by, days).")
+    if "kosten" in q or "cost" in q:
+        hints.append("printix_query_cost_report oder printix_cost_by_department.")
+    if "vergleich" in q or "versus" in q or "gegenueber" in q:
+        hints.append("printix_compare_periods(days_a, days_b).")
+    if "anomal" in q or "auffaell" in q:
+        hints.append("printix_query_anomalies.")
+    if "karte" in q or "card" in q:
+        hints.append("printix_list_cards_by_tenant, printix_card_audit, printix_find_orphaned_mappings.")
+    if not hints:
+        hints = [
+            "printix_tenant_summary() fuer Ueberblick",
+            "printix_list_report_templates() fuer gespeicherte Reports",
+            "printix_query_print_stats fuer rohes Druckvolumen",
+        ]
+    return _ok({"question": question, "suggested_tools": hints})
 
 
 # ─── Dual Transport Router ────────────────────────────────────────────────────

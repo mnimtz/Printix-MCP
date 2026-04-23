@@ -90,6 +90,49 @@
       <div class="alert alert-success" style="margin-top:16px;">✅ {{ _('cards_flash_mapping_deleted') }}</div>
     {% elif flash == 'mapping_error' %}
       <div class="alert alert-error" style="margin-top:16px;">❌ {{ _('cards_flash_mapping_error') }}</div>
+    {% elif flash == 'default_profile_saved' %}
+      <div class="alert alert-success" style="margin-top:16px;">✅ Firmen-Standard-Profil gespeichert.</div>
+    {% elif flash == 'default_profile_error' %}
+      <div class="alert alert-error" style="margin-top:16px;">❌ Konnte Firmen-Standard nicht speichern.</div>
+    {% endif %}
+
+    {% if tenant_configured %}
+    <!-- Firmen-Default-Profil: wird von der iOS-App (und zukuenftigen
+         Clients) automatisch genutzt, damit Mitarbeiter kein Profil
+         selbst waehlen muessen. Leer = Clients zeigen Picker. -->
+    <div style="margin-top:20px; padding:16px; border:1px solid #ddd6fe; border-radius:12px; background:#faf5ff;">
+      <strong>🏢 Firmen-Standard-Profil (fuer Mobile-App)</strong>
+      <div style="color:#6b46c1; font-size:0.9em; margin:6px 0 12px 0;">
+        Wenn gesetzt, nutzt die iOS-App dieses Profil automatisch fuer alle neuen Karten —
+        Mitarbeiter muessen kein Profil mehr waehlen.
+      </div>
+      <form method="post" action="/cards/default-profile/save" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <select name="profile_id" style="min-width:280px; padding:6px 8px;">
+          <option value="" {% if not default_card_profile_id %}selected{% endif %}>— Kein Firmen-Default (Mitarbeiter waehlt selbst) —</option>
+          {% if builtin_profiles %}
+            {% for vendor_group in builtin_profiles|groupby('vendor') %}
+              <optgroup label="{{ vendor_group.grouper or 'Generic' }}">
+                {% for p in vendor_group.list %}
+                  <option value="{{ p.id }}" {% if p.id == default_card_profile_id %}selected{% endif %}>
+                    {{ p.name }}{% if p.reader_model and p.reader_model|lower != 'any' %} — {{ p.reader_model }}{% endif %}
+                  </option>
+                {% endfor %}
+              </optgroup>
+            {% endfor %}
+          {% endif %}
+          {% if custom_profiles %}
+            <optgroup label="{{ _('cards_custom_profiles_title') }}">
+              {% for p in custom_profiles %}
+                <option value="{{ p.id }}" {% if p.id == default_card_profile_id %}selected{% endif %}>
+                  {{ p.name }}{% if p.vendor %} ({{ p.vendor }}){% endif %}
+                </option>
+              {% endfor %}
+            </optgroup>
+          {% endif %}
+        </select>
+        <button type="submit" class="btn btn-primary">Speichern</button>
+      </form>
+    </div>
     {% endif %}
 
     <div class="cards-hero-grid">

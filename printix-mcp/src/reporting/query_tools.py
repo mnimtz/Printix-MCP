@@ -2684,8 +2684,20 @@ def query_sensitive_documents(
                     "color": int(r.get("color") or 0),
                     "matched_keyword": matched,
                 })
-        # Re-sort and re-paginate
-        sql_results.sort(key=lambda x: x.get("event_time", ""), reverse=True)
+        # v6.7.111: event_time kann im gemischten Ergebnis sowohl
+        # datetime.datetime (aus SQL Server via pymssql/pyodbc) als auch str
+        # (aus den Demo-Rows oben) sein. Python 3 vergleicht diese Typen
+        # nicht miteinander → TypeError. Deshalb normalisieren wir zum
+        # Sort-Key auf eine ISO-String-Repraesentation.
+        def _etime_sort_key(r):
+            t = r.get("event_time", "")
+            if hasattr(t, "isoformat"):
+                try:
+                    return t.isoformat()
+                except Exception:
+                    return str(t)
+            return str(t or "")
+        sql_results.sort(key=_etime_sort_key, reverse=True)
         sql_results = sql_results[:fetch]
 
     return sql_results

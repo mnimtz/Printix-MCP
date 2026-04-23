@@ -99,7 +99,7 @@ struct LoginView: View {
         defer { busy = false }
 
         guard let client = ApiClientFactory.make(baseURL: settings.serverURL, token: nil) else {
-            error = "Ungültige Server-URL."
+            error = String(localized: "Ungültige Server-URL.")
             return
         }
         do {
@@ -107,7 +107,7 @@ struct LoginView: View {
                                                 password: password,
                                                 deviceName: settings.deviceName)
             guard let token = result.token, !token.isEmpty else {
-                error = "Kein Token erhalten."
+                error = String(localized: "Kein Token erhalten.")
                 return
             }
             applyLogin(token: token, user: result.user)
@@ -123,7 +123,7 @@ struct LoginView: View {
         entraVerificationURI = ""
         entraMessage = ""
         guard let client = ApiClientFactory.make(baseURL: settings.serverURL, token: nil) else {
-            error = "Ungültige Server-URL."
+            error = String(localized: "Ungültige Server-URL.")
             return
         }
         do {
@@ -132,7 +132,7 @@ struct LoginView: View {
             entraVerificationURI = start.verificationUri ?? ""
             entraMessage         = start.message ?? ""
             guard let code = start.deviceCode else {
-                error = "Kein device_code vom Server."
+                error = String(localized: "Kein device_code vom Server.")
                 return
             }
             let interval = max(2, start.interval ?? 5)
@@ -161,7 +161,7 @@ struct LoginView: View {
                 }
                 if status == "pending" { continue }
                 await MainActor.run {
-                    self.error = poll.error ?? poll.message ?? "Login abgebrochen (\(status))."
+                    self.error = poll.error ?? poll.message ?? String(localized: "Login abgebrochen (\(status)).")
                     self.entraUserCode = ""
                 }
                 return
@@ -179,6 +179,7 @@ struct LoginView: View {
         settings.bearerToken  = token
         settings.userEmail    = user?.email ?? username
         settings.userFullName = user?.fullName ?? ""
+        settings.userRoleType = user?.roleType ?? ""
         entraUserCode = ""
         // ContentView beobachtet isLoggedIn und wechselt automatisch auf Main-Flow.
     }

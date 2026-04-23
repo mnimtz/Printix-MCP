@@ -11,8 +11,20 @@
 	     NICHT erneut "Fehlende Compliance" anzeigt. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- App Transport Security: Die Server-URL ist vom User frei
+	     konfigurierbar — viele betreiben den Printix-MCP-Server intern
+	     ohne oeffentliches TLS-Zertifikat (LAN, Self-Hosted, dev).
+	     Ohne diese Ausnahme scheitert jeder http://-Login an iOS-ATS.
+	     App-Store-Review: als "self-configurable server" begruendbar. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Mobile Print nutzt die Kamera, um den QR-Code aus dem Mitarbeiter-Portal zu scannen und den Server automatisch einzurichten.</string>
+	<key>NFCReaderUsageDescription</key>
+	<string>Mobile Print liest die UID deiner RFID-Karte (z.B. Firmenausweis), damit du sie zum Druck-Release zuordnen kannst.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

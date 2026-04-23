@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Printix MCP Server — Tool Reference</title>
+<style>
+  body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #222; line-height: 1.45; max-width: 960px; margin: 2em auto; padding: 0 1.5em; }
+  h1 { color: #0b5394; border-bottom: 3px solid #0b5394; padding-bottom: 0.3em; }
+  h2 { color: #0b5394; border-bottom: 1px solid #cfe2f3; padding-bottom: 0.2em; margin-top: 1.8em; }
+  h3 { color: #1c4587; margin-top: 1.3em; }
+  .subtitle { color: #666; font-size: 0.95em; margin-top: -0.5em; }
+  .badge-new { display: inline-block; background: #38761d; color: #fff; font-size: 0.7em; padding: 2px 6px; border-radius: 3px; margin-left: 0.5em; vertical-align: middle; }
+  .meta { background: #f3f6fa; border-left: 4px solid #0b5394; padding: 0.8em 1em; margin: 1em 0 2em 0; font-size: 0.95em; }
+  .meta b { color: #0b5394; }
+  table { border-collapse: collapse; width: 100%; margin: 0.6em 0 1.4em 0; font-size: 0.93em; }
+  th { background: #0b5394; color: #fff; text-align: left; padding: 0.5em 0.7em; font-weight: 600; }
+  td { padding: 0.5em 0.7em; vertical-align: top; border-bottom: 1px solid #e0e6ee; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  code { background: #eef2f7; color: #0b5394; padding: 1px 5px; border-radius: 3px; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.92em; }
+  td code { white-space: nowrap; }
+  pre { background: #f3f6fa; padding: 0.8em 1em; border-radius: 4px; overflow-x: auto; border-left: 3px solid #0b5394; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
+  .pattern-title { color: #38761d; font-weight: 600; margin-top: 1em; }
+  footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #cfe2f3; color: #888; font-size: 0.85em; }
+</style>
+</head>
+<body>
+
+<h1>Printix MCP Server — Tool Reference</h1>
+<p class="subtitle">Complete catalogue of MCP tools exposed by the Printix MCP Server for AI assistants.</p>
+
+<div class="meta">
+  <b>Version:</b> 6.7.107 &nbsp;|&nbsp;
+  <b>Transport:</b> Streamable HTTP (<code>/mcp</code> for claude.ai) + SSE (<code>/sse</code> for ChatGPT) &nbsp;|&nbsp;
+  <b>Auth:</b> OAuth 2.0 Bearer Token (per tenant) &nbsp;|&nbsp;
+  <b>Public Endpoint:</b> <code>https://mcp.printix.cloud</code>
+</div>
+
+<h2>1. Status &amp; Info</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_status()</code></td><td>Returns server version, configured tenant, OAuth app health. The sanity-check tool — always call this first when debugging.</td></tr>
+</table>
+
+<h2>2. Printers &amp; Queues</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_printers(search, page, size)</code></td><td>List printers in the tenant. Supports free-text search (name, model, location).</td></tr>
+<tr><td><code>printix_get_printer(printer_id, queue_id)</code></td><td>Full detail of a single printer/queue pair, including capabilities.</td></tr>
+</table>
+
+<h2>3. Print Jobs</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_jobs(queue_id, page, size)</code></td><td>Current print jobs in the tenant. Optional filter by queue.</td></tr>
+<tr><td><code>printix_get_job(job_id)</code></td><td>Detail of one print job (status, owner, size, creation time).</td></tr>
+<tr><td><code>printix_submit_job(...)</code></td><td>Submit a new print job. Returns upload URL for the 3-step flow (submit → upload → complete).</td></tr>
+<tr><td><code>printix_complete_upload(job_id)</code></td><td>Finalize a print job after the file has been uploaded to the pre-signed URL.</td></tr>
+<tr><td><code>printix_delete_job(job_id)</code></td><td>Cancel or delete a print job.</td></tr>
+<tr><td><code>printix_change_job_owner(job_id, new_owner_email)</code></td><td>Transfer Secure-Print ownership to another user (e.g. for delegation).</td></tr>
+</table>
+
+<h2>4. Card Management (Printix Cloud)</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_cards(user_id)</code></td><td>All cards of one user, <b>enriched</b> with local DB mappings (raw UID, transform profile, notes, decoded hex/decimal variants).</td></tr>
+<tr><td><code>printix_search_card(card_id, card_number)</code></td><td>Lookup a single card by Printix ID or physical card number.</td></tr>
+<tr><td><code>printix_register_card(user_id, card_number)</code></td><td>Register a card directly in Printix (skips the local mapping layer).</td></tr>
+<tr><td><code>printix_delete_card(card_id)</code></td><td>Remove a card from Printix.</td></tr>
+</table>
+
+<h2>5. Card Management (Local DB)</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_card_profiles()</code></td><td>All transform profiles — built-in vendor presets (HP, Konica, Ricoh etc.) plus tenant-custom profiles.</td></tr>
+<tr><td><code>printix_get_card_profile(profile_id)</code></td><td>Single profile with its rules JSON (how a raw UID gets transformed into the Printix secret).</td></tr>
+<tr><td><code>printix_search_card_mappings(search, printix_user_id)</code></td><td>Full-text search across locally stored mappings.</td></tr>
+<tr><td><code>printix_get_card_details(card_id, card_number)</code></td><td>Enriched single-card view combining Printix API + local DB data.</td></tr>
+<tr><td><code>printix_decode_card_value(card_value)</code></td><td>Decode a raw Printix base64 secret into hex / decimal / reversed variants — useful for debugging.</td></tr>
+<tr><td><code>printix_transform_card_value(card_value, ...)</code></td><td>Dry-run: apply a transform profile to a raw UID without registering.</td></tr>
+<tr><td><code>printix_get_user_card_context(user_id)</code></td><td>One-shot combo: user details + all cards (enriched) + all local mappings for that user.</td></tr>
+</table>
+
+<h2>6. Users</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_users(role, query, page, page_size)</code></td><td>List users. Default <code>role='USER'</code>. Call again with <code>'GUEST_USER'</code> for guest accounts.</td></tr>
+<tr><td><code>printix_get_user(user_id)</code></td><td>Full user detail including attributes and group memberships.</td></tr>
+<tr><td><code>printix_create_user(email, display_name, pin, password)</code></td><td>Create a guest user account. PIN must be exactly 4 digits.</td></tr>
+<tr><td><code>printix_delete_user(user_id)</code></td><td>Delete a guest user. Managers can't be deleted via API.</td></tr>
+<tr><td><code>printix_generate_id_code(user_id)</code></td><td>Issue a fresh 6-digit ID code for card-reader fallback authentication.</td></tr>
+</table>
+
+<h2>7. Groups</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_groups(search, page, size)</code></td><td>List user groups (used for printer assignment).</td></tr>
+<tr><td><code>printix_get_group(group_id)</code></td><td>Single group with members and permissions.</td></tr>
+<tr><td><code>printix_create_group(name, external_id)</code></td><td>Create a group. <code>external_id</code> typically matches your directory source.</td></tr>
+<tr><td><code>printix_delete_group(group_id)</code></td><td>Delete a group.</td></tr>
+</table>
+
+<h2>8. Workstations</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_workstations(search, page, page_size)</code></td><td>List endpoints with Printix Client installed. Filter by hostname or user.</td></tr>
+<tr><td><code>printix_get_workstation(workstation_id)</code></td><td>Workstation detail — OS, last seen, online state, associated user.</td></tr>
+</table>
+
+<h2>9. Sites &amp; Networks</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_sites(search, page, size)</code></td><td>List sites (logical locations like "HQ Copenhagen").</td></tr>
+<tr><td><code>printix_get_site(site_id)</code></td><td>Site detail with networks and printers.</td></tr>
+<tr><td><code>printix_create_site(name, path, ...)</code></td><td>Create a new site node in the organizational tree.</td></tr>
+<tr><td><code>printix_update_site(site_id, ...)</code></td><td>Modify site metadata.</td></tr>
+<tr><td><code>printix_delete_site(site_id)</code></td><td>Delete a site (requires empty networks).</td></tr>
+<tr><td><code>printix_list_networks(site_id, page, size)</code></td><td>List networks (subnets where printers live). Optionally scoped to a site.</td></tr>
+<tr><td><code>printix_get_network(network_id)</code></td><td>Network detail including CIDR, SNMP config, printers.</td></tr>
+<tr><td><code>printix_create_network(name, ...)</code></td><td>Create a network (subnet + SNMP binding).</td></tr>
+<tr><td><code>printix_update_network(network_id, ...)</code></td><td>Modify network.</td></tr>
+<tr><td><code>printix_delete_network(network_id)</code></td><td>Delete a network.</td></tr>
+</table>
+
+<h2>10. SNMP Configurations</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_snmp_configs(page, size)</code></td><td>All SNMP configurations (v2c/v3 credentials for printer discovery).</td></tr>
+<tr><td><code>printix_get_snmp_config(config_id)</code></td><td>Single SNMP config.</td></tr>
+<tr><td><code>printix_create_snmp_config(name, ...)</code></td><td>Create an SNMP config (v2c with community or v3 with user/auth/priv).</td></tr>
+<tr><td><code>printix_delete_snmp_config(config_id)</code></td><td>Delete SNMP config.</td></tr>
+</table>
+
+<h2>11. Reporting — Queries</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_reporting_status()</code></td><td>Health of the SQL Server data source, last ingest time, row counts.</td></tr>
+<tr><td><code>printix_query_print_stats(...)</code></td><td>Raw print-volume aggregation. Group by user / printer / site / day.</td></tr>
+<tr><td><code>printix_query_cost_report(...)</code></td><td>Cost calculation with configurable €/page for mono, color, sheet.</td></tr>
+<tr><td><code>printix_query_top_users(start_date, end_date, top_n, metric, ...)</code></td><td>Ranking of most active users. Metrics: pages, cost, jobs, color_pages.</td></tr>
+<tr><td><code>printix_query_top_printers(start_date, end_date, top_n, metric, ...)</code></td><td>Ranking of most-used printers — same metrics as top_users.</td></tr>
+<tr><td><code>printix_query_anomalies(...)</code></td><td>Detect usage spikes or drops vs. historical baseline.</td></tr>
+<tr><td><code>printix_query_trend(...)</code></td><td>Time-series for print volume, grouped by day / week / month.</td></tr>
+<tr><td><code>printix_query_any(sql_like_spec)</code></td><td>Generic escape hatch — execute a saved-template spec directly.</td></tr>
+</table>
+
+<h2>12. Reporting — Templates &amp; Schedules</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_save_report_template(...)</code></td><td>Persist a configured report for re-use + scheduling.</td></tr>
+<tr><td><code>printix_list_report_templates()</code></td><td>All saved report templates in the tenant.</td></tr>
+<tr><td><code>printix_get_report_template(report_id)</code></td><td>Template detail with its query spec and design options.</td></tr>
+<tr><td><code>printix_delete_report_template(report_id)</code></td><td>Delete template.</td></tr>
+<tr><td><code>printix_run_report_now(report_id, report_name)</code></td><td>Execute a template ad-hoc and return the resulting data.</td></tr>
+<tr><td><code>printix_send_test_email(recipient)</code></td><td>Verify SMTP configuration / email delivery.</td></tr>
+<tr><td><code>printix_schedule_report(...)</code></td><td>Attach a cron-like schedule to a template (daily/weekly/monthly).</td></tr>
+<tr><td><code>printix_list_schedules()</code></td><td>All active report schedules.</td></tr>
+<tr><td><code>printix_delete_schedule(report_id)</code></td><td>Remove schedule from a template.</td></tr>
+<tr><td><code>printix_update_schedule(...)</code></td><td>Modify an existing schedule.</td></tr>
+</table>
+
+<h2>13. Reporting — Design &amp; Preview</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_design_options()</code></td><td>Available chart types and layout presets for PDF reports.</td></tr>
+<tr><td><code>printix_preview_report(...)</code></td><td>Render a report preview (HTML/PDF) without sending it by email.</td></tr>
+</table>
+
+<h2>14. Demo Data</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_demo_setup_schema()</code></td><td>Create demo tables in SQLite if missing. Safe to call repeatedly.</td></tr>
+<tr><td><code>printix_demo_generate(...)</code></td><td>Generate synthetic print-job data — useful for showcasing dashboards without real data.</td></tr>
+<tr><td><code>printix_demo_rollback(demo_tag)</code></td><td>Remove a demo batch by tag.</td></tr>
+<tr><td><code>printix_demo_status()</code></td><td>List active demo datasets and row counts.</td></tr>
+</table>
+
+<h2>15. Audit Log &amp; Feature Requests</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_query_audit_log(start_date, end_date, action_prefix, object_type, limit)</code></td><td>Query the tenant audit log — user actions, credential changes, approvals, feature requests.</td></tr>
+<tr><td><code>printix_list_feature_requests(status, limit)</code></td><td>List user-submitted feature requests / ideas.</td></tr>
+<tr><td><code>printix_get_feature_request(ticket_id)</code></td><td>Detail of a specific feature request.</td></tr>
+</table>
+
+<h2>16. Backup Management</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_backups()</code></td><td>Existing DB + secrets backups stored under <code>/config/backups</code>.</td></tr>
+<tr><td><code>printix_create_backup()</code></td><td>Create a fresh backup (manual on-demand).</td></tr>
+</table>
+
+<h2>17. Capture Profiles</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_capture_profiles()</code></td><td>Capture webhook profiles (OCR and forwarding pipelines for scanned documents).</td></tr>
+<tr><td><code>printix_capture_status()</code></td><td>Capture subsystem health plus recent webhook activity.</td></tr>
+</table>
+
+<h2>18. Site &amp; Network Aggregations</h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_site_summary(site_id)</code></td><td>Site overview bundling networks, printers and SNMP in one response.</td></tr>
+<tr><td><code>printix_network_printers(network_id, site_id)</code></td><td>Printers on a specific network.</td></tr>
+<tr><td><code>printix_get_queue_context(queue_id, printer_id)</code></td><td>Full context for a queue (printer + site + network + SNMP).</td></tr>
+<tr><td><code>printix_get_network_context(network_id)</code></td><td>Network + site + printers + SNMP in one call.</td></tr>
+<tr><td><code>printix_get_snmp_context(config_id)</code></td><td>SNMP config plus networks/sites/printers that use it.</td></tr>
+</table>
+
+<h2>19. Cross-Source Insights <span class="badge-new">NEW v6.7.107</span></h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_find_user(query)</code></td><td>Fuzzy-match a user via email, name, or ID across USER + GUEST_USER roles. Pre-step for anything that needs a <code>user_id</code>.</td></tr>
+<tr><td><code>printix_user_360(query)</code></td><td>Complete profile: user details + all cards (enriched) + associated workstations. Single-call answer to "what's the state of user X?".</td></tr>
+<tr><td><code>printix_printer_health_report()</code></td><td>Online/offline breakdown grouped by site, including the list of offline printers for quick triage.</td></tr>
+<tr><td><code>printix_tenant_summary()</code></td><td>Executive dashboard — counts for users, printers, workstations, groups, local cards. Perfect for "give me an org overview".</td></tr>
+<tr><td><code>printix_diagnose_user(email)</code></td><td>Heuristic troubleshooting — finds missing cards, wrong role types, orphaned accounts. Returns findings with severities + suggestions.</td></tr>
+</table>
+
+<h2>20. Card Management — Tenant-Wide <span class="badge-new">NEW v6.7.107</span></h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_cards_by_tenant(status)</code></td><td>All cards across all users. Filter: <code>mapped</code> / <code>unmapped</code> / <code>all</code>.</td></tr>
+<tr><td><code>printix_find_orphaned_mappings()</code></td><td>Local mappings that point to Printix cards which no longer exist (leftovers from out-of-app deletes).</td></tr>
+<tr><td><code>printix_bulk_import_cards(csv_data, profile_id, dry_run)</code></td><td>CSV mass import (<code>email,card_uid[,notes]</code>) with transform-profile application and dry-run mode.</td></tr>
+<tr><td><code>printix_suggest_profile(sample_uid)</code></td><td>Tries all profiles against a sample UID and ranks the best match.</td></tr>
+<tr><td><code>printix_card_audit(user_email)</code></td><td>Per-user card audit trail with source, notes, timestamps.</td></tr>
+</table>
+
+<h2>21. Print Jobs &amp; Reporting — High-Level <span class="badge-new">NEW v6.7.107</span></h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_top_printers(days, limit, metric)</code></td><td>Most-used printers in last N days. Convenience wrapper with auto-computed date range.</td></tr>
+<tr><td><code>printix_top_users(days, limit, metric)</code></td><td>Most-active users in last N days. Wrapper around query_top_users.</td></tr>
+<tr><td><code>printix_jobs_stuck(minutes)</code></td><td>Jobs older than N minutes still stuck in queue — input for alerting/monitoring.</td></tr>
+<tr><td><code>printix_print_trends(group_by, days)</code></td><td>Print-volume time series grouped by day/week/month.</td></tr>
+<tr><td><code>printix_cost_by_department(department_field, days, cost_per_mono, cost_per_color)</code></td><td>Cost aggregation by user-attribute field. Requires Printix to expose the department attribute.</td></tr>
+<tr><td><code>printix_compare_periods(days_a, days_b, offset_b)</code></td><td>Compares two equal-length windows — e.g. "last 30 days vs. the 30 before that".</td></tr>
+</table>
+
+<h2>22. Access &amp; Governance <span class="badge-new">NEW v6.7.107</span></h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_list_admins()</code></td><td>All SYSTEM_MANAGER / SITE_MANAGER / KIOSK_MANAGER accounts. Some manager roles are API-hidden — empty results may still be valid.</td></tr>
+<tr><td><code>printix_permission_matrix()</code></td><td>User × Group matrix (groups drive printer access in Printix).</td></tr>
+<tr><td><code>printix_inactive_users(days)</code></td><td>Users with no activity in last N days — cleanup candidates. Depends on <code>lastSignIn</code> exposure.</td></tr>
+<tr><td><code>printix_sso_status(email)</code></td><td>Entra/Azure SSO link status for a user, best-effort based on available API fields.</td></tr>
+</table>
+
+<h2>23. Agent Workflow Helpers <span class="badge-new">NEW v6.7.107</span></h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_explain_error(code_or_message)</code></td><td>Plain-language explanation + fix suggestions for known error codes (no_printix_user, 409, etc.) from internal knowledge base.</td></tr>
+<tr><td><code>printix_suggest_next_action(context)</code></td><td>Heuristic advisor — given a situation, suggests which tools to call next.</td></tr>
+<tr><td><code>printix_send_to_user(user_email, file_url OR file_content_b64, filename, target_printer, copies)</code></td><td>High-level composite: resolve printer → submit → upload → complete → change owner. Accepts URL or base64 content.</td></tr>
+<tr><td><code>printix_onboard_user(email, display_name, role, pin, password, groups)</code></td><td>Full onboarding workflow in one call. Currently creates guest accounts; native SSO users go through Entra.</td></tr>
+<tr><td><code>printix_offboard_user(email, force)</code></td><td>Leaver flow: delete cards (Printix + local mappings), then delete account. Force flag required for non-guest users.</td></tr>
+</table>
+
+<h2>24. Quality of Life <span class="badge-new">NEW v6.7.107</span></h2>
+<table>
+<tr><th style="width:35%">Tool</th><th>Description</th></tr>
+<tr><td><code>printix_whoami()</code></td><td>Current tenant context plus configured OAuth scopes. Debug helper for "am I talking to the right tenant?".</td></tr>
+<tr><td><code>printix_quick_print(recipient_email, file_url, filename)</code></td><td>One-shot send: first available printer + default settings. For "just print this for Marcus" flows.</td></tr>
+<tr><td><code>printix_resolve_printer(name_or_location)</code></td><td>Fuzzy-match a printer by name/location/model → <code>printer_id:queue_id</code>.</td></tr>
+<tr><td><code>printix_natural_query(question)</code></td><td>Maps a natural-language question to relevant reporting tools (hint tool, not an LLM).</td></tr>
+</table>
+
+<h2>Conventions</h2>
+<ul>
+  <li><b>Return format:</b> every tool returns a JSON-encoded string.</li>
+  <li><b>Error shape:</b> Printix API errors return <code>{"error": true, "status_code": N, "message": "...", "error_id": "..."}</code>. Other errors return <code>{"error": "message"}</code>.</li>
+  <li><b>Tenant isolation:</b> each request resolves its tenant via Bearer token. Tools operate only on that tenant's data.</li>
+  <li><b>Pagination:</b> listing tools accept <code>page</code> (0-based) and <code>page_size</code> / <code>size</code> (default 50, max 200).</li>
+  <li><b>Date format:</b> <code>YYYY-MM-DD</code> for all date arguments.</li>
+  <li><b>Cost parameters:</b> <code>cost_per_mono</code>, <code>cost_per_color</code>, <code>cost_per_sheet</code> are per page/sheet in the tenant's currency; defaults reflect rough EU averages.</li>
+</ul>
+
+<h2>Integration Patterns</h2>
+
+<p class="pattern-title">"What cards does Marcus have?"</p>
+<pre>printix_find_user("marcus")
+    → user_id
+printix_get_user_card_context(user_id)
+    → cards + enriched local data</pre>
+
+<p class="pattern-title">"Who printed the most last month?"</p>
+<pre>printix_top_users(days=30, limit=10, metric="pages")</pre>
+
+<p class="pattern-title">"User X can't print — help me debug"</p>
+<pre>printix_diagnose_user("x@company.com")
+    → findings list with severities + suggestions</pre>
+
+<p class="pattern-title">"Onboard a new employee"</p>
+<pre>printix_onboard_user(email=..., display_name=..., groups="grp1,grp2")
+printix_generate_id_code(user_id)   # optional
+# card registration happens in iOS/Web client</pre>
+
+<p class="pattern-title">"How did print volume change vs last month?"</p>
+<pre>printix_compare_periods(days_a=30, days_b=30)</pre>
+
+<p class="pattern-title">"Just print this file for Marcus"</p>
+<pre>printix_quick_print(
+    recipient_email="marcus@company.com",
+    file_url="https://.../document.pdf",
+    filename="document.pdf")</pre>
+
+<footer>
+Printix MCP Server v6.7.107 &nbsp;·&nbsp; Generated 2026-04-22 &nbsp;·&nbsp; <br>
+For the underlying Printix Cloud API reference see printix.net/developer.
+</footer>
+
+</body>
+</html>

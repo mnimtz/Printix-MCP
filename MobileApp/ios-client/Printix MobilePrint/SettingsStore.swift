@@ -23,11 +23,13 @@ final class SettingsStore: ObservableObject {
         static let bearerToken       = "bearerToken"
         static let userEmail         = "userEmail"
         static let userFullName      = "userFullName"
+        static let userRoleType      = "userRoleType"
         static let lastTargetId      = "lastTargetId"      // legacy/single (Share-Ext)
         static let selectedTargetIds = "selectedTargetIds" // JSON-Array (Multi)
         static let targetLabels      = "targetLabels"      // JSON-Dict id→label
         static let selectionExpiresAt = "selectionExpiresAt" // Auto-Reset-Timer
         static let deviceName        = "deviceName"
+        static let appLanguage       = "appLanguage"
     }
 
     /// Default-Ziel, auf das der Auto-Reset-Timer zurueckfaellt.
@@ -57,6 +59,20 @@ final class SettingsStore: ObservableObject {
 
     @Published var userFullName: String {
         didSet { defaults.set(userFullName, forKey: Keys.userFullName) }
+    }
+
+    /// Rolle des Server-Users: "admin" | "user" | "employee" | "".
+    /// Bestimmt u.a. Sichtbarkeit des "Printix Management"-Tabs.
+    /// Wird beim Login (oder spaeter via /desktop/me) aktualisiert.
+    @Published var userRoleType: String {
+        didSet { defaults.set(userRoleType, forKey: Keys.userRoleType) }
+    }
+
+    /// True wenn der aktuelle User den Management-Tab sehen darf.
+    /// Employees nicht (kein Tenant/API-Kontext), Admin + User ja.
+    var hasManagementAccess: Bool {
+        let r = userRoleType.lowercased()
+        return r == "admin" || r == "user"
     }
 
     @Published var lastTargetId: String {
@@ -112,6 +128,13 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(deviceName, forKey: Keys.deviceName) }
     }
 
+    /// ISO-Sprachcode (en, de, es, fr, it, nl, no, sv). Default = "en" —
+    /// die App faehrt bewusst auf Englisch hoch, statt dem System zu
+    /// folgen; der User kann in Konto > Sprache umstellen.
+    @Published var appLanguage: String {
+        didSet { defaults.set(appLanguage, forKey: Keys.appLanguage) }
+    }
+
     init() {
         let appGroupDefaults = UserDefaults(suiteName: Self.appGroupID)
         self.defaults = appGroupDefaults ?? .standard
@@ -120,6 +143,7 @@ final class SettingsStore: ObservableObject {
         self.bearerToken  = defaults.string(forKey: Keys.bearerToken)  ?? ""
         self.userEmail    = defaults.string(forKey: Keys.userEmail)    ?? ""
         self.userFullName = defaults.string(forKey: Keys.userFullName) ?? ""
+        self.userRoleType = defaults.string(forKey: Keys.userRoleType) ?? ""
         let legacyTarget = defaults.string(forKey: Keys.lastTargetId) ?? ""
         self.lastTargetId = legacyTarget
         // Multi-Target aus JSON laden; Fallback = Single aus Legacy-Key.
@@ -138,6 +162,8 @@ final class SettingsStore: ObservableObject {
         self.selectionExpiresAt = defaults.object(forKey: Keys.selectionExpiresAt) as? Date
         let storedDeviceName = defaults.string(forKey: Keys.deviceName) ?? ""
         self.deviceName = storedDeviceName.isEmpty ? Self.defaultDeviceName() : storedDeviceName
+        let storedLang = (defaults.string(forKey: Keys.appLanguage) ?? "").lowercased()
+        self.appLanguage = storedLang.isEmpty ? "en" : storedLang
     }
 
     // MARK: - Auto-Reset
@@ -187,6 +213,7 @@ final class SettingsStore: ObservableObject {
         bearerToken = ""
         userEmail = ""
         userFullName = ""
+        userRoleType = ""
         lastTargetId = ""
     }
 

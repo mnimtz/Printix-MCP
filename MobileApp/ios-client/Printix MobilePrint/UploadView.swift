@@ -73,9 +73,15 @@ struct UploadView: View {
                     HStack {
                         Image(systemName: "doc.text")
                             .foregroundColor(.secondary)
-                        Text(pickedURL?.lastPathComponent ?? "Noch nichts ausgewählt")
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+                        if let name = pickedURL?.lastPathComponent {
+                            Text(name)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        } else {
+                            Text("Noch nichts ausgewählt")
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
 
@@ -197,7 +203,7 @@ struct UploadView: View {
             HStack {
                 Image(systemName: "clock.fill")
                     .foregroundColor(.orange)
-                Text(String(format: "Zurück zu SecurePrint in %d:%02d", mm, ss))
+                Text(String(format: String(localized: "Zurück zu SecurePrint in %d:%02d"), mm, ss))
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
@@ -217,7 +223,7 @@ struct UploadView: View {
         errorText = ""
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else {
-                errorText = "Konnte das Foto nicht laden."
+                errorText = String(localized: "Konnte das Foto nicht laden.")
                 return
             }
             // Dateiendung bestmoeglich raten — bei HEIC/JPEG steht das
@@ -228,7 +234,7 @@ struct UploadView: View {
             try data.write(to: url, options: .atomic)
             pickedURL = url
         } catch {
-            errorText = "Foto-Import: \(error.localizedDescription)"
+            errorText = String(localized: "Foto-Import: \(error.localizedDescription)")
         }
     }
 
@@ -246,12 +252,12 @@ struct UploadView: View {
         errorText = ""
         sendResults = []
         guard let fileURL = pickedURL else {
-            errorText = "Bitte zuerst eine Datei auswählen."
+            errorText = String(localized: "Bitte zuerst eine Datei auswählen.")
             return
         }
         guard let client = ApiClientFactory.make(baseURL: settings.serverURL,
                                                  token: settings.bearerToken) else {
-            errorText = "Keine gültige Server-Konfiguration."
+            errorText = String(localized: "Keine gültige Server-Konfiguration.")
             return
         }
 
@@ -288,7 +294,7 @@ struct UploadView: View {
                     } else {
                         outcomes.append(SendOutcome(targetDisplay: display,
                                                     ok: false,
-                                                    detail: result.error ?? result.message ?? "Unbekannter Fehler"))
+                                                    detail: result.error ?? result.message ?? String(localized: "Unbekannter Fehler")))
                     }
                 } catch {
                     outcomes.append(SendOutcome(targetDisplay: display,
@@ -306,7 +312,7 @@ struct UploadView: View {
     /// "queued job=abc". Wir zeigen den Status kapitalisiert und
     /// haengen die Job-Id nur an wenn vorhanden.
     private func successDetail(_ r: SendResult) -> String {
-        let status = (r.status ?? "gesendet").capitalized
+        let status = (r.status ?? String(localized: "gesendet")).capitalized
         if let job = r.jobId, !job.isEmpty {
             return "\(status) · Job \(job)"
         }

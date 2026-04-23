@@ -67,16 +67,16 @@ struct SetupView: View {
                 QRScannerView { value in
                     showScanner = false
                     guard let v = value, !v.isEmpty else {
-                        scanNote = "Scan abgebrochen oder Kamera nicht verfügbar."
+                        scanNote = String(localized: "Scan abgebrochen oder Kamera nicht verfügbar.")
                         return
                     }
                     // Nur akzeptieren, wenn es nach URL aussieht — sonst
                     // blenden wir den Rohwert als Hinweis ein.
                     if v.lowercased().hasPrefix("http://") || v.lowercased().hasPrefix("https://") {
                         draftURL = v
-                        scanNote = "Server-URL aus QR übernommen."
+                        scanNote = String(localized: "Server-URL aus QR übernommen.")
                     } else {
-                        scanNote = "QR enthält keine gültige Server-URL."
+                        scanNote = String(localized: "QR enthält keine gültige Server-URL.")
                     }
                 }
                 .ignoresSafeArea()

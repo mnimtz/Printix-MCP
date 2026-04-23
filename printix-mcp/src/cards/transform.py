@@ -23,9 +23,41 @@ def decode_printix_secret_value(secret_value: str) -> dict:
     }
     if not secret_value:
         return result
-    try:
-        raw_bytes = base64.b64decode(secret_value, validate=True)
-    except Exception:
+
+    # v6.7.113: Pre-strip common separators (space/:/-) — Hex-UIDs werden
+    # haeufig als "04:5F:F0:02" oder "04-5F-F0-02" eingegeben.
+    cleaned = re.sub(r"[\s:\-]", "", secret_value or "")
+    had_separators = cleaned != (secret_value or "").strip()
+
+    raw_bytes = None
+
+    # Hex-First wenn Trennzeichen entfernt wurden oder der Input nicht wie
+    # ein typischer Base64-Kartenwert aussieht. Grund: "045FF002" ist sowohl
+    # gueltiges Hex als auch gueltiges Base64 — die Hex-Lesart ist bei
+    # Karten-UIDs fast immer die richtige.
+    is_pure_hex = bool(cleaned) and bool(re.fullmatch(r"[0-9A-Fa-f]+", cleaned)) and len(cleaned) % 2 == 0
+    if is_pure_hex and (had_separators or len(cleaned) <= 16):
+        try:
+            raw_bytes = bytes.fromhex(cleaned)
+            result["profile_hint"] = "hex-input"
+        except Exception:
+            raw_bytes = None
+
+    if raw_bytes is None:
+        try:
+            raw_bytes = base64.b64decode(cleaned, validate=True)
+        except Exception:
+            raw_bytes = None
+
+    # Letzter Hex-Fallback falls Base64 scheiterte aber Input reines Hex ist.
+    if raw_bytes is None and is_pure_hex:
+        try:
+            raw_bytes = bytes.fromhex(cleaned)
+            result["profile_hint"] = "hex-input"
+        except Exception:
+            return result
+
+    if raw_bytes is None:
         return result
 
     result["decoded_bytes_hex"] = raw_bytes.hex().upper()
@@ -247,5 +279,55 @@ def transform_card_value(
         "base64_source_value": base64_input_value,
         "base64_source_bytes_hex": base64_bytes.hex().upper(),
         "final_submit_value": final_value,
+        # v6.7.111: 'final'-Alias fuer Callers die das Legacy-Key erwarten
+        # (printix_bulk_import_cards, printix_suggest_profile).
+        "final": final_value,
         "input_mode_resolved": mode,
     }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# v6.7.111: apply_profile_transform
+#
+# Wrapper der ein Profile-Rules-Dict (aus cards.store.get_profile → rules_json)
+# direkt auf eine Raw-UID anwendet. Fehlte bis v6.7.110 obwohl server.py
+# das Symbol bereits importiert hat — hat printix_bulk_import_cards und
+# printix_suggest_profile beim ersten Aufruf hart kaputt gemacht.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Whitelist der gueltigen Parameter-Namen (siehe transform_card_value-Signatur).
+# Unbekannte Keys im rules-Dict werden stillschweigend ignoriert — robuster
+# gegenueber Profile-Schema-Drift.
+_TRANSFORM_KWARGS = frozenset({
+    "strip_separators", "remove_chars", "replace_map",
+    "trim_prefix", "trim_suffix", "prepend_text", "append_text",
+    "append_char", "append_count", "leading_zero_mode",
+    "input_mode", "submit_mode", "base64_source",
+    "pad_even_hex", "lowercase", "double_base64",
+    "base64_encoding", "base64_suffix_hex", "base64_suffix_count",
+})
+
+
+def apply_profile_transform(raw_value: str, rules) -> dict:
+    """Wendet ein Rules-Dict (aus profile.rules_json) auf eine Raw-UID an.
+
+    Args:
+        raw_value: Kartenwert wie am Leser erkannt.
+        rules:     Dict aus dem Profil (oder JSON-String, der geparst wird).
+
+    Returns:
+        dict mit mindestens den Keys 'final' (Submit-Wert), 'working',
+        'hex', 'decimal', ... — gleiche Struktur wie transform_card_value().
+
+    Unbekannte rules-Keys werden stillschweigend ignoriert, damit Schema-
+    Erweiterungen in der Profil-Definition nicht alte Builds zerlegen.
+    """
+    if isinstance(rules, str):
+        try:
+            rules = json.loads(rules)
+        except Exception:
+            rules = {}
+    rules = rules if isinstance(rules, dict) else {}
+
+    safe_kwargs = {k: v for k, v in rules.items() if k in _TRANSFORM_KWARGS}
+    return transform_card_value(raw_value, **safe_kwargs)

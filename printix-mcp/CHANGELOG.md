@@ -1,3 +1,84 @@
+## 6.7.118 (2026-04-23) — Dashboard-KPIs: Cache gegen Azure-SQL-Cold-Start
+
+### Fixed
+- **Dashboard zeigte Nullen statt echter Werte**: Root-Cause aus v6.7.117 war der 12s-Cap bei gleichzeitigem Azure-SQL-Cold-Start. Die serverless Azure-SQL-Instanz pausiert bei Nicht-Nutzung — der erste Connection-Versuch dauert 30-60s (TCP-Timeout, dann Spin-Up), alle Folgeverbindungen sind schnell. Der Dashboard-Endpoint machte aber 4-5 Queries seriell, gesamt 30-90s → unser 12s-Cap killte alles → leere KPIs. Der Direkt-Call lieferte korrekte Werte (`month_pages: 65952` etc.), nur eben nach 60-90s.
+- **In-Memory-Cache (60s TTL) pro User**: erfolgreiche Responses werden gecached, Folge-Requests kommen instant zurueck. Cache-Hit markiert `_cache_age_s` im Payload.
+- **Per-User asyncio.Lock gegen Thundering Herd**: Wenn 5 Tabs gleichzeitig das Dashboard oeffnen, rechnet nur **einer**, die anderen warten auf das Ergebnis. Vorher: 5x Cold-Start parallel = 5x 60s Wartezeit und 5x DB-Aufweck-Druck.
+- **Timeout hochgezogen**: Server 12s → 75s, Client 15s → 80s. Reicht fuer Azure-Cold-Start + 4 Queries mit Reserve.
+- **Stale-Fallback bei Timeout**: wenn trotz 75s kein Ergebnis, wird der letzte bekannte Cache-Eintrag (auch >60s alt) mit Flag `_stale_after_timeout` zurueckgegeben. User sieht die Werte von letztem Mal statt 0.
+
+## 6.7.117 (2026-04-23) — Dashboard-KPIs: Timeout + robuste Fehleranzeige
+
+### Fixed
+- **Dashboard Systemstatus zeigte dauerhaft "…"-Platzhalter**: Wenn `/dashboard/data` haengt (z.B. Printix-API blockiert ohne Response), lief der Client-`fetch` ewig, ohne jemals in `.then` oder `.catch` zu landen — Folge: die Skeleton-Punkte blieben sichtbar, keine Zahl erschien. Jetzt doppelt abgesichert:
+  - **Server-Timeout (12s)**: `/dashboard/data` wrappt `asyncio.gather(_load_printers, _load_sql)` mit `asyncio.wait_for(..., timeout=12.0)`. Nach 12s antwortet der Endpoint mit Teilergebnissen (`error_printers/error_sql: "timeout"`).
+  - **Client-Timeout (15s)**: `fetch()` bekommt ein `AbortController`-Signal, das nach 15s ausloest. Die Skeleton-Platzhalter werden dann garantiert auf `0` gesetzt (via `clearAll(0)`).
+  - **Bessere Console-Diagnostik**: `console.warn`/`console.error` fuer HTTP-Fehler, Backend-Error-Felder und Timeouts — damit der Grund im DevTools-Log sichtbar ist.
+
+## 6.7.116 (2026-04-23) — `network_printers` Strategie 4: Site-Fallback
+
+### Added
+- **`printix_network_printers` Strategie 4 `site_fallback`**: Ground-Truth aus dem Delta-Test v6.7.115 — die Printix-API liefert auf Printer-Objekten **weder `networkId` noch `siteId`**. Ein exakter Network→Printer-Filter ist client-seitig damit unmoeglich. Neue letzte Strategie: Network → `get_network` → `site._links` → `siteId`, dann alle Printer des Tenants als Site-scoped Ergebnis zurueckgeben — mit `resolution_strategy: "site_fallback"` und einem ehrlichen Disclaimer im `diagnostics.strategy4_disclaimer`-Feld.
+- Damit liefert das Tool ab jetzt **immer** Printer, solange das Network aufloesbar ist. Bei Multi-Site-Tenants ist die Liste breiter als semantisch "richtig", aber das ist die einzige Naeherung die die API hergibt. Wenn Printix spaeter doch strukturelle Felder nachliefert (oder wir einen Site-Filter auf `list_printers` bekommen), schaltet Strategie 2/3 davor wieder auf engere Ergebnisse um — `site_fallback` bleibt ein letztes Sicherheitsnetz.
+
+### Strategien im Ueberblick
+1. `network_id_or_link` — direkter Feld/HAL-Link-Match (greift wenn API strukturierte Refs liefert)
+2. `network_site_match` — Printer-`siteId` == Network-`siteId`
+3. `network_name_match` — Printer-location/siteName/networkName enthaelt Network-Namen
+4. `site_fallback` — alle Printer des Tenants, scoped via aufgeloeste Site-IDs
+5. `no_strategy_matched` — Network nicht aufloesbar, Diagnose-Sample im Response
+
+## 6.7.115 (2026-04-23) — Hotfix v6.7.114: fehlendes `import re` + network_printers Strategie-Ausbau
+
+### Fixed
+- **`printix_resolve_printer` warf `NameError: name 're' is not defined`**: Der v6.7.114-Fix hat `re.split()` benutzt, ohne dass `re` im `server.py` importiert war. Modul-Level-`import re` ergaenzt.
+
+### Changed
+- **`printix_network_printers` hat jetzt drei Strategien statt zwei**: Zwischen "direkter Feld-Match" und "Network-Name-Match" liegt jetzt **Strategie 2 `network_site_match`** — wenn das Network eine `siteId` hat (aus `network.siteId` oder `_links.site.href`), werden Printer ueber ihre eigene `siteId` gefiltert. Das ist die saubere Variante wenn die API Site-Referenzen pflegt.
+- **Diagnose-Output bei `no_strategy_matched`**: Response enthaelt jetzt ein `diagnostics`-Dict mit den aufgeloesten Network-Namen, Site-IDs, eventuellen `get_network`-Fehlern und einem Sample der ersten 3 Printer-Keys. Damit ist im naechsten Report sofort erkennbar, welche Felder die Printix-Instanz tatsaechlich liefert — statt erneut raten zu muessen.
+
+## 6.7.114 (2026-04-23) — Letzte zwei Delta-Test-Issues: resolve_printer Fuzzy + network_printers Fallback
+
+### Fixed
+- **`printix_resolve_printer` findet "Brother Düsseldorf" jetzt auch ueber Feld-Grenzen hinweg**: Bisher reine Substring-Suche auf dem Haystack — wenn "Brother" im `name` und "Düsseldorf" im `siteName` steht, matcht `"brother düsseldorf"` nicht als zusammenhaengender Substring. Jetzt: Query wird tokenisiert, **alle** Tokens muessen irgendwo im Haystack (name + model + vendor + location + siteName + networkName + hostname) vorkommen. Substring-Match bleibt als Schnellpfad fuer Einzelwort-Queries und bekommt einen hoeheren Score. Ergebnisse werden nach Score sortiert.
+
+- **`printix_network_printers` hat einen mehrstufigen Fallback**: Die Printix-API liefert auf Printer-Objekten kein verlaessliches `networkId`-Feld. Der neue Resolver probiert der Reihe nach: (1) direkter Feld-Match (`networkId`, `network_id`, `networks[].id`, `_links.network.href`, `_links.networks[].href`); (2) Wenn nichts greift — Network-Details per `get_network` nachladen, dann Printer ueber `location`/`siteName`/`networkName` gegen den Network-Namen matchen. Das Response-Feld `resolution_strategy` zeigt welche Strategie gegriffen hat (`network_id_or_link` | `network_name_match` | `no_strategy_matched`), damit der naechste Bug-Report nicht raten muss.
+
+### Remaining / bewusst nicht gefixt
+- **`printix_decode_card_value` — `decoded_text` leer bei Hex-UIDs**: Delta-Test hat das als "funktional ausreichend" markiert. Hex-UIDs haben schlicht keine ASCII-Repraesentation; das Feld bleibt leer sobald die Bytes nicht 32 ≤ b ≤ 126 sind. Kein Bug.
+
+## 6.7.113 (2026-04-23) — Vier Small-Fixes aus dem Delta-Test
+
+### Fixed
+- **`printix_decode_card_value` (leere Felder bei Hex-mit-Trennzeichen)**: `decode_printix_secret_value()` hat bisher nur Base64 versucht. Jetzt: (a) vor dem Base64-Decode werden Leerzeichen/`:`/`-` entfernt — `"04:5F:F0:02"` und `"04 5F F0 02"` funktionieren; (b) zusätzlicher Hex-Fallback für reine Hex-Strings mit `profile_hint: "hex-input"`.
+- **`printix_get_card_details` (`card_id`/`owner_id` im Root leer)**: `_extract_card_id_from_api` und `_extract_owner_id_from_card` sehen jetzt rekursiv in Sub-Objects (`card`, `data`, `result`) und Listen (`cards`, `items`, `content`) nach, wenn am Top-Level nichts steht. API-Response-Wrapping bricht den Response-Root nicht mehr.
+- **`printix_site_summary` (`network_count: 0` trotz 10 Networks)**: Das ID-Extract lief nur für direkt-Listen-Antworten; bei Dict-Shape (`{"networks": [...]}`) blieb die Menge leer. Neuer `_listify`-Helper normalisiert Networks und Printers einheitlich; wenn keine IDs extrahiert werden konnten (fehlende `networkId`/`id`-Felder), fällt der Counter auf `len(networks_list)` zurück.
+- **`printix_capture_status` (`available_plugins: []` trotz aktivem Paperless)**: Zwei Bugs übereinander: (1) Der Import von `capture.base_plugin` triggert die `@register_plugin`-Decorators nicht — nötig ist der Side-Effect-Import von `capture.plugins`. (2) Das Klassenattribut heißt `plugin_name` (lowercase), der Code las `PLUGIN_NAME` und bekam immer den Fallback. Beides behoben; Plugin-Load-Fehler landen jetzt sichtbar im Response statt verschluckt zu werden.
+
+## 6.7.112 (2026-04-23) — Hotfix: `u.tenant_id` existiert nicht
+
+### Fixed
+- **`printix_query_audit_log` warf `no such column: u.tenant_id`**: Der v6.7.111-Fix hat eine Regression eingebaut — das Schema der `users`-Tabelle hat gar keine `tenant_id`-Spalte. Die Tenant-Zuordnung läuft über `tenants.user_id → users.id`, nicht umgekehrt. Drei Stellen betroffen und jetzt korrigiert:
+  1. **Auto-Resolve in `audit()`**: Subquery jetzt gegen `tenants` (`SELECT id FROM tenants WHERE user_id = ?`) statt gegen die nicht-existierende `users.tenant_id`.
+  2. **Back-Fill-Migration**: `UPDATE audit_log SET tenant_id = (SELECT t.id FROM tenants t WHERE t.user_id = audit_log.user_id)`.
+  3. **Toleranter Read in `query_audit_log_range`**: Zusätzlicher `LEFT JOIN tenants t ON t.user_id = a.user_id`, und der Fallback-Vergleich ist jetzt `t.id = ?` statt `u.tenant_id = ?`.
+
+### Lesson
+Vor einem Schema-referenzierenden Fix immer `PRAGMA table_info` checken — nicht vom Variablennamen (`user["tenant_id"]` kommt aus einem gemappten Dict, nicht aus einer DB-Spalte) auf die Spaltenexistenz schließen.
+
+## 6.7.111 (2026-04-23) — Drei MCP-Tool-Bugs aus dem claude.ai-Full-Test-Report
+
+### Fixed
+- **`printix_bulk_import_cards` / `printix_suggest_profile` stürzten mit `ImportError` ab**: `server.py` importierte `apply_profile_transform` aus `cards.transform`, aber die Funktion war nie implementiert worden. Neue Wrapper-Funktion in `src/cards/transform.py` mit Whitelist der erlaubten Rules-Keys — unbekannte Keys werden still ignoriert, damit Profil-Schema-Drift keine Tool-Calls zerlegt. Gleichzeitig liefert `transform_card_value()` jetzt einen `final`-Alias, den die Legacy-Caller erwarten.
+- **`printix_query_audit_log` gab `TypeError: '<' not supported between instances of 'datetime.datetime' and 'str'`**: SQL-Server liefert `event_time` via `pymssql` als `datetime`, Demo-Rows kommen als ISO-String. Der Sort mischte beide Typen. Neuer `_etime_sort_key`-Helper in `reporting/query_tools.py` normalisiert auf ISO-String vor dem Vergleich.
+- **`printix_query_audit_log` lieferte `rows: 0` obwohl die `audit_log`-Tabelle Einträge hatte**: Alle bisherigen `audit()`-Call-Sites in `web/app.py` riefen ohne `tenant_id`-Argument auf — alle Rows hatten `tenant_id=''`, der Tool-Filter auf den Mandanten schnitt sie weg. Drei-Teile-Fix:
+  1. **Auto-Resolve in `db.audit()`**: Wenn kein `tenant_id` mitgegeben wurde, wird er aus `users.tenant_id` des `user_id` nachgeschlagen. Single-Point-Fix für alle 16+ Call-Sites, ohne jede einzeln anfassen zu müssen.
+  2. **Back-Fill-Migration**: Alle bestehenden `audit_log`-Rows mit `tenant_id=''` bekommen ihren Mandanten via `UPDATE ... FROM users` nachträglich gesetzt.
+  3. **Toleranter Read** in `query_audit_log_range`: Legacy-Rows die trotz Migration noch `tenant_id=''` haben (z.B. System-Events ohne User), werden über das User-Join ebenfalls dem richtigen Mandanten zugeordnet.
+
+### Effekt
+Alle drei beim `claude.ai`-Full-Test-Lauf (110 Tools) identifizierten Critical-Bugs sind geschlossen. Die Tools `printix_bulk_import_cards`, `printix_suggest_profile`, `printix_query_audit_log` funktionieren wieder und der Audit-Trail ist pro Tenant sichtbar.
+
 ## 6.7.36 (2026-04-17) — Desktop-API: Admin-Tenant-Fallback (robuster als Single-Tenant-Check)
 
 ### Fixed

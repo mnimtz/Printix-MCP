@@ -453,6 +453,66 @@ async def _process_desktop_send_bg(
                         "printix_job=%s owner='%s'",
                         user.get("username"), px_job_id, submit_user_email,
                     )
+
+                    # Auto-Register printix_user_id: wenn der angemeldete User
+                    # (user_id im lokalen Portal) noch keine echte Printix-UUID
+                    # gespeichert hat — oder eine ungueltige mgr:-Manager-ID —
+                    # dann holen wir sie jetzt aus dem Job, den wir gerade
+                    # gesubmittet haben. Nach changeOwner ist ownerId die
+                    # echte UUID des Ziel-Users. Kostet 1 zusaetzlichen
+                    # list_print_jobs-Call (size=10) — laeuft nur wenn noetig.
+                    try:
+                        current_pxid = (user.get("printix_user_id") or "").strip()
+                        needs_update = (
+                            not current_pxid
+                            or current_pxid.startswith("mgr:")
+                            or ":" in current_pxid  # jede andere Prefix-Form auch
+                        )
+                        # Nur fuer den submittenden User selbst — nicht fuer
+                        # Delegates (submit_user_email waere dann die Delegate-
+                        # Email, wir wollen aber die UUID des Owners, also des
+                        # eingeloggten Desktop-User).
+                        own_email = (user.get("email") or "").strip().lower()
+                        if (needs_update and own_email
+                                and own_email == submit_user_email.lower()):
+                            from db import _conn as _dbc
+                            jobs_resp = client.list_print_jobs(size=10)
+                            jobs = []
+                            if isinstance(jobs_resp, dict):
+                                jobs = (jobs_resp.get("jobs")
+                                        or jobs_resp.get("content") or [])
+                            elif isinstance(jobs_resp, list):
+                                jobs = jobs_resp
+                            new_uuid = ""
+                            for j in jobs:
+                                if j.get("id") == px_job_id:
+                                    candidate = (j.get("ownerId") or "").strip()
+                                    # Nur echte UUIDs akzeptieren — die haben
+                                    # 36 Zeichen mit 4 Bindestrichen. mgr:-Praefix
+                                    # ausschliessen (die Card-API lehnt die ab).
+                                    if (candidate
+                                            and not candidate.startswith("mgr:")
+                                            and ":" not in candidate
+                                            and len(candidate) >= 30):
+                                        new_uuid = candidate
+                                    break
+                            if new_uuid and new_uuid != current_pxid:
+                                with _dbc() as _c:
+                                    _c.execute(
+                                        "UPDATE users SET printix_user_id=? WHERE id=?",
+                                        (new_uuid, user["user_id"]),
+                                    )
+                                logger.info(
+                                    "Desktop-Send: auto-registered printix_user_id=%s "
+                                    "fuer user='%s' (old='%s')",
+                                    new_uuid, user.get("username"), current_pxid or "-",
+                                )
+                    except Exception as _ar:
+                        logger.warning(
+                            "Desktop-Send: auto-register printix_user_id "
+                            "fehlgeschlagen fuer user='%s' err=%s",
+                            user.get("username"), _ar,
+                        )
                 except Exception as _co:
                     logger.warning(
                         "Desktop-Send [5/5] changeOwner FAIL — user='%s' "

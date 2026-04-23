@@ -78,11 +78,45 @@ def init_cards_tables():
             if col not in existing:
                 conn.execute(f"ALTER TABLE card_mappings ADD COLUMN {col} {ddl}")
 
+        # v6.7.103: Legacy-Migration. In alten DBs (v6.7.89 und frueher)
+        # wurde `id` ohne PRIMARY KEY AUTOINCREMENT angelegt; existierende
+        # Zeilen haben dort NULL. Die iOS-App braucht eine stabile, eindeutige
+        # numerische ID fuer ForEach/NavigationLink. Wir ziehen sie aus
+        # SQLite's internem rowid (immer vorhanden, eindeutig pro Tabelle).
+        import logging as _mig_log
+        try:
+            cur = conn.execute(
+                "UPDATE card_mappings SET id = rowid WHERE id IS NULL"
+            )
+            affected = cur.rowcount if hasattr(cur, "rowcount") else -1
+            if affected and affected > 0:
+                _mig_log.getLogger("printix.cards.store").info(
+                    "Legacy-Migration: id=NULL → rowid, %d Zeilen aktualisiert",
+                    affected,
+                )
+        except Exception as _mig_err:
+            _mig_log.getLogger("printix.cards.store").warning(
+                "Legacy-Migration id=rowid fehlgeschlagen: %s — Fallback via rowid-Read greift",
+                _mig_err,
+            )
+
 
 def _mapping_public(row):
     if not row:
         return None
     data = dict(row)
+    # v6.7.103: In alten DBs wurde die `id`-Spalte ohne PRIMARY KEY
+    # AUTOINCREMENT angelegt und ist bei allen Legacy-Zeilen NULL. SQLite
+    # liefert fuer jede Zeile aber einen eindeutigen `rowid` (sofern die
+    # Tabelle nicht WITHOUT ROWID ist). Wir nehmen rowid als stabile ID,
+    # damit iOS-ForEach/NavigationLink sauber unterscheiden koennen.
+    if data.get("id") in (None, 0):
+        try:
+            rid = row["rowid"]
+            if rid is not None:
+                data["id"] = rid
+        except (KeyError, IndexError):
+            pass
     local_value = _dec(data.get("local_value", ""))
     final_value = _dec(data.get("final_value", ""))
     preview_json = _dec(data.get("preview_json", ""))
@@ -140,13 +174,52 @@ def _search_candidates(q: str):
 
 
 def list_profiles(tenant_id: str):
+    """Alle verfuegbaren Karten-Transformationsprofile fuer einen Tenant.
+
+    Liefert die In-Memory-Builtins aus profiles.py + alle Custom-Profile
+    aus der DB (eigene des Tenants + globale mit tenant_id=''). Die
+    Builtins landen bewusst NICHT in der DB — das haelt sie
+    versions-gepinnt an den Code und erspart Migrationen wenn wir neue
+    Vendor-Profile hinzufuegen.
+    """
+    from .profiles import BUILTIN_PROFILES
     init_cards_tables()
     with _conn() as conn:
         rows = conn.execute(
             "SELECT * FROM card_profiles WHERE tenant_id IN ('', ?) ORDER BY is_builtin DESC, vendor, name",
             (tenant_id,)
         ).fetchall()
-    return [dict(r) for r in rows]
+    db_profiles = [dict(r) for r in rows]
+
+    # Builtins in DB-aehnliches Shape bringen, damit der Consumer sie
+    # nicht von DB-Eintraegen unterscheiden muss.
+    import json as _json
+    builtins = []
+    for p in BUILTIN_PROFILES:
+        # Feldname in profiles.py ist "rules_json" (als dict, nicht als
+        # String) — nicht "rules". Wichtig, sonst gehen die Transform-
+        # Regeln bei Builtins verloren und alles laeuft als Passthrough.
+        rules = p.get("rules_json") or p.get("rules") or {}
+        builtins.append({
+            "id":            p.get("id", ""),
+            "tenant_id":     "",
+            "name":          p.get("name", ""),
+            "vendor":        p.get("vendor", ""),
+            "reader_model":  p.get("reader_model", ""),
+            "mode":          p.get("mode", ""),
+            "description":   p.get("description", ""),
+            "rules_json":    _json.dumps(rules) if isinstance(rules, dict) else str(rules),
+            "is_builtin":    1,
+            "created_at":    "",
+            "updated_at":    "",
+        })
+
+    # Duplikate nach ID entfernen — DB gewinnt falls jemand versehentlich
+    # eine Builtin-ID manuell angelegt hat.
+    seen = {p["id"] for p in db_profiles}
+    merged = db_profiles + [p for p in builtins if p["id"] not in seen]
+    merged.sort(key=lambda p: (-(p.get("is_builtin") or 0), p.get("vendor", ""), p.get("name", "")))
+    return merged
 
 
 def get_profile(profile_id: str, tenant_id: str):
@@ -156,7 +229,28 @@ def get_profile(profile_id: str, tenant_id: str):
             "SELECT * FROM card_profiles WHERE id=? AND tenant_id IN ('', ?)",
             (profile_id, tenant_id)
         ).fetchone()
-    return dict(row) if row else None
+    if row:
+        return dict(row)
+    # Fallback auf In-Memory-Builtins
+    from .profiles import BUILTIN_PROFILES
+    for p in BUILTIN_PROFILES:
+        if p.get("id") == profile_id:
+            import json as _json
+            rules = p.get("rules_json") or p.get("rules") or {}
+            return {
+                "id":            p.get("id", ""),
+                "tenant_id":     "",
+                "name":          p.get("name", ""),
+                "vendor":        p.get("vendor", ""),
+                "reader_model":  p.get("reader_model", ""),
+                "mode":          p.get("mode", ""),
+                "description":   p.get("description", ""),
+                "rules_json":    _json.dumps(rules) if isinstance(rules, dict) else str(rules),
+                "is_builtin":    1,
+                "created_at":    "",
+                "updated_at":    "",
+            }
+    return None
 
 
 def upsert_profile(tenant_id: str, name: str, vendor: str, reader_model: str, mode: str, description: str, rules_json: str, profile_id: str = ""):
@@ -250,7 +344,7 @@ def get_mapping_by_card(tenant_id: str, printix_user_id: str, printix_card_id: s
     init_cards_tables()
     with _conn() as conn:
         row = conn.execute(
-            "SELECT * FROM card_mappings WHERE tenant_id=? AND printix_user_id=? AND printix_card_id=? ORDER BY id DESC LIMIT 1",
+            "SELECT rowid, * FROM card_mappings WHERE tenant_id=? AND printix_user_id=? AND printix_card_id=? ORDER BY id DESC LIMIT 1",
             (tenant_id, printix_user_id or "", printix_card_id or "")
         ).fetchone()
     return _mapping_public(row)
@@ -263,7 +357,7 @@ def search_mappings(tenant_id: str, q: str):
     with _conn() as conn:
         if q:
             rows = conn.execute(
-                "SELECT * FROM card_mappings WHERE tenant_id=? ORDER BY updated_at DESC LIMIT 500",
+                "SELECT rowid, * FROM card_mappings WHERE tenant_id=? ORDER BY updated_at DESC LIMIT 500",
                 (tenant_id,)
             ).fetchall()
             results = []
@@ -274,9 +368,25 @@ def search_mappings(tenant_id: str, q: str):
             rows = results[:100]
         else:
             rows = conn.execute(
-                "SELECT * FROM card_mappings WHERE tenant_id=? ORDER BY updated_at DESC LIMIT 100",
+                "SELECT rowid, * FROM card_mappings WHERE tenant_id=? ORDER BY updated_at DESC LIMIT 100",
                 (tenant_id,)
             ).fetchall()
+    return [_mapping_public(r) for r in rows]
+
+
+def list_mappings_for_user(tenant_id: str, printix_user_id: str):
+    """Alle Kartenzuordnungen eines bestimmten Printix-Users, neueste zuerst.
+
+    Gedacht fuer die Mobile-App, die nur die eigenen Karten zeigt — der
+    search_mappings-Pfad ist fuer Admin-Sicht (Volltextsuche ueber Tenant).
+    """
+    init_cards_tables()
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT rowid, * FROM card_mappings WHERE tenant_id=? AND printix_user_id=? "
+            "ORDER BY updated_at DESC",
+            (tenant_id, printix_user_id or "")
+        ).fetchall()
     return [_mapping_public(r) for r in rows]
 
 

@@ -105,6 +105,260 @@ public struct EntraPollResponse: Codable, Sendable {
     public let message: String?
 }
 
+// MARK: - Management (iOS-Tab "Printix Management", Server v6.7.66+)
+//
+// Rein Live-Abfragen an /desktop/management/*. Kein Cache, kein Poller.
+// Gleiches JSON-Schema wird vom Server in desktop_management_routes.py
+// erzeugt.
+
+public struct MgmtStatsBucket: Codable, Sendable {
+    public let total: Int?
+    public let online: Int?
+    public let available: Bool?
+    public let error: String?
+}
+
+public struct MgmtTenantInfo: Codable, Sendable {
+    // Server schickt die interne DB-PK (int) oder in manchen Konfigs auch
+    // den Printix-Tenant-UUID-String — wir akzeptieren beides.
+    public let id: String?
+    public let name: String?
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let s = try? c.decode(String.self, forKey: .id) {
+            self.id = s
+        } else if let i = try? c.decode(Int.self, forKey: .id) {
+            self.id = String(i)
+        } else {
+            self.id = nil
+        }
+        self.name = try? c.decode(String.self, forKey: .name)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(id, forKey: .id)
+        try c.encodeIfPresent(name, forKey: .name)
+    }
+
+    enum CodingKeys: String, CodingKey { case id, name }
+}
+
+public struct MgmtStatsResponse: Codable, Sendable {
+    public let printers: MgmtStatsBucket?
+    public let users: MgmtStatsBucket?
+    public let workstations: MgmtStatsBucket?
+    public let tenant: MgmtTenantInfo?
+}
+
+public struct MgmtPrinter: Codable, Identifiable, Hashable, Sendable {
+    public let id: String
+    public let queueId: String?
+    public let name: String
+    public let model: String?
+    public let location: String?
+    public let status: String?
+    public let isOnline: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, model, location, status
+        case queueId  = "queue_id"
+        case isOnline = "is_online"
+    }
+}
+
+public struct MgmtPrintersResponse: Codable, Sendable {
+    public let printers: [MgmtPrinter]
+    public let available: Bool?
+}
+
+public struct MgmtUser: Codable, Identifiable, Hashable, Sendable {
+    public let id: String
+    public let email: String?
+    public let name: String?
+    public let role: String?
+}
+
+public struct MgmtUsersResponse: Codable, Sendable {
+    public let users: [MgmtUser]
+    public let available: Bool?
+}
+
+public struct MgmtWorkstation: Codable, Identifiable, Hashable, Sendable {
+    public let id: String
+    public let hostname: String
+    public let userEmail: String?
+    public let lastSeen: String?
+    public let isOnline: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, hostname
+        case userEmail = "user_email"
+        case lastSeen  = "last_seen"
+        case isOnline  = "is_online"
+    }
+}
+
+public struct MgmtWorkstationsResponse: Codable, Sendable {
+    public let workstations: [MgmtWorkstation]
+    public let available: Bool?
+}
+
+// MARK: - Cards (iOS-Tab "Karten", Server v6.7.90+)
+//
+// Eigenverwaltung der RFID-Karten des angemeldeten Users. Backend-
+// Routen: /desktop/cards (Liste), /desktop/cards/profiles (Transforms),
+// /desktop/cards/preview (Dry-Run), /desktop/cards (POST: add),
+// /desktop/cards/{id} (DELETE).
+
+public struct CardPreview: Codable, Hashable, Sendable {
+    public let raw: String
+    public let normalized: String
+    public let working: String
+    public let hex: String
+    public let hexReversed: String
+    public let decimal: String
+    public let decimalReversed: String
+    public let base64Text: String
+    public let finalSubmitValue: String
+
+    enum CodingKeys: String, CodingKey {
+        case raw, normalized, working, hex, decimal
+        case hexReversed      = "hex_reversed"
+        case decimalReversed  = "decimal_reversed"
+        case base64Text       = "base64_text"
+        case finalSubmitValue = "final_submit_value"
+    }
+
+    public init(raw: String = "", normalized: String = "", working: String = "",
+                hex: String = "", hexReversed: String = "",
+                decimal: String = "", decimalReversed: String = "",
+                base64Text: String = "", finalSubmitValue: String = "") {
+        self.raw = raw
+        self.normalized = normalized
+        self.working = working
+        self.hex = hex
+        self.hexReversed = hexReversed
+        self.decimal = decimal
+        self.decimalReversed = decimalReversed
+        self.base64Text = base64Text
+        self.finalSubmitValue = finalSubmitValue
+    }
+
+    // Tolerante Decoder — fehlende/null-Felder werden als "" geparst, damit
+    // aeltere DB-Zeilen die iOS-App nicht mit "data couldn't be read" killen.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.raw              = (try? c.decodeIfPresent(String.self, forKey: .raw)) ?? ""
+        self.normalized       = (try? c.decodeIfPresent(String.self, forKey: .normalized)) ?? ""
+        self.working          = (try? c.decodeIfPresent(String.self, forKey: .working)) ?? ""
+        self.hex              = (try? c.decodeIfPresent(String.self, forKey: .hex)) ?? ""
+        self.hexReversed      = (try? c.decodeIfPresent(String.self, forKey: .hexReversed)) ?? ""
+        self.decimal          = (try? c.decodeIfPresent(String.self, forKey: .decimal)) ?? ""
+        self.decimalReversed  = (try? c.decodeIfPresent(String.self, forKey: .decimalReversed)) ?? ""
+        self.base64Text       = (try? c.decodeIfPresent(String.self, forKey: .base64Text)) ?? ""
+        self.finalSubmitValue = (try? c.decodeIfPresent(String.self, forKey: .finalSubmitValue)) ?? ""
+    }
+}
+
+public struct Card: Codable, Identifiable, Hashable, Sendable {
+    public let id: Int
+    public let printixCardId: String
+    public let profileId: String
+    public let profileName: String
+    public let profileVendor: String
+    public let profileReaderModel: String
+    public let localValue: String
+    public let finalValue: String
+    public let normalizedValue: String
+    public let notes: String
+    public let source: String
+    public let createdAt: String
+    public let updatedAt: String
+    public let preview: CardPreview
+
+    enum CodingKeys: String, CodingKey {
+        case id, source, notes, preview
+        case printixCardId      = "printix_card_id"
+        case profileId          = "profile_id"
+        case profileName        = "profile_name"
+        case profileVendor      = "profile_vendor"
+        case profileReaderModel = "profile_reader_model"
+        case localValue         = "local_value"
+        case finalValue         = "final_value"
+        case normalizedValue    = "normalized_value"
+        case createdAt          = "created_at"
+        case updatedAt          = "updated_at"
+    }
+
+    // Tolerante Decoder-Implementierung. Nur `id` ist strikt erforderlich
+    // (sollte nie NULL sein — PK in SQLite). Alles andere wird bei
+    // fehlendem/null-Wert auf "" bzw. leeres Preview gesetzt, damit ein
+    // einzelner DB-Eintrag mit Altdaten nicht die gesamte Cards-Liste
+    // unbrauchbar macht.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id                 = (try? c.decodeIfPresent(Int.self, forKey: .id)) ?? 0
+        self.printixCardId      = (try? c.decodeIfPresent(String.self, forKey: .printixCardId)) ?? ""
+        self.profileId          = (try? c.decodeIfPresent(String.self, forKey: .profileId)) ?? ""
+        self.profileName        = (try? c.decodeIfPresent(String.self, forKey: .profileName)) ?? ""
+        self.profileVendor      = (try? c.decodeIfPresent(String.self, forKey: .profileVendor)) ?? ""
+        self.profileReaderModel = (try? c.decodeIfPresent(String.self, forKey: .profileReaderModel)) ?? ""
+        self.localValue         = (try? c.decodeIfPresent(String.self, forKey: .localValue)) ?? ""
+        self.finalValue         = (try? c.decodeIfPresent(String.self, forKey: .finalValue)) ?? ""
+        self.normalizedValue    = (try? c.decodeIfPresent(String.self, forKey: .normalizedValue)) ?? ""
+        self.notes              = (try? c.decodeIfPresent(String.self, forKey: .notes)) ?? ""
+        self.source             = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? ""
+        self.createdAt          = (try? c.decodeIfPresent(String.self, forKey: .createdAt)) ?? ""
+        self.updatedAt          = (try? c.decodeIfPresent(String.self, forKey: .updatedAt)) ?? ""
+        self.preview            = (try? c.decodeIfPresent(CardPreview.self, forKey: .preview)) ?? CardPreview()
+    }
+}
+
+public struct CardsResponse: Codable, Sendable {
+    public let cards: [Card]
+}
+
+public struct CardProfile: Codable, Identifiable, Hashable, Sendable {
+    public let id: String
+    public let name: String
+    public let vendor: String
+    public let readerModel: String
+    public let mode: String
+    public let description: String
+    public let isBuiltin: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, vendor, mode, description
+        case readerModel = "reader_model"
+        case isBuiltin   = "is_builtin"
+    }
+}
+
+public struct CardProfilesResponse: Codable, Sendable {
+    public let profiles: [CardProfile]
+    /// Firmen-Default den der Admin im Web-Portal gesetzt hat. Leer wenn
+    /// keiner gesetzt ist — dann soll der Client den Picker zeigen.
+    /// Wenn gesetzt, versteckt die iOS-App den Picker und nutzt still
+    /// dieses Profil.
+    public let defaultProfileId: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case profiles
+        case defaultProfileId = "default_profile_id"
+    }
+}
+
+public struct CardPreviewResponse: Codable, Sendable {
+    public let preview: CardPreview
+}
+
+public struct CardCreateResponse: Codable, Sendable {
+    public let card: Card
+}
+
+
 public struct VersionResponse: Codable, Sendable {
     public let latest: String?
     public let downloadUrlX64: String?

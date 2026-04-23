@@ -555,9 +555,38 @@
     el.textContent = fmtNum(value);
   }
 
-  fetch('/dashboard/data', { credentials: 'same-origin' })
-    .then(r => r.ok ? r.json() : {})
+  // v6.7.117 — Robust fetch with timeout. Falls /dashboard/data haengt
+  // (z.B. Printix-API blockiert), darf der User nicht mit "…" sitzen bleiben.
+  const ALL_IDS = ['kpi-total-printers','kpi-active-printers','kpi-month-pages',
+                   'kpi-today-jobs','env-trees','env-water','env-co2'];
+  const clearAll = (val) => ALL_IDS.forEach(id => setStat(id, val));
+
+  // v6.7.117: 80s Timeout — Server hat 75s Hard-Cap, 5s Netzwerk-Puffer.
+  // Azure SQL Cold-Start kann 30-60s brauchen beim ersten Request; danach
+  // liefert der Server-Cache (60s TTL) instant.
+  const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const timeoutId = setTimeout(() => {
+    if (ctrl) ctrl.abort();
+    console.warn('[dashboard] /dashboard/data timeout (80s) — showing zeros');
+    clearAll(0);
+  }, 80000);
+
+  fetch('/dashboard/data', {
+    credentials: 'same-origin',
+    signal: ctrl ? ctrl.signal : undefined,
+  })
+    .then(r => {
+      if (!r.ok) {
+        console.warn('[dashboard] /dashboard/data HTTP', r.status);
+        return {};
+      }
+      return r.json();
+    })
     .then(data => {
+      clearTimeout(timeoutId);
+      if (data && (data.error_printers || data.error_sql)) {
+        console.warn('[dashboard] backend errors:', data.error_printers, data.error_sql);
+      }
       const k = data.kpis || {};
       setStat('kpi-total-printers',  k.total_printers);
       setStat('kpi-active-printers', k.active_printers);
@@ -569,10 +598,10 @@
       setStat('env-water', env.water_l);
       setStat('env-co2',   env.co2_kg);
     })
-    .catch(() => {
-      // Bei Fehler: Skeleton mit "0" ersetzen damit die "…" Platzhalter weg sind
-      ['kpi-total-printers','kpi-active-printers','kpi-month-pages','kpi-today-jobs',
-       'env-trees','env-water','env-co2'].forEach(id => setStat(id, 0));
+    .catch(err => {
+      clearTimeout(timeoutId);
+      console.error('[dashboard] /dashboard/data failed:', err);
+      clearAll(0);
     });
 })();
 </script>

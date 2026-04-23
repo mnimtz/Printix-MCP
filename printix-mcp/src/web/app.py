@@ -979,6 +979,13 @@ def create_app(session_secret: str) -> FastAPI:
             **t_ctx(request),
         })
 
+    # v6.7.117: In-Memory-Cache fuer /dashboard/data.
+    # Azure SQL pausiert bei Nicht-Nutzung → erster Connect dauert 30-60s.
+    # Mit 60s-TTL-Cache ist nur der erste Aufruf langsam, alle weiteren instant.
+    _dashboard_cache: dict = {}  # user_id -> {"ts": epoch, "data": dict}
+    _DASHBOARD_CACHE_TTL = 60.0  # Sekunden
+    _dashboard_locks: dict = {}  # user_id -> asyncio.Lock (verhindert Thundering Herd)
+
     @app.get("/dashboard/data")
     async def dashboard_data(request: Request):
         """JSON-Endpunkt für Lazy-Loading + Auto-Refresh des Dashboards.
@@ -986,11 +993,42 @@ def create_app(session_secret: str) -> FastAPI:
         Liefert Printix-Drucker-Zählung, SQL-KPIs, Umwelt-Summary, Sparkline
         und Forecast in einem Aufruf. Printix-API und SQL laufen parallel
         via asyncio.gather — damit summiert sich die Latenz nicht.
+
+        v6.7.117: 60s-Cache + per-User-Lock gegen Azure-SQL-Cold-Start.
         """
         import asyncio as _aio
+        import time as _time
         user = get_session_user(request)
         if not user:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        _uid = str(user["id"])
+        _now = _time.time()
+
+        # Cache-Hit: < 60s alt → sofort zurueck
+        _cached = _dashboard_cache.get(_uid)
+        if _cached and (_now - _cached["ts"]) < _DASHBOARD_CACHE_TTL:
+            payload = dict(_cached["data"])
+            payload["_cache_age_s"] = round(_now - _cached["ts"], 1)
+            return JSONResponse(payload)
+
+        # Lock pro User: wenn parallel 5 Requests reinkommen, rechnet nur einer,
+        # die anderen warten auf das Ergebnis.
+        lock = _dashboard_locks.setdefault(_uid, _aio.Lock())
+        async with lock:
+            # Re-check nach Lock-Erwerb — evtl. hat ein paralleler Request
+            # inzwischen den Cache gefuellt.
+            _cached = _dashboard_cache.get(_uid)
+            if _cached and (_time.time() - _cached["ts"]) < _DASHBOARD_CACHE_TTL:
+                payload = dict(_cached["data"])
+                payload["_cache_age_s"] = round(_time.time() - _cached["ts"], 1)
+                return JSONResponse(payload)
+            return await _compute_dashboard_data(request, user, _uid, _now)
+
+    async def _compute_dashboard_data(request, user, _uid: str, _started_at: float):
+        """Eigentliche Berechnung — nur hinter dem Lock aufrufen."""
+        import asyncio as _aio
+        import time as _time
         try:
             from db import get_tenant_full_by_user_id
             tenant = get_tenant_full_by_user_id(user["id"])
@@ -1115,7 +1153,26 @@ def create_app(session_secret: str) -> FastAPI:
                 logger.warning("Dashboard-SQL: %s", e)
                 return {"error_sql": str(e)[:200]}
 
-        printers, sql_bundle = await _aio.gather(_load_printers(), _load_sql())
+        # v6.7.117: Hard timeout 75s — reicht fuer Azure-SQL-Cold-Start
+        # (erste Connection ~30s, dann 4 Queries ~5-10s each = max ~70s).
+        # Ergebnis wird 60s gecached, damit Folge-Requests instant sind.
+        try:
+            printers, sql_bundle = await _aio.wait_for(
+                _aio.gather(_load_printers(), _load_sql()),
+                timeout=75.0,
+            )
+        except _aio.TimeoutError:
+            logger.warning("Dashboard-Data: timeout nach 75s — Teilergebnisse")
+            # Fallback auf letzten Cache-Eintrag auch wenn expired
+            stale = _dashboard_cache.get(_uid)
+            if stale:
+                payload = dict(stale["data"])
+                payload["_cache_age_s"] = round(_time.time() - stale["ts"], 1)
+                payload["_stale_after_timeout"] = True
+                return JSONResponse(payload)
+            printers = {"total_printers": 0, "active_printers": 0,
+                        "error_printers": "timeout"}
+            sql_bundle = {"error_sql": "timeout"}
 
         kpis = dict(sql_bundle.get("kpis") or {})
         kpis.update(printers)  # total_printers + active_printers
@@ -1134,7 +1191,16 @@ def create_app(session_secret: str) -> FastAPI:
         # v6.0.1: SQL liefert date/datetime/Decimal-Objekte die Starlette's
         # JSONResponse nicht direkt serialisieren kann. Vor dem Return alles
         # in primitive Typen umwandeln.
-        return JSONResponse(_json_safe(result))
+        safe = _json_safe(result)
+
+        # v6.7.117: Cache nur erfolgreiche Ergebnisse (keine Timeouts)
+        if "error_printers" not in safe and "error_sql" not in safe:
+            _dashboard_cache[_uid] = {"ts": _time.time(), "data": safe}
+        elif safe.get("error_printers") != "timeout" and safe.get("error_sql") != "timeout":
+            # Teilerfolge (z.B. SQL down, Printer OK) trotzdem cachen mit kurzer TTL
+            _dashboard_cache[_uid] = {"ts": _time.time(), "data": safe}
+
+        return JSONResponse(safe)
 
     def _json_safe(obj):
         """Rekursiver Konverter: macht dict/list JSON-serialisierbar."""
@@ -2213,14 +2279,31 @@ def create_app(session_secret: str) -> FastAPI:
                     "message": "Print-API-Credentials nicht konfiguriert."})
 
             client = _make_printix_client(tenant)
-            # Strategie 1: list_users?query=<email> — erfasst normale USER/GUEST
+            # Strategie 1: list_users?query=<email> — erfasst normale USER/GUEST.
+            # Printix liefert die Liste mal unter "users", mal unter "content"
+            # (je nach API-Version/Endpoint-Variante) — beide Keys pruefen,
+            # sonst uebersieht der Match alle Treffer in neueren Instanzen.
             try:
                 search_result = client.list_users(role="USER,GUEST_USER",
                                                    query=target_email, page_size=20)
-                users = (search_result.get("users") or []) if isinstance(search_result, dict) else []
+                users = []
+                if isinstance(search_result, dict):
+                    users = (search_result.get("users")
+                             or search_result.get("content")
+                             or [])
+                elif isinstance(search_result, list):
+                    users = search_result
+                logger.info("Auto-resolve: list_users query=%s → %d Treffer",
+                            target_email, len(users))
                 for u in users:
                     if (u.get("email") or "").lower() == target_email:
-                        found_id = u.get("id", "")
+                        found_id = u.get("id", "") or u.get("userId", "")
+                        if not found_id:
+                            # Fallback: ID aus _links.self.href ziehen
+                            href = (((u.get("_links") or {}).get("self") or {})
+                                    .get("href", ""))
+                            if href:
+                                found_id = href.rstrip("/").split("/")[-1]
                         if found_id:
                             update_user(user_id=user_id, printix_user_id=found_id)
                             audit(admin["id"], "resolve_printix_id",
@@ -2229,7 +2312,35 @@ def create_app(session_secret: str) -> FastAPI:
                             return JSONResponse({"ok": True, "printix_user_id": found_id,
                                 "source": "list_users", "email": target_email})
             except Exception as e1:
-                logger.debug("list_users-Strategie: %s", e1)
+                logger.warning("Auto-resolve list_users fehlgeschlagen für %s: %s",
+                               target_email, e1)
+
+            # Strategie 1b: Full-Scan via list_all_users — kein Query, aber
+            # garantiert alle Seiten. Deckt den Fall ab, dass Printix den
+            # query-Parameter ignoriert (manche API-Versionen) oder nur
+            # Name-Substrings matcht und nicht E-Mail.
+            try:
+                all_users = client.list_all_users()
+                logger.info("Auto-resolve: list_all_users → %d Eintraege", len(all_users))
+                for u in all_users:
+                    if (u.get("email") or "").lower() == target_email:
+                        found_id = u.get("id", "") or u.get("userId", "")
+                        if not found_id:
+                            href = (((u.get("_links") or {}).get("self") or {})
+                                    .get("href", ""))
+                            if href:
+                                found_id = href.rstrip("/").split("/")[-1]
+                        if found_id:
+                            update_user(user_id=user_id, printix_user_id=found_id)
+                            audit(admin["id"], "resolve_printix_id",
+                                  f"Printix-User-ID {found_id} für {target.get('username')} "
+                                  f"(via full scan)",
+                                  object_type="user", object_id=user_id)
+                            return JSONResponse({"ok": True, "printix_user_id": found_id,
+                                "source": "list_all_users", "email": target_email})
+            except Exception as e1b:
+                logger.warning("Auto-resolve list_all_users fehlgeschlagen für %s: %s",
+                               target_email, e1b)
 
             # Strategie 2: jüngste Print-Jobs durchsuchen nach ownerEmail match
             try:
@@ -2254,12 +2365,56 @@ def create_app(session_secret: str) -> FastAPI:
             except Exception as e2:
                 logger.debug("print_jobs-Strategie: %s", e2)
 
+            # Strategie 3: cached_printix_users — deckt Manager-Rollen ab,
+            # die die list_users-API nicht zurueckgibt (System/Site/Kiosk
+            # Manager). Tenant-Owner werden beim Setup synthetisch mit ihrer
+            # echten Printix-UUID eingetragen.
+            try:
+                from cloudprint.printix_cache_db import find_printix_user_by_identity
+                px_user = find_printix_user_by_identity(target_email)
+                if not px_user:
+                    # Fallback: nur der Local-Part (vor dem @)
+                    local_part = target_email.split("@")[0] if "@" in target_email else ""
+                    if local_part:
+                        px_user = find_printix_user_by_identity(local_part)
+                if px_user and px_user.get("printix_user_id"):
+                    found_id = px_user["printix_user_id"]
+                    # mgr:-Praefix = synthetischer SYSTEM_MANAGER-Eintrag.
+                    # Solche IDs werden von der Printix Card-API abgelehnt
+                    # ("Failed to convert 'user' with value: 'mgr:...'").
+                    # Fuer Cards-Funktionalitaet braucht der User eine echte
+                    # User-UUID — Manager koennen aktuell keine Karten anlegen.
+                    if found_id.startswith("mgr:") or ":" in found_id:
+                        logger.warning(
+                            "Auto-resolve: cache hit für %s liefert Manager-ID %s — "
+                            "nicht fuer Cards geeignet, ueberspringe",
+                            target_email, found_id,
+                        )
+                        # Nicht speichern, nicht returnen — zu den finalen
+                        # not_found-Fehlermeldung durchfallen lassen.
+                    else:
+                        logger.info("Auto-resolve: cache hit für %s → %s (role=%s)",
+                                    target_email, found_id, px_user.get("role"))
+                        update_user(user_id=user_id, printix_user_id=found_id)
+                        audit(admin["id"], "resolve_printix_id",
+                              f"Printix-User-ID {found_id} für {target.get('username')} "
+                              f"(aus cached_printix_users)",
+                              object_type="user", object_id=user_id)
+                        return JSONResponse({"ok": True, "printix_user_id": found_id,
+                            "source": "cached_printix_users", "email": target_email})
+            except Exception as e3:
+                logger.warning("Auto-resolve cache-Lookup fehlgeschlagen für %s: %s",
+                               target_email, e3)
+
             return JSONResponse({"ok": False, "error": "not_found",
                 "message": (
                     "UUID konnte nicht automatisch ermittelt werden. "
                     f"Suche mit E-Mail '{target_email}' fand keine Treffer in "
-                    "list_users() oder den letzten 100 Print-Jobs. "
-                    "Bitte manuell aus der Printix-Admin-URL kopieren."
+                    "list_users(), den letzten 100 Print-Jobs oder im lokalen "
+                    "Printix-User-Cache. Manager-Rollen (System/Site/Kiosk) "
+                    "sind über die Printix-API nicht abrufbar — bitte UUID "
+                    "manuell aus der Printix-Admin-URL kopieren "
+                    "(https://manager.printix.net/users/<UUID>)."
                 )})
         except Exception as e:
             logger.error("resolve_printix_id error: %s", e)
@@ -5030,6 +5185,22 @@ def create_app(session_secret: str) -> FastAPI:
     except Exception as _dp:
         logger.error("Desktop-Routen konnten nicht registriert werden: %s", _dp)
 
+    # ── Desktop Management (iOS Mgmt-Tab, v6.7.66) ──────────────────────────
+    try:
+        from web.desktop_management_routes import register_desktop_management_routes
+        register_desktop_management_routes(app)
+        logger.info("Desktop-Management-Routen registriert: /desktop/management/*")
+    except Exception as _dmp:
+        logger.error("Desktop-Management-Routen konnten nicht registriert werden: %s", _dmp)
+
+    # ── Desktop Cards (iOS Karten-Tab, v6.7.90) ─────────────────────────────
+    try:
+        from web.desktop_cards_routes import register_desktop_cards_routes
+        register_desktop_cards_routes(app)
+        logger.info("Desktop-Cards-Routen registriert: /desktop/cards/*")
+    except Exception as _dcp:
+        logger.error("Desktop-Cards-Routen konnten nicht registriert werden: %s", _dcp)
+
     # ── Cloud Print Port — IPP/IPPS Endpoint (v6.5.0) ─────────────────────────
     try:
         from cloudprint.ipp_server import register_ipp_routes
@@ -5173,12 +5344,14 @@ def create_app(session_secret: str) -> FastAPI:
             builtin_profiles = get_builtin_profiles()
             custom_profiles = list_profiles(tid) if tid else []
             profiles = builtin_profiles + custom_profiles
+            default_card_profile_id = tenant.get("default_card_profile_id", "") or ""
             return templates.TemplateResponse("cards_tool.html", {
                 "request": request, **tc, "user": user, "mappings": mappings,
                 "profiles": profiles, "builtin_profiles": builtin_profiles,
                 "custom_profiles": custom_profiles, "query": q,
                 "has_card_creds": has_card_creds,
                 "tenant_configured": bool(tid),
+                "default_card_profile_id": default_card_profile_id,
             })
         except Exception as e:
             logger.error("cards_tool_get error: %s", e)
@@ -5260,6 +5433,28 @@ def create_app(session_secret: str) -> FastAPI:
         tenant = _cards_tenant_for_user(user)
         delete_profile(profile_id, tenant.get("id", ""))
         return RedirectResponse("/cards", status_code=303)
+
+    @app.post("/cards/default-profile/save", response_class=RedirectResponse)
+    async def cards_default_profile_save(request: Request):
+        """Firmen-Default-Profil setzen — wird von der iOS-App (und anderen
+        Clients ueber GET /desktop/cards/profiles) automatisch uebernommen,
+        so dass Mitarbeiter beim Karten-Anlegen kein Profil waehlen
+        muessen. Leere profile_id = Default entfernen."""
+        user = require_login(request)
+        if user is None: return RedirectResponse("/login", status_code=302)
+        tenant = _cards_tenant_for_user(user)
+        tid = tenant.get("id", "") if tenant else ""
+        if not tid:
+            return RedirectResponse("/cards?flash=default_profile_error", status_code=303)
+        form = await request.form()
+        profile_id = (form.get("profile_id", "") or "").strip()
+        from db import _conn as _db_conn
+        with _db_conn() as conn:
+            conn.execute(
+                "UPDATE tenants SET default_card_profile_id=? WHERE id=?",
+                (profile_id, tid)
+            )
+        return RedirectResponse("/cards?flash=default_profile_saved", status_code=303)
 
     @app.post("/cards/sync-import", response_class=RedirectResponse)
     async def cards_sync_import(request: Request):

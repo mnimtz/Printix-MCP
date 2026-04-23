@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Printix MCP — Handbuch</title>
+<style>
+  @page { size: A4; margin: 18mm 15mm 20mm 15mm; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", "Segoe UI", Arial, sans-serif;
+    color: #1f2937; line-height: 1.55;
+    max-width: 1040px; margin: 2em auto; padding: 0 1.8em;
+    font-size: 10.5pt;
+  }
+  h1 {
+    color: #0b5394; border-bottom: 3px solid #0b5394;
+    padding-bottom: 0.3em; font-size: 24pt; margin-top: 0.2em;
+    page-break-after: avoid;
+  }
+  h2 {
+    color: #0b5394; border-bottom: 1px solid #cfe2f3;
+    padding-bottom: 0.2em; margin-top: 1.8em; font-size: 16pt;
+    page-break-after: avoid;
+    page-break-before: auto;
+  }
+  h3 { color: #1c4587; margin-top: 1.4em; font-size: 12.5pt; page-break-after: avoid; }
+  h4 { color: #38761d; margin-top: 1.1em; font-size: 11pt; }
+  p  { margin: 0.5em 0; }
+  ul, ol { margin: 0.35em 0 0.75em 1.4em; }
+  li { margin: 0.12em 0; }
+  blockquote {
+    border-left: 4px solid #0b5394; background: #f3f6fa;
+    margin: 1em 0; padding: 0.6em 1em; color: #334155;
+    border-radius: 0 4px 4px 0;
+  }
+  table {
+    border-collapse: collapse; width: 100%;
+    margin: 0.7em 0 1.2em 0; font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  th {
+    background: #0b5394; color: #fff; text-align: left;
+    padding: 0.45em 0.65em; font-weight: 600;
+  }
+  td {
+    padding: 0.4em 0.65em; vertical-align: top;
+    border-bottom: 1px solid #e0e6ee;
+  }
+  tr:nth-child(even) td { background: #f8fafc; }
+  code {
+    background: #eef2f7; color: #0b5394;
+    padding: 1px 5px; border-radius: 3px;
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em;
+  }
+  pre {
+    background: #f3f6fa; padding: 0.85em 1em; border-radius: 4px;
+    overflow-x: auto; border-left: 3px solid #0b5394;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 9pt; line-height: 1.4; page-break-inside: avoid;
+  }
+  pre code { background: none; color: inherit; padding: 0; }
+  hr { border: none; border-top: 1px solid #cfe2f3; margin: 1.8em 0; }
+  em { color: #1c4587; }
+  strong { color: #0b5394; }
+  a { color: #0b5394; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  footer {
+    margin-top: 3em; padding-top: 1em;
+    border-top: 1px solid #cfe2f3; color: #888; font-size: 9pt;
+  }
+</style>
+</head>
+<body>
+<h1 id="printix-mcp-handbuch-fur-anwender">Printix MCP — Handbuch für Anwender</h1>
+<blockquote>
+<p><strong>Version:</strong> 6.7.116
+<strong>Zielgruppe:</strong> Administratoren, Helpdesk und Power-User, die den Printix MCP Server über einen AI-Assistenten (claude.ai, ChatGPT, Claude Desktop) ansprechen.
+<strong>Sprache:</strong> Deutsch · Englische Version siehe <code>MCP_MANUAL_EN.pdf</code></p>
+</blockquote>
+<hr />
+<h2 id="was-ist-printix-mcp">Was ist Printix MCP?</h2>
+<p>Der Printix MCP Server ist eine Brücke zwischen modernen AI-Assistenten und der Printix Cloud Print API. Er stellt <strong>über 100 Werkzeuge (Tools)</strong> bereit, mit denen Sie Printix in natürlicher Sprache steuern können — vom einfachen <em>„Welche Drucker haben wir in Düsseldorf?"</em> bis zum komplexen <em>„Zeig mir die 10 teuersten Drucker des letzten Quartals im Vergleich zum Quartal davor"</em>.</p>
+<p>Sie müssen die Tool-Namen <strong>nicht auswendig lernen</strong>. Der Assistent wählt selbstständig das passende Werkzeug anhand Ihrer Frage. Dieses Handbuch gibt Ihnen einen Überblick, <em>was</em> möglich ist, damit Sie wissen, worüber Sie den Assistenten fragen können.</p>
+<h2 id="wie-man-dieses-handbuch-liest">Wie man dieses Handbuch liest</h2>
+<p>Jede Kategorie beginnt mit einer kurzen Einleitung, gefolgt von einer Tool-Tabelle und <strong>Beispiel-Dialogen</strong>. Die Dialoge zeigen exakt, wie eine typische Frage an den Assistenten aussieht und welches Tool er intern aufruft. Sie können die Prompts 1:1 übernehmen oder als Inspiration nutzen.</p>
+<h2 id="inhaltsverzeichnis">Inhaltsverzeichnis</h2>
+<ol>
+<li><a href="#1-system--selbstdiagnose">System &amp; Selbstdiagnose</a></li>
+<li><a href="#2-drucker-sites--netzwerke">Drucker, Sites &amp; Netzwerke</a></li>
+<li><a href="#3-druckjobs--cloud-print">Druckjobs &amp; Cloud-Print</a></li>
+<li><a href="#4-benutzer-gruppen--workstations">Benutzer, Gruppen &amp; Workstations</a></li>
+<li><a href="#5-karten--kartenprofile">Karten &amp; Kartenprofile</a></li>
+<li><a href="#6-reports--analysen">Reports &amp; Analysen</a></li>
+<li><a href="#7-report-templates--scheduling">Report-Templates &amp; Scheduling</a></li>
+<li><a href="#8-capture--workflow-automation">Capture / Workflow-Automation</a></li>
+<li><a href="#9-betrieb-wartung--audit">Betrieb, Wartung &amp; Audit</a></li>
+</ol>
+<hr />
+<h2 id="1-system-selbstdiagnose">1. System &amp; Selbstdiagnose</h2>
+<p>Diese Tools beantworten die Meta-Fragen: <em>Wer bin ich? Läuft alles? Welche Rolle habe ich? Was soll ich als Nächstes tun?</em> Ideal als Einstieg in eine neue Session — oder wenn etwas unerwartet nicht funktioniert und Sie wissen möchten, <strong>warum</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>printix_status</code></td>
+<td>Health-Check: läuft der Server, ist der Tenant erreichbar, welche API-Versionen.</td>
+</tr>
+<tr>
+<td><code>printix_whoami</code></td>
+<td>Zeigt den aktuell verbundenen Tenant + eigenen Printix-User.</td>
+</tr>
+<tr>
+<td><code>printix_tenant_summary</code></td>
+<td>Kompakter Überblick: Anzahl Drucker, User, Sites, Cards, offene Jobs.</td>
+</tr>
+<tr>
+<td><code>printix_explain_error</code></td>
+<td>Übersetzt einen Printix-Fehlercode oder eine Error-Message in Klartext + Lösungsvorschlag.</td>
+</tr>
+<tr>
+<td><code>printix_suggest_next_action</code></td>
+<td>Schlägt einen sinnvollen nächsten Schritt anhand eines Kontext-Strings vor.</td>
+</tr>
+<tr>
+<td><code>printix_natural_query</code></td>
+<td>Nimmt eine natürlichsprachige Frage entgegen und schlägt das passende Reports-Tool vor.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="beispiel-dialoge">Beispiel-Dialoge</h3>
+<p><strong>Prompt:</strong> <em>„Läuft alles bei Printix?"</em>
+Der Assistent ruft <code>printix_status</code> auf und meldet Tenant, API-Verbindung und Versionen.</p>
+<p><strong>Prompt:</strong> <em>„Wer bin ich eigentlich gerade bei Printix angemeldet?"</em>
+<code>printix_whoami</code> liefert Tenant-Name, eigene E-Mail und Admin-Status.</p>
+<p><strong>Prompt:</strong> <em>„Gib mir einen Überblick über meinen Printix-Tenant."</em>
+<code>printix_tenant_summary</code> liefert die Kennzahlen in einem Block — perfekt als Gesprächseinstieg.</p>
+<p><strong>Prompt:</strong> <em>„Was bedeutet der Fehler 'Job submission failed — 403'?"</em>
+<code>printix_explain_error</code> erklärt den Code und nennt typische Ursachen (fehlender Scope, Tenant-ID falsch, Token abgelaufen).</p>
+<hr />
+<h2 id="2-drucker-sites-netzwerke">2. Drucker, Sites &amp; Netzwerke</h2>
+<p>Alles rund um die physische und logische Infrastruktur: Drucker, Queues, Standorte (Sites), Netzwerke und SNMP-Konfigurationen. Lesende wie schreibende Operationen. Die <code>*_context</code>-Tools liefern aggregierte Sichten (z. B. „Queue + Printer + letzte Jobs" in einem Aufruf), damit der Assistent nicht mehrere Round-Trips braucht.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>printix_list_printers</code></td>
+<td>Listet alle Drucker (mit optionalem Suchbegriff).</td>
+</tr>
+<tr>
+<td><code>printix_get_printer</code></td>
+<td>Details + Fähigkeiten eines konkreten Druckers.</td>
+</tr>
+<tr>
+<td><code>printix_resolve_printer</code></td>
+<td>Findet den besten Drucker per Fuzzy-Match (Name + Location + Modell).</td>
+</tr>
+<tr>
+<td><code>printix_network_printers</code></td>
+<td>Alle Drucker eines Netzwerks oder einer Site.</td>
+</tr>
+<tr>
+<td><code>printix_get_queue_context</code></td>
+<td>Queue + Printer-Objekt + letzte Jobs in einem Aufruf.</td>
+</tr>
+<tr>
+<td><code>printix_printer_health_report</code></td>
+<td>Drucker-Status-Übersicht: online, offline, Fehlerzustände.</td>
+</tr>
+<tr>
+<td><code>printix_top_printers</code></td>
+<td>Top-N Drucker nach Druckvolumen (Tage, Limit, Metrik).</td>
+</tr>
+<tr>
+<td><code>printix_list_sites</code></td>
+<td>Alle Standorte des Tenants.</td>
+</tr>
+<tr>
+<td><code>printix_get_site</code></td>
+<td>Details einer Site.</td>
+</tr>
+<tr>
+<td><code>printix_create_site</code> / <code>printix_update_site</code> / <code>printix_delete_site</code></td>
+<td>Site-Verwaltung.</td>
+</tr>
+<tr>
+<td><code>printix_site_summary</code></td>
+<td>Site + Networks + Drucker in einem aggregierten Block.</td>
+</tr>
+<tr>
+<td><code>printix_list_networks</code></td>
+<td>Netzwerke, optional gefiltert auf eine Site.</td>
+</tr>
+<tr>
+<td><code>printix_get_network</code></td>
+<td>Details eines Netzwerks.</td>
+</tr>
+<tr>
+<td><code>printix_create_network</code> / <code>printix_update_network</code> / <code>printix_delete_network</code></td>
+<td>Netzwerk-Verwaltung.</td>
+</tr>
+<tr>
+<td><code>printix_get_network_context</code></td>
+<td>Network + zugehörige Site + Drucker in einem Block.</td>
+</tr>
+<tr>
+<td><code>printix_list_snmp_configs</code> / <code>printix_get_snmp_config</code></td>
+<td>SNMP-Konfigurationen.</td>
+</tr>
+<tr>
+<td><code>printix_create_snmp_config</code> / <code>printix_delete_snmp_config</code></td>
+<td>SNMP-Config anlegen/entfernen.</td>
+</tr>
+<tr>
+<td><code>printix_get_snmp_context</code></td>
+<td>SNMP-Config + betroffene Drucker + Netzwerk in einem Block.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="beispiel-dialoge_1">Beispiel-Dialoge</h3>
+<p><strong>Prompt:</strong> <em>„Welche Drucker stehen in Düsseldorf und sind von Brother?"</em>
+<code>printix_resolve_printer("Brother Düsseldorf")</code> liefert per Token-Fuzzy-Match alle Geräte, bei denen beide Tokens irgendwo in Name/Location/Vendor/Site auftauchen.</p>
+<p><strong>Prompt:</strong> <em>„Zeig mir alle Drucker im Netzwerk 9cfa4bf0."</em>
+<code>printix_network_printers(network_id="9cfa4bf0")</code> löst — falls die API keine direkte Network→Printer-Zuordnung liefert — intern den passenden Site-Scope auf und liefert die relevanten Drucker (<code>resolution_strategy</code> im Response zeigt, welcher Weg gegriffen hat).</p>
+<p><strong>Prompt:</strong> <em>„Mach eine komplette Zusammenfassung der Site DACH."</em>
+<code>printix_site_summary(site_id=…)</code> — Site-Meta, alle Networks + Counter, alle Drucker in einem Block.</p>
+<p><strong>Prompt:</strong> <em>„Welche Drucker sind gerade offline?"</em>
+<code>printix_printer_health_report</code> gruppiert nach Status und liefert die Problem-Geräte oben.</p>
+<hr />
+<h2 id="3-druckjobs-cloud-print">3. Druckjobs &amp; Cloud-Print</h2>
+<p>Druckjobs einsehen, einreichen, an andere User delegieren. Enthält die produktiven Kurzwege (<code>quick_print</code>, <code>send_to_user</code>), die typische Mehrschritt-Abläufe (Submit → Upload → Complete) in einem einzigen Aufruf zusammenfassen.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>printix_list_jobs</code></td>
+<td>Alle Jobs, optional gefiltert auf eine Queue.</td>
+</tr>
+<tr>
+<td><code>printix_get_job</code></td>
+<td>Details zu einem Job.</td>
+</tr>
+<tr>
+<td><code>printix_submit_job</code></td>
+<td>Druckjob einreichen (erster Schritt des 3-Schritt-Submit-Prozesses).</td>
+</tr>
+<tr>
+<td><code>printix_complete_upload</code></td>
+<td>Upload abschließen und Job freigeben.</td>
+</tr>
+<tr>
+<td><code>printix_delete_job</code></td>
+<td>Job stornieren.</td>
+</tr>
+<tr>
+<td><code>printix_change_job_owner</code></td>
+<td>Job-Owner ändern (Delegation).</td>
+</tr>
+<tr>
+<td><code>printix_jobs_stuck</code></td>
+<td>Jobs, die länger als N Minuten „hängen".</td>
+</tr>
+<tr>
+<td><code>printix_quick_print</code></td>
+<td>Ein-Schritt-Print: URL + Empfänger → fertig.</td>
+</tr>
+<tr>
+<td><code>printix_send_to_user</code></td>
+<td>Dokument direkt an einen anderen Benutzer weiterleiten.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="beispiel-dialoge_2">Beispiel-Dialoge</h3>
+<p><strong>Prompt:</strong> <em>„Schick mir dieses PDF an marcus@firma.de als Secure Print."</em>
+<code>printix_quick_print(recipient_email="marcus@firma.de", file_url=…, filename="vertrag.pdf")</code> — submit + upload + complete in einem Aufruf.</p>
+<p><strong>Prompt:</strong> <em>„Welche Druckjobs hängen seit mehr als 30 Minuten?"</em>
+<code>printix_jobs_stuck(minutes=30)</code> listet blockierte Jobs mit Alter und Owner.</p>
+<p><strong>Prompt:</strong> <em>„Gib den Job 4711 an marcus@firma.de ab, weil ich in den Urlaub fahre."</em>
+<code>printix_change_job_owner(job_id="4711", new_owner_email="marcus@firma.de")</code>.</p>
+<hr />
+<h2 id="4-benutzer-gruppen-workstations">4. Benutzer, Gruppen &amp; Workstations</h2>
+<p>Kompletter Lifecycle: anlegen, bearbeiten, deaktivieren, diagnostizieren. Die <code>user_360</code>- und <code>diagnose_user</code>-Tools sind besonders wertvoll im Helpdesk: sie ziehen User-Stammdaten, Gruppen, Karten, Workstations, SSO-Status und letzte Druck-Aktivität in <strong>einen</strong> Response zusammen.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>printix_list_users</code></td>
+<td>Alle User des Tenants, mit Pagination + Rollen-Filter.</td>
+</tr>
+<tr>
+<td><code>printix_get_user</code></td>
+<td>Details eines Users.</td>
+</tr>
+<tr>
+<td><code>printix_find_user</code></td>
+<td>Sucht nach E-Mail-Fragment oder Name.</td>
+</tr>
+<tr>
+<td><code>printix_user_360</code></td>
+<td>360°-Sicht: User + Karten + Gruppen + Workstations + letzte Jobs.</td>
+</tr>
+<tr>
+<td><code>printix_diagnose_user</code></td>
+<td>Helpdesk-Diagnose: was funktioniert, was nicht, warum.</td>
+</tr>
+<tr>
+<td><code>printix_create_user</code> / <code>printix_delete_user</code></td>
+<td>User anlegen/löschen.</td>
+</tr>
+<tr>
+<td><code>printix_generate_id_code</code></td>
+<td>Neuen ID-Code für einen User erzeugen (Self-Service-Token).</td>
+</tr>
+<tr>
+<td><code>printix_onboard_user</code> / <code>printix_offboard_user</code></td>
+<td>Geführtes On- und Offboarding (mehrere Schritte in einem Aufruf).</td>
+</tr>
+<tr>
+<td><code>printix_list_admins</code></td>
+<td>Alle Admins des Tenants.</td>
+</tr>
+<tr>
+<td><code>printix_permission_matrix</code></td>
+<td>Matrix: User × Berechtigungen.</td>
+</tr>
+<tr>
+<td><code>printix_inactive_users</code></td>
+<td>User, die seit N Tagen nicht mehr gedruckt haben.</td>
+</tr>
+<tr>
+<td><code>printix_sso_status</code></td>
+<td>Prüft SSO-Mapping für eine E-Mail.</td>
+</tr>
+<tr>
+<td><code>printix_list_groups</code> / <code>printix_get_group</code></td>
+<td>Gruppen-Listing / -Details.</td>
+</tr>
+<tr>
+<td><code>printix_create_group</code> / <code>printix_delete_group</code></td>
+<td>Gruppen-Verwaltung.</td>
+</tr>
+<tr>
+<td><code>printix_list_workstations</code> / <code>printix_get_workstation</code></td>
+<td>Workstations-Listing / -Details.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="beispiel-dialoge_3">Beispiel-Dialoge</h3>
+<p><strong>Prompt:</strong> <em>„Gib mir alles, was du über marcus@firma.de weißt."</em>
+<code>printix_user_360(query="marcus@firma.de")</code> liefert die komplette 360°-Sicht.</p>
+<p><strong>Prompt:</strong> <em>„Warum kann Anna nicht mehr drucken?"</em>
+<code>printix_diagnose_user(email="anna@firma.de")</code> prüft Status, SSO, Karten, Gruppen, aktive Blockaden — und gibt eine Diagnose mit Lösungs-Hinweisen zurück.</p>
+<p><strong>Prompt:</strong> <em>„Welche User sind seit 180 Tagen inaktiv?"</em>
+<code>printix_inactive_users(days=180)</code> — Kandidatenliste fürs Offboarding.</p>
+<p><strong>Prompt:</strong> <em>„Leg einen neuen Mitarbeiter an: peter@firma.de, Peter Meier, Gruppe 'Finance'."</em>
+<code>printix_onboard_user(...)</code> führt alle Schritte in der richtigen Reihenfolge aus.</p>
+<hr />
+<h2 id="5-karten-kartenprofile">5. Karten &amp; Kartenprofile</h2>
+<p>Alles rund um RFID-/Mifare-/HID-Karten: Registrierung, Mapping, Profil-Erkennung, Bulk-Import. Die <code>decode</code>/<code>transform</code>-Tools sind besonders hilfreich beim Debugging unbekannter Karten-Profile.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>printix_list_cards</code></td>
+<td>Karten eines bestimmten Users.</td>
+</tr>
+<tr>
+<td><code>printix_list_cards_by_tenant</code></td>
+<td>Alle Karten des Tenants (Filter: <code>all</code>/<code>registered</code>/<code>orphaned</code>).</td>
+</tr>
+<tr>
+<td><code>printix_search_card</code></td>
+<td>Karte per ID oder Kartennummer suchen.</td>
+</tr>
+<tr>
+<td><code>printix_register_card</code></td>
+<td>Karte einem User zuordnen.</td>
+</tr>
+<tr>
+<td><code>printix_delete_card</code></td>
+<td>Karten-Zuordnung entfernen.</td>
+</tr>
+<tr>
+<td><code>printix_get_card_details</code></td>
+<td>Karte + lokales Mapping + Owner-Details in einem Block.</td>
+</tr>
+<tr>
+<td><code>printix_decode_card_value</code></td>
+<td>Raw-Kartenwert dekodieren (Base64, Hex, YSoft/Konica-Varianten).</td>
+</tr>
+<tr>
+<td><code>printix_transform_card_value</code></td>
+<td>Kartenwert durch Transformationskette schicken (Hex↔Dezimal, Reverse, Base64, Prefix/Suffix …).</td>
+</tr>
+<tr>
+<td><code>printix_get_user_card_context</code></td>
+<td>User + alle seine Karten + Profile in einem Block.</td>
+</tr>
+<tr>
+<td><code>printix_list_card_profiles</code> / <code>printix_get_card_profile</code></td>
+<td>Kartenprofile-Listing / -Details.</td>
+</tr>
+<tr>
+<td><code>printix_search_card_mappings</code></td>
+<td>Lokale Karten-Mapping-DB durchsuchen.</td>
+</tr>
+<tr>
+<td><code>printix_bulk_import_cards</code></td>
+<td>CSV/JSON-Massenimport (mit Profil + Dry-Run-Modus).</td>
+</tr>
+<tr>
+<td><code>printix_suggest_profile</code></td>
+<td>Schlägt anhand einer Beispiel-UID das passende Profil vor (Ranking mit Top-10).</td>
+</tr>
+<tr>
+<td><code>printix_card_audit</code></td>
+<td>Audit-Trail aller Karten-Änderungen für einen User.</td>
+</tr>
+<tr>
+<td><code>printix_find_orphaned_mappings</code></td>
+<td>Lokale Mappings ohne zugehörigen Printix-User (Cleanup-Kandidaten).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="beispiel-dialoge_4">Beispiel-Dialoge</h3>
+<p><strong>Prompt:</strong> <em>„Welche Karten hat Marcus?"</em>
+<code>printix_list_cards</code> (nach <code>printix_find_user</code> für die User-ID) oder kompakter <code>printix_get_user_card_context</code>.</p>
+<p><strong>Prompt:</strong> <em>„Was ist die Karte mit der UID <code>04:5F:F0:02:AB:3C</code>?"</em>
+<code>printix_decode_card_value(card_value="04:5F:F0:02:AB:3C")</code> erkennt Hex-UID mit Trennzeichen, liefert <code>decoded_bytes_hex</code> und <code>profile_hint: "hex-input"</code>.</p>
+<p><strong>Prompt:</strong> <em>„Import mir 500 Karten aus dieser CSV — aber erst mal als Dry-Run."</em>
+<code>printix_bulk_import_cards(..., dry_run=True)</code> prüft jede Zeile gegen das ausgewählte Profil und zeigt Vorschau-Werte, ohne etwas in Printix zu schreiben.</p>
+<p><strong>Prompt:</strong> <em>„Für UID <code>045FF002</code> — welches Profil passt?"</em>
+<code>printix_suggest_profile(sample_uid="045FF002")</code> liefert Top-10-Profile mit Score + das <code>best_match</code>.</p>
+<hr />
+<h2 id="6-reports-analysen">6. Reports &amp; Analysen</h2>
+<p>Die Reports-Engine läuft gegen ein separates SQL Server-Warehouse. Sie bekommen Kennzahlen, Trends, Anomalien und Ad-hoc-Queries über ein einheitliches Interface. <code>query_any</code> ist der universelle Einstieg — die spezialisierten Tools sind schnellere Abkürzungen für gängige Fragen.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>printix_reporting_status</code></td>
+<td>Status der Reports-Engine (DB-Verbindung, letzte Nightly-Runs, Preset-Count).</td>
+</tr>
+<tr>
+<td><code>printix_query_any</code></td>
+<td>Universal: gib ein Preset + Filter, bekomm eine Tabelle.</td>
+</tr>
+<tr>
+<td><code>printix_query_print_stats</code></td>
+<td>Druckvolumen nach beliebiger Dimension.</td>
+</tr>
+<tr>
+<td><code>printix_query_cost_report</code></td>
+<td>Druckkosten, optional nach Abteilung/User.</td>
+</tr>
+<tr>
+<td><code>printix_query_top_users</code> / <code>printix_query_top_printers</code></td>
+<td>Top-N mit Zeitfenster.</td>
+</tr>
+<tr>
+<td><code>printix_query_anomalies</code></td>
+<td>Anomalie-Erkennung (Ausreißer, ungewöhnliche Muster).</td>
+</tr>
+<tr>
+<td><code>printix_query_trend</code></td>
+<td>Trendlinien über Zeit.</td>
+</tr>
+<tr>
+<td><code>printix_query_audit_log</code></td>
+<td>Strukturierter Audit-Trail des MCP-Servers selbst (Aktionen, Objekte, Actor).</td>
+</tr>
+<tr>
+<td><code>printix_top_printers</code> / <code>printix_top_users</code></td>
+<td>Kurzform (Tage + Limit + Metrik).</td>
+</tr>
+<tr>
+<td><code>printix_print_trends</code></td>
+<td>Trend nach Tag/Woche/Monat.</td>
+</tr>
+<tr>
+<td><code>printix_cost_by_department</code></td>
+<td>Kosten aggregiert pro Abteilung.</td>
+</tr>
+<tr>
+<td><code>printix_compare_periods</code></td>
+<td>Periode A gegen Periode B stellen.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="beispiel-dialoge_5">Beispiel-Dialoge</h3>
+<p><strong>Prompt:</strong> <em>„Wer hat letzten Monat am meisten gedruckt?"</em>
+<code>printix_top_users(days=30, limit=10, metric="pages")</code>.</p>
+<p><strong>Prompt:</strong> <em>„Wie sieht der Druck-Trend der letzten 90 Tage aus, monatlich?"</em>
+<code>printix_print_trends(group_by="month", days=90)</code>.</p>
+<p><strong>Prompt:</strong> <em>„Vergleich die letzten 30 Tage mit den 30 Tagen davor — was hat sich geändert?"</em>
+<code>printix_compare_periods(days_a=30, days_b=30)</code> liefert Delta-Kennzahlen.</p>
+<p><strong>Prompt:</strong> <em>„Welche Aktionen hat User X am 15. April im MCP ausgeführt?"</em>
+<code>printix_query_audit_log(start_date="2026-04-15", end_date="2026-04-15", ...)</code> — gefiltert auf den Mandanten.</p>
+<hr />
+<h2 id="7-report-templates-scheduling">7. Report-Templates &amp; Scheduling</h2>
+<p>Wenn Sie eine Analyse regelmäßig brauchen: speichern als Template, einplanen als wiederkehrenden Versand, per E-Mail zustellen lassen. Design-Optionen (Farben, Logos, Layout) werden über <code>list_design_options</code> abgefragt; <code>preview_report</code> rendert eine Vorschau-PDF ohne tatsächlich zu versenden.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>printix_save_report_template</code></td>
+<td>Query + Design als Template speichern.</td>
+</tr>
+<tr>
+<td><code>printix_list_report_templates</code></td>
+<td>Alle gespeicherten Templates.</td>
+</tr>
+<tr>
+<td><code>printix_get_report_template</code></td>
+<td>Template-Details.</td>
+</tr>
+<tr>
+<td><code>printix_delete_report_template</code></td>
+<td>Template löschen.</td>
+</tr>
+<tr>
+<td><code>printix_run_report_now</code></td>
+<td>Template jetzt einmalig ausführen und zustellen.</td>
+</tr>
+<tr>
+<td><code>printix_send_test_email</code></td>
+<td>Test-Mail an eine Adresse, um SMTP zu prüfen.</td>
+</tr>
+<tr>
+<td><code>printix_schedule_report</code></td>
+<td>Template als Cron-Job einplanen.</td>
+</tr>
+<tr>
+<td><code>printix_list_schedules</code></td>
+<td>Alle aktiven Schedules.</td>
+</tr>
+<tr>
+<td><code>printix_update_schedule</code> / <code>printix_delete_schedule</code></td>
+<td>Schedule ändern/entfernen.</td>
+</tr>
+<tr>
+<td><code>printix_list_design_options</code></td>
+<td>Welche Farbschemata, Logos, Layout-Varianten stehen zur Verfügung.</td>
+</tr>
+<tr>
+<td><code>printix_preview_report</code></td>
+<td>Vorschau-PDF eines Reports ohne Versand.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="beispiel-dialoge_6">Beispiel-Dialoge</h3>
+<p><strong>Prompt:</strong> <em>„Speichere den aktuellen Top-10-User-Report als Template 'Monatlicher Druck-Top10'."</em>
+<code>printix_save_report_template(...)</code> speichert Preset + Filter + Design.</p>
+<p><strong>Prompt:</strong> <em>„Schicke dieses Template jeden ersten Werktag des Monats an management@firma.de."</em>
+<code>printix_schedule_report(report_id=…, cron="0 8 1 * *", recipients=["management@firma.de"])</code>.</p>
+<p><strong>Prompt:</strong> <em>„Zeig mir die Vorschau von Template XY als PDF."</em>
+<code>printix_preview_report(report_id=…)</code> — rendert PDF, ohne etwas zu versenden.</p>
+<hr />
+<h2 id="8-capture-workflow-automation">8. Capture / Workflow-Automation</h2>
+<p>Capture verknüpft eingescannte Dokumente mit Ziel-Systemen (Paperless-ngx, SharePoint, DMS …) über Plugins. Die Tools hier zeigen den Status und die konfigurierten Profile — die eigentliche Plugin-Konfiguration erfolgt in der Web-UI.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>printix_list_capture_profiles</code></td>
+<td>Alle konfigurierten Capture-Profile des Tenants.</td>
+</tr>
+<tr>
+<td><code>printix_capture_status</code></td>
+<td>Status: Server-Port, Webhook-Base-URL, verfügbare Plugins, konfigurierte Profile.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="beispiel-dialoge_7">Beispiel-Dialoge</h3>
+<p><strong>Prompt:</strong> <em>„Ist Capture aktiv, und welche Plugins habe ich installiert?"</em>
+<code>printix_capture_status</code> liefert Plugin-Liste (inkl. paperless_ngx) + Anzahl konfigurierter Profile.</p>
+<p><strong>Prompt:</strong> <em>„Welche Capture-Profile sind für meinen Tenant aktiv?"</em>
+<code>printix_list_capture_profiles</code> — Liste mit Ziel-System, Dateinamen-Pattern und letzten Ausführungen.</p>
+<hr />
+<h2 id="9-betrieb-wartung-audit">9. Betrieb, Wartung &amp; Audit</h2>
+<p>Backups, Demo-Daten, Feature-Requests, Audit-Log. Diese Tools sind ein Mix aus Operations (Backup) und Meta (Feature-Tracking).</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>printix_list_backups</code></td>
+<td>Alle vorhandenen Backups.</td>
+</tr>
+<tr>
+<td><code>printix_create_backup</code></td>
+<td>Neues Backup der lokalen Konfiguration + DB erzeugen.</td>
+</tr>
+<tr>
+<td><code>printix_demo_setup_schema</code></td>
+<td>Demo-Schema in der Reports-DB anlegen (Sandbox).</td>
+</tr>
+<tr>
+<td><code>printix_demo_generate</code></td>
+<td>Synthetische Demo-Daten erzeugen.</td>
+</tr>
+<tr>
+<td><code>printix_demo_rollback</code></td>
+<td>Demo-Daten wieder entfernen (per Demo-Tag).</td>
+</tr>
+<tr>
+<td><code>printix_demo_status</code></td>
+<td>Zeigt welche Demo-Sets aktiv sind.</td>
+</tr>
+<tr>
+<td><code>printix_list_feature_requests</code> / <code>printix_get_feature_request</code></td>
+<td>Ticketsystem für Feature-Wünsche.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="beispiel-dialoge_8">Beispiel-Dialoge</h3>
+<p><strong>Prompt:</strong> <em>„Mach ein Backup, bevor ich was ändere."</em>
+<code>printix_create_backup</code> erzeugt ein Zip mit DB + Konfig + Metadaten.</p>
+<p><strong>Prompt:</strong> <em>„Setze mir eine Demo-Umgebung mit 50 Usern und 500 Jobs auf."</em>
+<code>printix_demo_setup_schema</code> (einmalig) + <code>printix_demo_generate(users=50, jobs=500)</code>.</p>
+<p><strong>Prompt:</strong> <em>„Zeig mir alle offenen Feature-Requests."</em>
+<code>printix_list_feature_requests(status="open")</code>.</p>
+<hr />
+<h2 id="tipps-fur-produktive-ai-dialoge">Tipps für produktive AI-Dialoge</h2>
+<ol>
+<li><strong>Sprechen Sie in Zielen, nicht in Tools.</strong> „Wer druckt zu viel?" ist besser als „ruf query_top_users mit days=30 auf". Der Assistent wählt das richtige Werkzeug.</li>
+<li><strong>Liefern Sie Kontext mit.</strong> „Marcus aus der Finance-Abteilung" ist eindeutiger als nur „Marcus".</li>
+<li><strong>Nutzen Sie die 360°-Tools.</strong> <code>printix_user_360</code>, <code>printix_get_queue_context</code>, <code>printix_site_summary</code> sparen mehrere Nachfragen.</li>
+<li><strong>Bei Fehlern nach der Ursache fragen.</strong> „Warum ist das schiefgegangen?" oder „Erklär mir diesen Fehler" triggert <code>printix_explain_error</code> oder <code>printix_diagnose_user</code>.</li>
+<li><strong>Dry-Run vor Bulk-Operationen.</strong> <code>printix_bulk_import_cards</code> hat einen <code>dry_run=True</code>-Modus — nutzen Sie ihn.</li>
+</ol>
+<hr />
+<p><em>Dokument generiert aus dem Printix MCP Server v6.7.116 · April 2026</em></p>
+<footer>
+  Printix MCP — Handbuch · Printix MCP Server v6.7.116 · generated from MCP_MANUAL_DE.md
+</footer>
+</body>
+</html>
