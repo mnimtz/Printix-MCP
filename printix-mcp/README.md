@@ -3,7 +3,7 @@
 **Version 6.7.118** · Multi-Tenant MCP Server for the Printix Cloud Print API
 **Licence:** MIT · **Author:** [Marcus Nimtz](https://github.com/mnimtz) / Tungsten Automation
 
-A Home Assistant add-on that connects any MCP-capable AI assistant (claude.ai, ChatGPT, Claude Desktop, Cursor, etc.) to the Printix Cloud Print API via the [Model Context Protocol](https://modelcontextprotocol.io). More than **100 tools** cover everything from everyday helpdesk work to deep analytics, infrastructure automation, RFID card handling, capture/scan-to-cloud routing, and IPP/IPPS cloud print forwarding.
+A Home Assistant add-on that connects any MCP-capable AI assistant (claude.ai, ChatGPT, Claude Desktop, Cursor, etc.) to the Printix Cloud Print API via the [Model Context Protocol](https://modelcontextprotocol.io). More than **100 tools** cover everything from everyday helpdesk work to deep analytics, infrastructure automation, RFID card handling, capture/scan-to-cloud routing, IPP/IPPS cloud print forwarding, Secure-Print delegation, and a full employee self-service portal — plus iOS / macOS / Windows companion clients.
 
 > **Full end-user manual:** [`docs/MCP_MANUAL_EN.pdf`](docs/MCP_MANUAL_EN.pdf) · German: [`docs/MCP_MANUAL_DE.pdf`](docs/MCP_MANUAL_DE.pdf)
 
@@ -12,6 +12,11 @@ A Home Assistant add-on that connects any MCP-capable AI assistant (claude.ai, C
 ## Table of Contents
 
 - [Highlights](#highlights)
+  - [Secure-Print Delegation](#secure-print-delegation)
+  - [Mobile & Desktop Clients](#mobile--desktop-clients)
+  - [Employee Self-Service Portal](#employee-self-service-portal)
+  - [Fleet Health Monitor](#fleet-health-monitor)
+  - [Backup & Restore](#backup--restore)
 - [Architecture & Ports](#architecture--ports)
 - [Quick Start](#quick-start)
 - [MCP Tool Catalogue](#mcp-tool-catalogue)
@@ -78,11 +83,79 @@ A Home Assistant add-on that connects any MCP-capable AI assistant (claude.ai, C
 - **Multi-tenant** — one app registration handles sign-in from any Entra tenant.
 - **Auto-linking** of existing users by matching e-mail; optional auto-approve for new Entra users.
 
-### Employee Portal (since v6.x)
+### Employee Self-Service Portal
 
-- Dedicated `/my/*` routes for end-users: upload-to-print, delegation, mobile-app onboarding, job list, setup guide.
-- iOS & macOS companion clients, Windows package builder (Ricoh Zero Trust).
-- Multilingual UI (DE, EN, FR) across all dashboards, tables, and dialogs.
+Dedicated `/my/*` routes make every end-user productive without involving the admin:
+
+- **`/my/upload`** — drag-and-drop web upload (PDF, Office, images) → directly into Printix Secure Print.
+- **`/my/jobs`** — personal job list with cancel, copies change, and release-at-printer.
+- **`/my/delegation`** — manage Secure-Print delegations (see dedicated section below).
+- **`/my/mobile-app`** — QR-code onboarding for the iOS companion app.
+- **`/my/setup-guide`** — guided printer-setup instructions per OS.
+- **Invitation flow** — admins invite by e-mail with localised templates + temporary password; users accept, activate, and pick their own credentials.
+- **Role model** — admin → user (tenant owner) → employee (attached to a parent user via `parent_user_id`); employees inherit the tenant context without managing OAuth credentials themselves.
+- **Multilingual UI** — DE, EN, FR across all dashboards, tables, and dialogs.
+
+### Secure-Print Delegation
+
+When User A is out of office and User B should release A's print jobs at the device:
+
+- **`/my/delegation`** — add/remove delegates from your own tenant; bidirectional delegations supported (A↔B).
+- **DB-backed** — the `delegations` table persists owner → delegate pairs with `is_active` flag; unique constraint prevents duplicates.
+- **Job forwarding** — via `printix_change_job_owner` (MCP tool) or the UI button; the job is re-assigned in Printix so the delegate sees it in their Secure-Print queue.
+- **Admin view** — `/admin/employees/<id>` shows every employee's active delegations; admins can revoke centrally.
+- **Audit trail** — each delegation change is logged via `audit()` with actor + object type, visible in `printix_query_audit_log`.
+
+### Mobile & Desktop Clients
+
+A complete multi-device ecosystem around the add-on:
+
+#### iOS — **Printix MobilePrint** (TestFlight)
+
+- **Native Swift / SwiftUI app** — login via e-mail + MCP endpoint URL, persistent session store.
+- **QR-code onboarding** — scan the QR from `/my/mobile-app` and the app configures itself (endpoint URL + token) in one step.
+- **NFC card registration** — scan an RFID/MiFARE/HID badge directly with the iPhone's NFC reader (`NFCCardScanner`), preview decoded values, and assign to a user via the Printix Card Management API.
+- **Cards view** — list, inspect and delete cards registered to the current user straight from the phone.
+- **Share Extension** — the Fotos, Files, Safari, and Mail apps show "Mobile Print" in the iOS share sheet for direct forwarding into Printix Secure Print.
+- **Multi-target upload** — pick several recipients at once (with display names, not IDs), send a file to all of them in a single action; auto-reset timer for mis-clicks.
+- **Management view** — lightweight tenant overview (printers, users, capture status) on the go.
+- **Localisation** — Localizable.xcstrings with DE/EN strings (`L10n.swift`), auto-follows the phone's language.
+- **Compliance** — `ITSAppUsesNonExemptEncryption=false` — no export-compliance dialogs on TestFlight.
+
+#### macOS — **PrintixSendCore / PrintixSend**
+
+- Reusable Swift package (`macos-client/Sources/PrintixSendCore`) with `ApiClient` and `Models`.
+- CLI + helper utility for submitting prints from macOS without opening a browser.
+- Shared core code with the iOS app — same authentication, same job submission, same target resolution.
+
+#### Windows — Ricoh Zero-Trust Package Builder
+
+- Browser-based builder under `/fleet/package-builder` — upload a Printix client MSI, patch it with tenant-specific config, and download the clientless Zero-Trust package.
+- Preserves original ZIP structure, patches the embedded config, and re-signs.
+- Used to roll out Printix Client to fleets that don't have direct internet access to Printix installers.
+
+### Fleet Health Monitor
+
+`/fleet` delivers a real-time health dashboard for the printer fleet:
+
+- **Fleet KPIs** — total printers, active today, inactive > 7 days, average utilisation.
+- **Per-printer row** — online/offline, last seen, jobs today, error-rate (SQL-enriched).
+- **Alerts** — surfaced whenever a printer is offline longer than the configured threshold or has an elevated error rate.
+- **Filters** — online-only / offline-only toggle, search across name/location/model.
+
+### Backup & Restore
+
+- `/admin/backups` + MCP tools `printix_list_backups` / `printix_create_backup`.
+- Single ZIP containing SQLite DB + config + **encryption key** + demo-data snapshot.
+- Restore-on-upload via the admin UI — recovers an entire add-on state including per-tenant OAuth credentials (decryptable only with the bundled key).
+
+### AI Report Designer
+
+`/reports/design` (also reachable via MCP `printix_preview_report` / `printix_list_design_options`):
+
+- Pick a preset, add filters, choose chart types, colours, logo, layout.
+- Preview PDF in-browser without sending any e-mail.
+- Save as template → schedule → recurring delivery via Resend API.
 
 ### Demo Data Generator (since v3.5.0)
 
