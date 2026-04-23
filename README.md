@@ -1,8 +1,8 @@
 # Printix MCP Server — Home Assistant Add-on
 
-**Version 6.7.46** · Multi-Tenant MCP Server + Cloud Print Gateway + Desktop Client for the Printix API
+**Version 6.7.118** · Multi-Tenant MCP Server + Cloud Print Gateway + Desktop & Mobile Clients for the Printix API
 
-A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), **plus** a native Cloud Print Gateway (IPP/IPPS) and a native Windows desktop client for Secure-Print workflows. Manage printers, users, print jobs, delegations, scan-to-cloud and generate detailed reports — all through natural language in your AI chat, the browser, or directly from the OS "Send to" menu.
+A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others) to the Printix API using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), **plus** a native Cloud Print Gateway (IPP/IPPS), native **Windows** and **macOS** desktop clients, and an **iOS MobilePrint** app with NFC card registration. Manage printers, users, print jobs, delegations, scan-to-cloud and generate detailed reports — all through natural language in your AI chat, the browser, the OS "Send to" menu, or straight from your phone.
 
 ---
 
@@ -10,7 +10,7 @@ A Home Assistant Add-on that connects AI assistants (Claude, ChatGPT and others)
 
 ### AI Integration
 
-- **45+ MCP tools** covering printers, queues, users, groups, sites, networks, workstations, ID cards, SNMP configs, print jobs and report presets
+- **100+ MCP tools** covering printers, queues, users, groups, sites, networks, workstations, ID cards, SNMP configs, print jobs, delegations, capture profiles, report presets and fleet health
 - **Dual transport** — Streamable HTTP (`/mcp`) for claude.ai connectors + SSE (`/sse`) for ChatGPT
 - **OAuth 2.0 Authorization Code Flow** (claude.ai + ChatGPT) with per-tenant isolation
 - **Report designer tools** — let the AI compose, preview and schedule reports for you
@@ -62,6 +62,25 @@ Each tenant can invite employees who log in with their own credentials (or Entra
 - **Long-running uploads** — `URLSession` with 15 min request / 30 min resource timeout
 - **macOS 13 Ventura** or newer
 
+### Mobile Client — "Printix MobilePrint" for iOS
+
+- **Native SwiftUI iOS app** (iOS 16+) for iPhone and iPad
+- **NFC ID-card registration** — tap a HID / Mifare / FeliCa / DESFire badge onto the phone to enrol it for a Printix user; raw UID is passed through the Card Transformer so the encoded value matches the reader at the MFP
+- **QR-code onboarding** — scan a QR from the admin portal to configure server URL + bearer token in one step, no manual setup
+- **Share Extension** — send any file (PDF, Office, photos) from any iOS app directly into the Secure-Print pipeline via *Share → Printix*
+- **Targets loaded live** from `/desktop/targets` — Secure Print self, delegate print recipients, capture profiles
+- **Microsoft Entra SSO** via Device Code Flow + local credential fallback
+- **Keychain-stored token** with Face ID / Touch ID unlock
+- **Localized** for DE, EN, FR, IT, ES, NL, NO, SV
+
+### Secure-Print Delegation
+
+- **Per-tenant `delegations` table** — each employee can nominate one or more delegates within the same tenant
+- **Delegate Print targets** automatically appear in the Windows, macOS and iOS "Send to" / target lists as *Delegate → &lt;Name&gt;*
+- **Job-owner swap at submit** — the IPP/desktop pipeline submits as the actual requester, then calls `changeOwner` so the chosen delegate sees the job in their Secure-Print queue at the MFP
+- **Manage from the portal** — `/my/delegation` UI to add/remove delegates with live preview
+- **Audited** — every delegated submission is written to the tenant audit log with source (IPP, desktop, iOS, web-upload)
+
 ### Printix Capture — Scan-to-Cloud
 
 - **Webhook endpoint** (`/capture/webhook`) receives `FileDeliveryJobReady` events from Printix Capture
@@ -85,7 +104,8 @@ Each tenant can invite employees who log in with their own credentials (or Entra
 - **Multi-tenant** — each user manages their own Printix OAuth2 credentials; full isolation
 - **Microsoft Entra ID SSO** — one-click auto-setup via Device Code Flow, no Azure Portal needed
 - **Invitation flow** — localized emails, temporary passwords, activation tracking
-- **Backup & restore** — full add-on state export/import including encryption key
+- **Backup & restore** — full add-on state export/import including encryption key; scheduled auto-backups to Printix tenant storage
+- **Fleet Health Monitor** — SNMP + API polling surfaces offline devices, low toner, paper jams and stuck jobs; exposed to the AI via `printix_printer_health_report` and `printix_jobs_stuck`
 - **Advanced card transformer + Card Lab** — HEX↔Decimal, byte-reversal, prefix/suffix strip, per-reader profiles (HID, FeliCa, Mifare, YSoft/Konica, Elatec, RFIDeas, Baltech)
 - **Package Builder** — per-tenant clientless / Zero-Trust MSI packages for Ricoh rollouts
 - **Fernet-encrypted credentials** in SQLite, session-protected web UI, health-check endpoint
@@ -102,7 +122,8 @@ Each tenant can invite employees who log in with their own credentials (or Entra
 5. **Desktop Client** *(optional)* — install "Printix Send" from [Releases](https://github.com/mnimtz/Printix-MCP/releases/latest):
    - **Windows** — MSI (x64 / ARM64), per-user, no admin needed. First launch opens the config/login dialog automatically.
    - **macOS** — DMG (universal, Apple Silicon + Intel). Drag to *Applications*, configure server URL, sign in. Right-click → *Quick Actions* to send.
-6. **Invite employees** *(optional)* — use the Employees register to send invitation emails; each employee gets their own portal and can configure delegations
+   - **iOS** — MobilePrint from TestFlight / App Store. Scan the QR from `/my/setup-guide` to configure, then tap-to-enrol NFC cards and send files from any app via the Share Extension.
+6. **Invite employees** *(optional)* — use the Employees register to send invitation emails; each employee gets their own portal and can configure delegations and delegate-print targets
 
 ---
 
@@ -195,6 +216,7 @@ The web UI at `http://<HA-IP>:8080` groups features into four functional areas. 
 - [printix-mcp/CHANGELOG.md](printix-mcp/CHANGELOG.md) — full per-version history
 - [windows-client/README.md](windows-client/README.md) — Windows desktop client (features, build, MSI, release tags)
 - [macos-client/README.md](macos-client/README.md) — macOS desktop client (menu-bar app + Quick Actions, build, DMG, release tags)
+- [ios-client/README.md](ios-client/README.md) — iOS MobilePrint app (NFC card enrolment, QR onboarding, Share Extension, TestFlight)
 
 ---
 
