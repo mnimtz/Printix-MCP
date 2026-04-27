@@ -72,12 +72,12 @@ struct EntraDeviceView: View {
             if let uri = URL(string: verifyUri) {
                 NSWorkspace.shared.open(uri)
             }
-            guard let deviceCode = start.deviceCode else {
-                status = "Server lieferte keinen device_code."
+            guard let sessionId = start.sessionId else {
+                status = "Server lieferte keine Session-ID."
                 busy = false
                 return
             }
-            pollTask = Task { await poll(api: api, deviceCode: deviceCode,
+            pollTask = Task { await poll(api: api, sessionId: sessionId,
                                          interval: start.interval ?? 5) }
         } catch {
             status = "Fehler: \(error.localizedDescription)"
@@ -85,13 +85,13 @@ struct EntraDeviceView: View {
         }
     }
 
-    private func poll(api: ApiClient, deviceCode: String, interval: Int) async {
+    private func poll(api: ApiClient, sessionId: String, interval: Int) async {
         let step = UInt64(max(3, interval)) * NSEC_PER_SEC
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: step)
             if Task.isCancelled { return }
             do {
-                let r = try await api.entraPoll(deviceCode: deviceCode)
+                let r = try await api.entraPoll(sessionId: sessionId)
                 switch r.status {
                 case "success":
                     if let token = r.token, !token.isEmpty {

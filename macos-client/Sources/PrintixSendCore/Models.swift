@@ -80,7 +80,10 @@ public struct SendResult: Codable, Sendable {
 }
 
 public struct EntraStartResponse: Codable, Sendable {
-    public let deviceCode: String?
+    /// Server-seitig erzeugte Session-ID, die beim Poll mitgeschickt wird.
+    /// Der echte Microsoft device_code bleibt aus Sicherheitsgründen serverseitig
+    /// in `desktop_entra_pending` und wird nie an den Client geleakt.
+    public let sessionId: String?
     public let userCode: String?
     public let verificationUri: String?
     public let expiresIn: Int?
@@ -88,7 +91,7 @@ public struct EntraStartResponse: Codable, Sendable {
     public let message: String?
 
     enum CodingKeys: String, CodingKey {
-        case deviceCode = "device_code"
+        case sessionId = "session_id"
         case userCode = "user_code"
         case verificationUri = "verification_uri"
         case expiresIn = "expires_in"

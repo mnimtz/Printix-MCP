@@ -251,19 +251,34 @@ public final class ApiClient: @unchecked Sendable {
     public func entraStart(deviceName: String) async throws -> EntraStartResponse {
         log.info("POST /desktop/auth/entra/start")
         var req = buildRequest("desktop/auth/entra/start", method: "POST")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["device_name": deviceName])
+        // Server-Endpoint nutzt FastAPI Form() — daher x-www-form-urlencoded,
+        // nicht JSON.
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Self.formEncode(["device_name": deviceName])
         let (data, resp) = try await session.data(for: req)
         try ensureOk(resp, data)
         return try JSONDecoder().decode(EntraStartResponse.self, from: data)
     }
 
-    public func entraPoll(deviceCode: String) async throws -> EntraPollResponse {
+    public func entraPoll(sessionId: String) async throws -> EntraPollResponse {
         var req = buildRequest("desktop/auth/entra/poll", method: "POST")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["device_code": deviceCode])
+        // Server-Endpoint nutzt FastAPI Form(session_id) — daher form-encoded.
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Self.formEncode(["session_id": sessionId])
         let (data, _) = try await session.data(for: req)
         return try JSONDecoder().decode(EntraPollResponse.self, from: data)
+    }
+
+    /// Hilfs-Encoder für `application/x-www-form-urlencoded`-Bodies.
+    private static func formEncode(_ fields: [String: String]) -> Data {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "+&=")
+        let pairs = fields.map { (k, v) -> String in
+            let ek = k.addingPercentEncoding(withAllowedCharacters: allowed) ?? k
+            let ev = v.addingPercentEncoding(withAllowedCharacters: allowed) ?? v
+            return "\(ek)=\(ev)"
+        }
+        return pairs.joined(separator: "&").data(using: .utf8) ?? Data()
     }
 
     // MARK: - Management (iOS "Printix Management" Tab, Server v6.7.66+)

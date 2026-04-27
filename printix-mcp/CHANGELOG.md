@@ -1,3 +1,12 @@
+## 6.7.119 (2026-04-27) — iOS/macOS Entra-Login: Field-Name-Mismatch behoben
+
+### Fixed
+- **iOS-App "Per Microsoft-Konto einloggen" brach mit „Kein device_code vom Server" ab**: Der Server gibt aus Sicherheitsgruenden **`session_id`** zurueck (echter Microsoft-`device_code` bleibt serverseitig in `desktop_entra_pending`), die geteilte Swift-Bibliothek `PrintixSendCore` las aber `device_code` und schickte beim Poll ebenfalls `device_code` statt `session_id`. Effekt: User-Code wurde angezeigt, aber Polling startete nie / lief gegen falsches Feld.
+- **Modell-Fix**: `EntraStartResponse.deviceCode` → `sessionId` (mapped auf `session_id`).
+- **API-Fix**: `entraPoll(deviceCode:)` → `entraPoll(sessionId:)`, sendet jetzt Form-encoded `session_id` (Server-Endpoint nutzt FastAPI `Form(session_id)`).
+- **Content-Type-Fix**: `entraStart` und `entraPoll` schicken jetzt `application/x-www-form-urlencoded` statt JSON — passend zu den FastAPI `Form()`-Parametern.
+- **Betrifft beide Clients**: iOS `LoginView` und macOS `EntraDeviceView` ziehen jetzt `start.sessionId`. Damit funktioniert die Anmeldung mit der server-seitig konfigurierten Entra-App in beiden Apps korrekt — kein eigenes Setup im Client noetig, wie vom Konzept gedacht.
+
 ## 6.7.118 (2026-04-23) — Dashboard-KPIs: Cache gegen Azure-SQL-Cold-Start
 
 ### Fixed

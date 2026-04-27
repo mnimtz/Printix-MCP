@@ -131,27 +131,27 @@ struct LoginView: View {
             entraUserCode        = start.userCode ?? ""
             entraVerificationURI = start.verificationUri ?? ""
             entraMessage         = start.message ?? ""
-            guard let code = start.deviceCode else {
-                error = String(localized: "Kein device_code vom Server.")
+            guard let session = start.sessionId else {
+                error = String(localized: "Keine Session-ID vom Server.")
                 return
             }
             let interval = max(2, start.interval ?? 5)
             entraPollTask?.cancel()
-            entraPollTask = Task { await pollEntra(client: client, deviceCode: code, interval: interval) }
+            entraPollTask = Task { await pollEntra(client: client, sessionId: session, interval: interval) }
         } catch {
             self.error = error.localizedDescription
         }
     }
 
     private func pollEntra(client: PrintixSendCore.ApiClient,
-                           deviceCode: String,
+                           sessionId: String,
                            interval: Int) async {
         // Polling-Schleife: bis „success“ oder Cancel. Bei „pending“
         // weiter warten, bei allen anderen Status = aus dem Loop raus.
         while !Task.isCancelled {
             do {
                 try await Task.sleep(nanoseconds: UInt64(interval) * 1_000_000_000)
-                let poll = try await client.entraPoll(deviceCode: deviceCode)
+                let poll = try await client.entraPoll(sessionId: sessionId)
                 let status = poll.status ?? ""
                 if status == "success", let token = poll.token, !token.isEmpty {
                     await MainActor.run {
