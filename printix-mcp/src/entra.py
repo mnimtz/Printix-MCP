@@ -30,6 +30,17 @@ _TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
 _DEVICE_CODE_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/devicecode"
 _SCOPES = "openid profile email"
 
+# Fuer den nativen-App-PKCE-Flow brauchen wir zusaetzlich Graph
+# `User.Read`, weil wir nach dem Token-Exchange `/v1.0/me` aufrufen,
+# um oid/email/name zu holen. Ohne diesen Scope antwortet Graph mit
+# 403 — das schmale `_SCOPES` (nur ID-Token-Claims) reicht nicht.
+# `offline_access` damit Microsoft auch refresh_tokens ausstellt
+# (zukuenftige Token-Erneuerung ohne erneuten Login).
+_SCOPES_GRAPH_USER_READ = (
+    "https://graph.microsoft.com/User.Read "
+    "offline_access openid email profile"
+)
+
 # Graph API
 _GRAPH_URL = "https://graph.microsoft.com/v1.0"
 
@@ -193,13 +204,16 @@ def build_authorize_url_pkce(redirect_uri: str,
                              state: str,
                              code_challenge: str,
                              *,
-                             prompt: str = "select_account") -> str:
+                             prompt: str = "select_account",
+                             scope: str = _SCOPES_GRAPH_USER_READ) -> str:
     """Baut die Microsoft-Login-URL für den Authorization Code Flow mit
     PKCE — gedacht für die iOS-App und andere native Clients.
 
     Im Gegensatz zu `build_authorize_url` zusätzlich `code_challenge` +
     `code_challenge_method=S256`. Default-Prompt = `select_account`,
-    damit der User die richtige Identität wählen kann.
+    damit der User die richtige Identität wählen kann. Default-Scope
+    fordert `User.Read` an, damit das anschliessende Graph `/me`
+    funktioniert (sonst 403 Forbidden).
     """
     cfg = get_config()
     tenant = cfg["tenant_id"] or "common"
@@ -207,7 +221,7 @@ def build_authorize_url_pkce(redirect_uri: str,
         "client_id":             cfg["client_id"],
         "response_type":         "code",
         "redirect_uri":          redirect_uri,
-        "scope":                 _SCOPES,
+        "scope":                 scope,
         "response_mode":         "query",
         "state":                 state,
         "prompt":                prompt,
@@ -219,7 +233,9 @@ def build_authorize_url_pkce(redirect_uri: str,
 
 def exchange_code_pkce(code: str,
                        redirect_uri: str,
-                       code_verifier: str) -> dict | None:
+                       code_verifier: str,
+                       *,
+                       scope: str = _SCOPES_GRAPH_USER_READ) -> dict | None:
     """Tauscht den Authorization Code gegen Tokens — PKCE-Variante.
 
     Holt zusätzlich Profil-Daten (oid, email, name) via Microsoft Graph
@@ -249,7 +265,7 @@ def exchange_code_pkce(code: str,
                 "code":          code,
                 "redirect_uri":  redirect_uri,
                 "grant_type":    "authorization_code",
-                "scope":         _SCOPES,
+                "scope":         scope,
                 "code_verifier": code_verifier,
             },
             timeout=15,

@@ -1,3 +1,10 @@
+## 6.7.122 (2026-04-27) — iOS Entra-Login: Graph /me 403 (fehlender User.Read-Scope)
+
+### Fixed
+- **iOS-Login schlug nach v6.7.121 mit Graph /me 403 Forbidden fehl**: Der Token-Exchange bei Microsoft klappte (200), aber der direkt anschliessende Profilabruf via `https://graph.microsoft.com/v1.0/me` antwortete mit 403. Grund: Wir haben im PKCE-Flow das schmale `_SCOPES = "openid profile email"` angefordert — das sind reine ID-Token-Claims, keine Graph-API-Permissions. Der Access-Token war damit ungueltig fuer Graph-Calls.
+- **Fix**: Neue Konstante `_SCOPES_GRAPH_USER_READ = "https://graph.microsoft.com/User.Read offline_access openid email profile"` (analog zum bereits funktionierenden Device-Code-Flow). `build_authorize_url_pkce` und `exchange_code_pkce` haben jetzt `scope`-Default-Argumente, die diese erweiterte Permission anfordern. `offline_access` ist mit drin damit MS kuenftig auch refresh_tokens ausstellen kann.
+- **Hinweis**: Beim ersten iOS-Login zeigt Microsoft jetzt einmalig einen Consent-Prompt fuer „User.Read beantragen" — einmal akzeptieren, danach ist's persistent.
+
 ## 6.7.121 (2026-04-27) — iOS Entra-Login: AADSTS700025 (Public-Client / PKCE) behoben
 
 ### Fixed
