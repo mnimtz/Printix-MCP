@@ -1,3 +1,24 @@
+## 6.7.120 (2026-04-27) — iOS Entra-Login: Authorization Code + PKCE statt Device Code
+
+### Changed
+- **iOS-App nutzt jetzt nativen OAuth-Flow** statt Device Code: ein Tap auf „Per Microsoft-Konto einloggen" oeffnet ein in-app Safari-Sheet (`ASWebAuthenticationSession`), der User meldet sich direkt bei Microsoft an (Face ID, MFA, alles was die User-Org gewohnt ist), das Sheet schliesst sich automatisch, App ist eingeloggt. Kein Code zum Tippen, kein Zweitgeraet, keine Verwirrung.
+- **macOS/Windows-Desktop bleibt beim Device-Code-Flow** — dort funktioniert er sauber und ist fuer Headless/Tray-Apps der pragmatischere Weg.
+
+### Added
+- **`/desktop/auth/entra/authcode/start`** — generiert PKCE-Paar (verifier+challenge per RFC 7636), state-Token, persistiert alles in neuer Tabelle `desktop_entra_authcode_pending`, baut die Microsoft-Auth-URL und gibt sie an den Client. Der `code_verifier` bleibt durchgehend serverseitig.
+- **`/desktop/auth/entra/authcode/exchange`** — nimmt vom Client `session_id`+`code`+`state`, validiert state (CSRF-Schutz), tauscht code+verifier bei Microsoft gegen Tokens, holt Profil via Graph `/me`, mappt auf MCP-User (gleiche `get_or_create_entra_user`-Logik wie der Device-Code-Pfad), gibt Bearer-Token zurueck.
+- **`entra.py`**: `generate_pkce_pair()`, `build_authorize_url_pkce()`, `exchange_code_pkce()`.
+- **PrintixSendCore (shared)**: `EntraAuthCodeStartResponse`-Modell + `entraAuthCodeStart`/`entraAuthCodeExchange` Methoden im `ApiClient`.
+- **iOS `LoginView.swift`**: komplette Umstellung des Microsoft-Buttons auf `ASWebAuthenticationSession` mit `withCheckedThrowingContinuation`-Bridge nach async/await, `WebAuthAnchor`-Helfer fuer iOS 15+ Window-Scenes, `prefersEphemeralWebBrowserSession=false` damit SSO-Cookies erhalten bleiben.
+
+### Setup-Hinweis fuer Admins
+In **Azure Portal → Entra ID → App-Registrierungen → [Printix MCP App] → Authentication** einmalig hinzufuegen:
+- *Add a platform* → *Mobile and desktop applications*
+- Redirect-URI: `printixmobileprint://oauth/callback`
+- Speichern
+
+Danach laeuft der iOS-Login ohne weitere Konfiguration. Die Entra-App-Konfiguration auf dem Server bleibt identisch (gleiche `tenant_id`, `client_id`, `client_secret`).
+
 ## 6.7.119 (2026-04-27) — iOS/macOS Entra-Login: Field-Name-Mismatch behoben
 
 ### Fixed

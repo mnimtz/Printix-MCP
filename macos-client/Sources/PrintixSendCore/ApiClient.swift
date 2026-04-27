@@ -269,6 +269,50 @@ public final class ApiClient: @unchecked Sendable {
         return try JSONDecoder().decode(EntraPollResponse.self, from: data)
     }
 
+    // MARK: - Entra Authorization Code + PKCE (iOS, v6.7.120+)
+
+    /// Startet den Auth-Code-Flow. Der Server erzeugt PKCE-Paar + State,
+    /// gibt die Microsoft-Login-URL zurueck. Der Client oeffnet diese
+    /// URL in einer `ASWebAuthenticationSession` mit `callbackURLScheme`
+    /// passend zum `redirectUri` (z.B. `printix-mobile`).
+    public func entraAuthCodeStart(deviceName: String,
+                                    redirectUri: String) async throws
+                                    -> EntraAuthCodeStartResponse {
+        log.info("POST /desktop/auth/entra/authcode/start")
+        var req = buildRequest("desktop/auth/entra/authcode/start", method: "POST")
+        req.setValue("application/x-www-form-urlencoded",
+                     forHTTPHeaderField: "Content-Type")
+        req.httpBody = Self.formEncode([
+            "device_name":  deviceName,
+            "redirect_uri": redirectUri,
+        ])
+        let (data, resp) = try await session.data(for: req)
+        try ensureOk(resp, data)
+        return try JSONDecoder().decode(EntraAuthCodeStartResponse.self, from: data)
+    }
+
+    /// Tauscht den von Microsoft per Custom-URL-Scheme zurueckgereichten
+    /// `code` (zusammen mit dem `state` zum CSRF-Schutz) gegen einen
+    /// Desktop-Token. Wiederverwendet `EntraPollResponse` fuer die
+    /// Antwort-Struktur, da Felder identisch sind (`status`, `token`,
+    /// `user`, `error`).
+    public func entraAuthCodeExchange(sessionId: String,
+                                       code: String,
+                                       state: String) async throws
+                                       -> EntraPollResponse {
+        log.info("POST /desktop/auth/entra/authcode/exchange")
+        var req = buildRequest("desktop/auth/entra/authcode/exchange", method: "POST")
+        req.setValue("application/x-www-form-urlencoded",
+                     forHTTPHeaderField: "Content-Type")
+        req.httpBody = Self.formEncode([
+            "session_id": sessionId,
+            "code":       code,
+            "state":      state,
+        ])
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode(EntraPollResponse.self, from: data)
+    }
+
     /// Hilfs-Encoder für `application/x-www-form-urlencoded`-Bodies.
     private static func formEncode(_ fields: [String: String]) -> Data {
         var allowed = CharacterSet.urlQueryAllowed

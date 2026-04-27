@@ -99,6 +99,26 @@ public struct EntraStartResponse: Codable, Sendable {
     }
 }
 
+/// Antwort auf `/desktop/auth/entra/authcode/start` — der Server hat
+/// das PKCE-Paar erzeugt, die Microsoft-Auth-URL zusammengebaut und
+/// alles serverseitig in `desktop_entra_authcode_pending` persistiert.
+/// Der Client öffnet `authUrl` in einer ASWebAuthenticationSession und
+/// schickt anschliessend `sessionId` + `code` + `state` an den
+/// Exchange-Endpoint.
+public struct EntraAuthCodeStartResponse: Codable, Sendable {
+    public let sessionId: String?
+    public let authUrl: String?
+    public let state: String?
+    public let expiresIn: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case authUrl   = "auth_url"
+        case state
+        case expiresIn = "expires_in"
+    }
+}
+
 public struct EntraPollResponse: Codable, Sendable {
     public let ok: Bool?
     public let status: String?     // "pending" | "success" | "error"

@@ -1,9 +1,13 @@
 import SwiftUI
+import AuthenticationServices
 import PrintixSendCore
 
 /// Login-Bildschirm mit zwei Pfaden:
 ///   1) klassisches Username/Passwort gegen /desktop/auth/login
-///   2) Entra Device-Code (Microsoft Login) gegen /desktop/auth/entra/*
+///   2) Entra Authorization Code + PKCE (Microsoft Login) — oeffnet
+///      eine ASWebAuthenticationSession (in-app Safari-Sheet), MS
+///      redirected per Custom-URL-Scheme zurueck, App tauscht den
+///      `code` ueber den Server gegen einen Bearer-Token.
 ///
 /// Erfolgreicher Login speichert Bearer-Token + User-Info im
 /// SettingsStore, die App schaltet danach automatisch auf den
@@ -15,13 +19,19 @@ struct LoginView: View {
     @State private var username: String = ""
     @State private var password: String = ""
     @State private var busy: Bool = false
+    @State private var entraBusy: Bool = false
     @State private var error: String = ""
 
-    // Entra-Device-Flow State
-    @State private var entraMessage: String = ""
-    @State private var entraUserCode: String = ""
-    @State private var entraVerificationURI: String = ""
-    @State private var entraPollTask: Task<Void, Never>?
+    /// Halte den Presentation-Provider als State, damit er nicht
+    /// vor Sheet-Ende deallokiert wird (ASWebAuthenticationSession
+    /// braucht ihn die ganze Zeit).
+    @State private var webAuthAnchor: WebAuthAnchor = WebAuthAnchor()
+
+    /// Custom-URL-Scheme-Redirect; muss im Info.plist als
+    /// CFBundleURLScheme registriert sein UND in der Entra-App-
+    /// Registration als Mobile-Redirect-URI hinterlegt werden.
+    private let oauthRedirectURI = "printixmobileprint://oauth/callback"
+    private let oauthCallbackScheme = "printixmobileprint"
 
     var body: some View {
         Form {
@@ -47,39 +57,20 @@ struct LoginView: View {
                         Spacer()
                     }
                 }
-                .disabled(busy || username.isEmpty || password.isEmpty)
+                .disabled(busy || entraBusy || username.isEmpty || password.isEmpty)
             }
 
             Section("Oder mit Microsoft") {
                 Button {
-                    Task { await startEntra() }
+                    Task { await startEntraAuthCode() }
                 } label: {
                     HStack {
-                        Image(systemName: "person.badge.key.fill")
+                        if entraBusy { ProgressView() }
+                        else { Image(systemName: "person.badge.key.fill") }
                         Text("Per Microsoft-Konto einloggen")
                     }
                 }
-                .disabled(busy)
-
-                if !entraUserCode.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Öffne auf deinem Rechner:")
-                            .font(.footnote).foregroundColor(.secondary)
-                        if let u = URL(string: entraVerificationURI) {
-                            Link(entraVerificationURI, destination: u)
-                                .font(.callout)
-                        }
-                        Text("Code:")
-                            .font(.footnote).foregroundColor(.secondary)
-                        Text(entraUserCode)
-                            .font(.system(.title2, design: .monospaced).weight(.bold))
-                            .textSelection(.enabled)
-                        if !entraMessage.isEmpty {
-                            Text(entraMessage)
-                                .font(.caption).foregroundColor(.secondary)
-                        }
-                    }
-                }
+                .disabled(busy || entraBusy)
             }
 
             if !error.isEmpty {
@@ -89,7 +80,6 @@ struct LoginView: View {
             }
         }
         .navigationTitle("Login")
-        .onDisappear { entraPollTask?.cancel() }
     }
 
     @MainActor
@@ -116,61 +106,102 @@ struct LoginView: View {
         }
     }
 
+    // MARK: - Entra Authorization Code + PKCE
+
     @MainActor
-    private func startEntra() async {
+    private func startEntraAuthCode() async {
         error = ""
-        entraUserCode = ""
-        entraVerificationURI = ""
-        entraMessage = ""
+        entraBusy = true
+        defer { entraBusy = false }
+
         guard let client = ApiClientFactory.make(baseURL: settings.serverURL, token: nil) else {
             error = String(localized: "Ungültige Server-URL.")
             return
         }
+
+        // 1) Server-seitig PKCE-Paar erzeugen lassen, MS-Auth-URL holen
+        let start: EntraAuthCodeStartResponse
         do {
-            let start = try await client.entraStart(deviceName: settings.deviceName)
-            entraUserCode        = start.userCode ?? ""
-            entraVerificationURI = start.verificationUri ?? ""
-            entraMessage         = start.message ?? ""
-            guard let session = start.sessionId else {
-                error = String(localized: "Keine Session-ID vom Server.")
+            start = try await client.entraAuthCodeStart(
+                deviceName: settings.deviceName,
+                redirectUri: oauthRedirectURI)
+        } catch {
+            self.error = error.localizedDescription
+            return
+        }
+
+        guard let sessionId = start.sessionId,
+              let urlString = start.authUrl,
+              let authUrl   = URL(string: urlString)
+        else {
+            self.error = String(localized: "Server lieferte keine gültige Microsoft-Login-URL.")
+            return
+        }
+
+        // 2) ASWebAuthenticationSession öffnen — MS-Login findet im
+        //    in-app Safari-Sheet statt. iOS schliesst das Sheet
+        //    automatisch sobald MS auf den oauthCallbackScheme
+        //    redirected.
+        let callback: URL?
+        do {
+            callback = try await presentWebAuth(url: authUrl,
+                                                callbackScheme: oauthCallbackScheme)
+        } catch let asError as ASWebAuthenticationSessionError
+                    where asError.code == .canceledLogin {
+            // User hat das Sheet abgebrochen — keine Fehlermeldung
+            return
+        } catch {
+            self.error = error.localizedDescription
+            return
+        }
+
+        guard let cb = callback,
+              let comps = URLComponents(url: cb, resolvingAgainstBaseURL: false),
+              let code = comps.queryItems?.first(where: { $0.name == "code" })?.value,
+              let state = comps.queryItems?.first(where: { $0.name == "state" })?.value
+        else {
+            self.error = String(localized: "Microsoft-Login lieferte keinen Code zurück.")
+            return
+        }
+
+        // 3) Code + state an Server schicken, der tauscht ihn gegen
+        //    einen MCP-Bearer-Token. PKCE-Verifier bleibt serverseitig.
+        do {
+            let resp = try await client.entraAuthCodeExchange(
+                sessionId: sessionId, code: code, state: state)
+            let status = resp.status ?? ""
+            if status == "ok", let token = resp.token, !token.isEmpty {
+                applyLogin(token: token, user: resp.user)
                 return
             }
-            let interval = max(2, start.interval ?? 5)
-            entraPollTask?.cancel()
-            entraPollTask = Task { await pollEntra(client: client, sessionId: session, interval: interval) }
+            self.error = resp.error ?? resp.message
+                ?? String(localized: "Login fehlgeschlagen (\(status)).")
         } catch {
             self.error = error.localizedDescription
         }
     }
 
-    private func pollEntra(client: PrintixSendCore.ApiClient,
-                           sessionId: String,
-                           interval: Int) async {
-        // Polling-Schleife: bis „success“ oder Cancel. Bei „pending“
-        // weiter warten, bei allen anderen Status = aus dem Loop raus.
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(nanoseconds: UInt64(interval) * 1_000_000_000)
-                let poll = try await client.entraPoll(sessionId: sessionId)
-                let status = poll.status ?? ""
-                if status == "success", let token = poll.token, !token.isEmpty {
-                    await MainActor.run {
-                        applyLogin(token: token, user: poll.user)
-                    }
-                    return
+    /// Brückt `ASWebAuthenticationSession` in async/await. Ruft den
+    /// Completion-Handler in eine Continuation, gibt die Callback-URL
+    /// zurueck oder wirft den ASError (z.B. `.canceledLogin`).
+    @MainActor
+    private func presentWebAuth(url: URL,
+                                callbackScheme: String) async throws -> URL? {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL?, Error>) in
+            let session = ASWebAuthenticationSession(
+                url: url, callbackURLScheme: callbackScheme
+            ) { callbackURL, error in
+                if let error = error {
+                    cont.resume(throwing: error)
+                } else {
+                    cont.resume(returning: callbackURL)
                 }
-                if status == "pending" { continue }
-                await MainActor.run {
-                    self.error = poll.error ?? poll.message ?? String(localized: "Login abgebrochen (\(status)).")
-                    self.entraUserCode = ""
-                }
-                return
-            } catch is CancellationError {
-                return
-            } catch {
-                await MainActor.run { self.error = error.localizedDescription }
-                return
             }
+            session.presentationContextProvider = webAuthAnchor
+            // SSO-Cookies behalten — User muss sich nicht jedes Mal neu
+            // anmelden, MFA bleibt gemerkt.
+            session.prefersEphemeralWebBrowserSession = false
+            session.start()
         }
     }
 
@@ -180,7 +211,21 @@ struct LoginView: View {
         settings.userEmail    = user?.email ?? username
         settings.userFullName = user?.fullName ?? ""
         settings.userRoleType = user?.roleType ?? ""
-        entraUserCode = ""
         // ContentView beobachtet isLoggedIn und wechselt automatisch auf Main-Flow.
+    }
+}
+
+/// Kleiner Presentation-Anchor fuer ASWebAuthenticationSession.
+/// Liefert das Key-Window der App — ohne diesen Provider wirft iOS
+/// einen Fehler beim Start der Session.
+final class WebAuthAnchor: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        // iOS 15+: erstes Foreground-Window-Scene
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+        return scenes.first?.keyWindow
+            ?? scenes.first?.windows.first
+            ?? ASPresentationAnchor()
     }
 }
