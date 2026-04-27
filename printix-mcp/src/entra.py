@@ -231,12 +231,21 @@ def exchange_code_pkce(code: str,
     cfg = get_config()
     tenant = cfg["tenant_id"] or "common"
 
+    # WICHTIG: KEIN client_secret beim PKCE-Flow fuer Mobile/Desktop-Apps!
+    # Wenn die Redirect-URI ein Custom-Scheme ist (z.B.
+    # `printixmobileprint://...`) erkennt Microsoft das als
+    # Public-Client-Flow und lehnt jeden Request mit client_secret ab:
+    #   AADSTS700025: Client is public so neither 'client_assertion' nor
+    #                 'client_secret' should be presented
+    # PKCE (code_verifier) uebernimmt hier die Sicherheits-Garantie
+    # statt des Geheimnisses. Fuer den Web-Auth-Code-Flow
+    # (`exchange_code_for_user`) brauchen wir das Secret weiterhin —
+    # diese Funktion ist explizit fuer den Native-App-Flow gedacht.
     try:
         resp = _requests.post(
             _TOKEN_URL.format(tenant=tenant),
             data={
                 "client_id":     cfg["client_id"],
-                "client_secret": cfg["client_secret"],
                 "code":          code,
                 "redirect_uri":  redirect_uri,
                 "grant_type":    "authorization_code",

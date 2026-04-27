@@ -1,3 +1,9 @@
+## 6.7.121 (2026-04-27) — iOS Entra-Login: AADSTS700025 (Public-Client / PKCE) behoben
+
+### Fixed
+- **iOS-Login schlug nach v6.7.120 mit AADSTS700025 fehl**: „Client is public so neither 'client_assertion' nor 'client_secret' should be presented". Microsoft erkennt Custom-URL-Schemes (`printixmobileprint://...`) als Public-Client-Plattform — bei diesem Flow ist `client_secret` ausdruecklich verboten, PKCE ersetzt das Geheimnis. Wir haben aber im Token-Exchange weiterhin das Secret mitgeschickt → MS lehnt mit 401 ab → Server gibt 502 zurueck → App zeigt Fehler.
+- **Fix**: `exchange_code_pkce` schickt jetzt KEIN `client_secret` mehr; nur `client_id` + `code` + `redirect_uri` + `grant_type` + `scope` + `code_verifier`. Der Web-Auth-Code-Flow (`exchange_code_for_user` fuer das Browser-Login) bleibt unveraendert und nutzt weiter das Secret — ist ein Confidential-Client-Flow.
+
 ## 6.7.120 (2026-04-27) — iOS Entra-Login: Authorization Code + PKCE statt Device Code
 
 ### Changed

@@ -288,7 +288,21 @@ public final class ApiClient: @unchecked Sendable {
         ])
         let (data, resp) = try await session.data(for: req)
         try ensureOk(resp, data)
-        return try JSONDecoder().decode(EntraAuthCodeStartResponse.self, from: data)
+        do {
+            return try JSONDecoder().decode(EntraAuthCodeStartResponse.self, from: data)
+        } catch {
+            // Server hat zwar 2xx geliefert, aber das JSON passt nicht zum
+            // erwarteten Schema. Typischer Fall: Server-Version zu alt
+            // (Endpoint existiert nicht, FastAPI/Reverse-Proxy liefert
+            // andere 2xx-HTML/JSON). Body in den Fehler legen, damit der
+            // User im Login-Screen sieht WAS falsch ist.
+            let preview = String(data: data, encoding: .utf8)?.prefix(300) ?? "<binary>"
+            throw ApiError.decode(
+                "AuthCode-Start: Antwort passt nicht zum erwarteten Format. " +
+                "Server-Version moeglicherweise zu alt (>=6.7.120 noetig). " +
+                "Body: \(preview)"
+            )
+        }
     }
 
     /// Tauscht den von Microsoft per Custom-URL-Scheme zurueckgereichten
