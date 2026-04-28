@@ -1,3 +1,25 @@
+## 6.8.14 (2026-04-28) — Settings-Save: Notification-Toggles wurden NIE gespeichert
+
+### Fixed
+- **Klassischer Halb-fertig-Bug**: das Settings-Template (`settings.html:137-211`) hat 8 Notification-Felder gerendert (`alert_recipients`, `alert_min_level`, `notify_log_error`, `notify_new_printer`, `notify_new_queue`, `notify_new_guest_user`, `notify_report_sent`, `notify_user_registered`) und beim Speichern fleissig an `/settings` gepostet. Der **POST-Handler `settings_post`** in `web/app.py` hat aber **NULL** dieser Felder als `Form(...)`-Parameter deklariert — sie wurden also stillschweigend verworfen.
+
+  Folge: User klickt Toggle → Save → Toggle ist beim Reload wieder weg ("verschwindet"). Das `notify_events` Feld in der `tenants`-Tabelle wurde nie geupdatet, daher konnte unsere `_notify_admins_of_user_registered`-Logik (v6.8.12+) auch nichts ausloesen — `is_event_enabled(tenant, 'user_registered')` lieferte False weil `notify_events` leer/Default war.
+
+- **Fix**: 8 Form-Parameter zum `settings_post`-Handler hinzugefuegt. Aus den 6 Toggle-Booleans wird ein JSON-Array gebaut und als `notify_events` an `update_tenant_credentials` weitergereicht. `update_tenant_credentials` selbst um den Parameter `notify_events` erweitert — der Spalte gab's schon in der DB seit v6.7.x, aber kein Update-Pfad ohne diesen Bug-Fix.
+
+### Effekt
+Mit v6.8.14 + den Diagnose-Logs aus v6.8.13 wird der ganze Notification-Flow erst funktional:
+1. Settings-Toggle bleibt nach Save gesetzt ✅ *(neu)*
+2. Mail an Admins beim user_registered-Event geht raus ✅ *(neu seit v6.8.12)*
+3. Bei Misskonfiguration loggt der Server pro Admin den genauen Grund ✅ *(neu seit v6.8.13)*
+
+### Was jetzt zu tun
+1. Update auf v6.8.14
+2. Settings → Notifications → "Neuer MCP-Benutzer registriert (Admin)" anhaken
+3. **Wichtig**: `alert_recipients` (Empfaenger-CSV) ausfuellen — sonst Skip in v6.8.13-Diagnose-Log
+4. Speichern → Reload → Toggle bleibt gesetzt
+5. Test-Registrierung (z.B. "ddd2") aus Inkognito-Browser
+
 ## 6.8.13 (2026-04-28) — user_registered Notify: per-Admin-Diagnose-Logs
 
 ### Improved
