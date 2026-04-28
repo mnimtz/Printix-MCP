@@ -1,3 +1,23 @@
+## 6.8.9 (2026-04-28) — Tool-Picking-Optimierung: 16 v6.8.x-Workflow-Tools mit strukturierten Docstrings
+
+### Changed
+- **Alle 16 v6.8.x Workflow-Tools haben jetzt erweiterte Docstrings** im neuen Format:
+  - **One-liner** — eine klare Zeile was das Tool macht
+  - **Wann nutzen** — 4-6 typische User-Prompts (DE + EN gemischt)
+  - **Wann NICHT** — Negativ-Abgrenzung mit Cross-Refs zu verwandten Tools
+  - **Returns** — was kommt zurueck plus Folgewerkzeuge (z.B. job_id → printix_get_job)
+  - **Args** — Wert-Beispiele und akzeptierte Formate inkl. Defaults
+
+  Effekt: KI-Modelle (claude.ai, ChatGPT, etc.) waehlen das richtige Tool zuverlaessiger; weniger *„welches der drei Print-Tools meinst du?"*-Rueckfragen; bessere Multi-Step-Plaene da das Modell weiss welche Tools zusammen gehoeren (`print_to_recipients` → `change_job_owner` etc.).
+
+- Funktionscode ist UNVERAENDERT — nur Docstrings neu. Keine Breaking-Changes.
+
+### Hintergrund
+KI-Tool-Picking basiert auf Tool-Name + Description + Parameter-Beschreibungen + Konversations-Kontext. Konkrete Beispiel-Prompts in der Description matchen besonders gut, weil das Modell sie als Trigger-Phrases erkennt. Die Negativ-Abgrenzung (*„NICHT fuer X — nimm Y"*) loest Mehrdeutigkeiten zwischen aehnlichen Tools (`print_self` vs `send_to_user` vs `print_to_recipients`).
+
+### Affected Tools (alle v6.8.x)
+print_self, send_to_capture, describe_capture_profile, get_group_members, get_user_groups, resolve_recipients, print_to_recipients, welcome_user, list_timebombs, defuse_timebomb, sync_entra_group_to_printix, card_enrol_assist, describe_user_print_pattern, session_print, quota_guard, print_history_natural
+
 ## 6.8.8 (2026-04-28) — Auto-PDL-Conversion: Hieroglyphen-Druck behoben
 
 ### Fixed
