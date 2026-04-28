@@ -1,3 +1,8 @@
+## 6.8.6 (2026-04-28) — upload_file_to_url: ungueltiger Parameter `filename`
+
+### Fixed
+- **Direkt nach v6.8.5 (job_id/upload_url-Fix) brach der Submit-Pfad weiter ab** mit `PrintixClient.upload_file_to_url() got an unexpected keyword argument 'filename'`. Echte Signatur: `upload_file_to_url(upload_url, file_bytes, content_type='application/pdf', extra_headers=None)`. Wieder ein Argument das niemals existiert hat. Drei Aufruf-Sites (`print_self`, `print_to_recipients`, alter `send_to_user`) bereinigt — `filename` wird sowieso schon im `submit_print_job(title=...)` als Job-Titel uebergeben.
+
 ## 6.8.5 (2026-04-28) — submit_print_job: nested response shape
 
 ### Fixed
