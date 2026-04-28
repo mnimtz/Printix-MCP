@@ -1,3 +1,14 @@
+## 6.8.5 (2026-04-28) — submit_print_job: nested response shape
+
+### Fixed
+- **`print_self`/`print_to_recipients`/`session_print` (+ alter `send_to_user`) extrahierten job_id und upload_url an den falschen Stellen.** Live-Probe via `printix_submit_job` zeigte: Printix-API antwortet als
+  ```
+  {"job":{"id":"...","_links":{...}}, "uploadLinks":[{"url":"https://...blob..."}],
+   "_links":{"uploadCompleted":{...}, "changeOwner":{...}}, "success":true}
+  ```
+  also `job.id` ist nested unter `"job"`, und Upload-URL ist in `uploadLinks[0].url` (Liste). Mein Code (und der alte `send_to_user`-Code seit langem) las `job.id` flach und `_links.upload.href` — beide leer → "no job_id/upload_url in response".
+- Neuer Helper `_extract_job_id_and_upload(job)` mit nested-Pfad und Fallbacks fuer alternative Shapes (zukunftssicher). Eingesetzt in allen 3 Tools + dem alten `send_to_user`.
+
 ## 6.8.4 (2026-04-28) — submit_print_job: ungueltiger Parameter `size_bytes`
 
 ### Fixed
