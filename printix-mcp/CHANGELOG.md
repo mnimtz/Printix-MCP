@@ -1,3 +1,33 @@
+## 6.8.2 (2026-04-28) — Workflow-Tools: 3 Bugfixes nach Live-Test
+
+### Fixed
+- **`describe_capture_profile` / `send_to_capture` lieferten "plugin not found"**
+  obwohl `plugin_id` korrekt war. Root cause: `capture/plugins/__init__.py`
+  macht Auto-Discovery beim Paket-Import via `pkgutil.walk_packages`. Mein
+  Tool importierte aber nur `capture.base_plugin`, nicht das Paket
+  `capture.plugins` — das `_PLUGINS`-Registry blieb leer. Fix: explizit
+  `import capture.plugins` (vor dem `get_plugin_class`-Aufruf), das
+  triggert die Discovery.
+- **Group-Resolver fanden Gruppen nicht (`could not resolve group_id`,
+  `id: null`)**. Printix-API liefert in `list_groups`/`get_group` die
+  Group-UUID **nicht** im Body, sondern nur als HAL-Link
+  `_links.self.href`. Mein Code las stumpf `g.get("id")` → `None`. Neuer
+  Helper `_group_id(g)` schaut zuerst auf `g.get("id")` und fällt sauber
+  auf `_extract_resource_id_from_href(_links.self.href)` zurück. Eingesetzt
+  in `get_group_members`, `get_user_groups` (Fallback-Pfad) und
+  `_resolve_recipients_internal`. Zusatz: Duplikate werden jetzt sauber
+  über die echte UUID dedupliziert (vorher kamen "All Company" zweimal).
+- **Self-User-Resolution** (`print_self`, `quota_guard`,
+  `print_history_natural`) griff auf `tenant.email` zu — Tenant-Row hat
+  aber gar kein `email`-Feld. Fix: Fallback über `tenant.user_id` →
+  `db.get_user_by_id(...)` joint die `users`-Tabelle und nimmt das echte
+  `email` von dort.
+
+### Test-Status
+- Phase A (read-only) komplett durchgespielt vor Fix; Bugs reproduzierbar.
+- Phase A nach Fix: Plugin-Lookup, Group-Resolution, Self-User funktional.
+- Phase B (Schreib-Pfade) wird im naechsten Lauf getestet.
+
 ## 6.8.1 (2026-04-28) — Hotfix: NameError 'Any' beim Import
 
 ### Fixed
