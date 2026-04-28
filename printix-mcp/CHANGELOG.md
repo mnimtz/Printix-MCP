@@ -1,3 +1,34 @@
+## 6.8.10 (2026-04-28) — Tool-Picking-Optimierung Phase 2: alle 126 MCP-Tools mit strukturierten Docstrings
+
+### Changed
+- **Alle 126 MCP-Tools haben jetzt durchgaengig strukturierte Docstrings** im neuen Format (One-liner + Wann nutzen + Wann NICHT + Returns + Args). Batch 1 (16 v6.8.x Workflow-Tools) ist v6.8.9 — diese Version macht den Rest:
+
+  - Batch 2 (79 Tools): High-Overlap-Familien — print/send/submit/jobs, list/get/find fuer printers/sites/networks/snmp/users/groups/cards, query/reports/analytics, user-lifecycle, status/whoami/explain
+  - Batch 3 (31 Tools): CRUD/Reports-Templates/Schedules/Capture-Listing/Backup/Demo/Feature-Requests
+
+- Format pro Tool (kompakt):
+  ```
+  [One-liner]
+  Wann nutzen: "Beispiel-Prompt 1" • "Prompt 2" • ...
+  Wann NICHT — stattdessen: <case> → other_tool
+  Returns: knappe Felder + Folge-Tools
+  Args: param Wert-Beispiel | Beschreibung
+  ```
+
+- Effekt fuer den AI-Assistenten:
+  - Klare **Wann/Wann-NICHT-Regeln** loesen Mehrdeutigkeiten (z.B. `print_self` vs `send_to_user` vs `quick_print`, `query_top_users` vs `top_users`, `list_users` vs `find_user` vs `user_360`)
+  - **Konkrete User-Prompts** im Description-Feld funktionieren als Trigger-Phrases — KI matcht die direkt
+  - **Cross-References** (`stattdessen → printix_X`) helfen multi-step-Plaene zu bauen
+  - **Args mit Wert-Beispielen** reduzieren Rueckfragen wie *"in welchem Format?"*
+
+- Funktionscode komplett UNVERAENDERT — kein Behavior-Change. Reine Metadaten-Verbesserung.
+
+### Affected
+- 126 von 127 Tools (alle ausser `printix_demo_setup_schema`-Variante die bereits per Batch 3 gehandhabt wurde — siehe Batch-3-Counts oben)
+- Beide Repos (Addon v6.8.10 + Docker v7.2.10)
+- Keine Database-Migration noetig
+- Refresh-Empfehlung: AI-Assistant Tool-Liste neu pullen (siehe MCP_MANUAL_DE.md / EN.md), damit die neuen Description-Texte beim Tool-Picking wirken
+
 ## 6.8.9 (2026-04-28) — Tool-Picking-Optimierung: 16 v6.8.x-Workflow-Tools mit strukturierten Docstrings
 
 ### Changed
