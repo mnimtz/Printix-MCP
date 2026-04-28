@@ -979,6 +979,11 @@ def get_tenant_full_by_user_id(user_id: str) -> Optional[dict]:
         "alert_min_level":     d.get("alert_min_level", "ERROR"),
         "poller_state":        d.get("poller_state", "{}"),
         "default_card_profile_id": d.get("default_card_profile_id", ""),
+        # v6.8.17: notify_events war im Result-Dict NICHT enthalten —
+        # damit war das settings.html-Template bei jedem Reload blind
+        # gegenueber dem aktuellen Toggle-State und fiel auf Default
+        # `["log_error"]` zurueck. Behoben.
+        "notify_events":       d.get("notify_events", '["log_error"]'),
     }
 
 

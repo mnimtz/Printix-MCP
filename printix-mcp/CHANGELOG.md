@@ -1,3 +1,23 @@
+## 6.8.17 (2026-04-28) — Toggle-Persistierungs-Bug: zwei fehlende Glieder in der Kette
+
+### Fixed
+Mit v6.8.14/15/16 wurde der Save-Pfad korrekt gemacht (Form-Felder ankommen, DB-Spalte vorhanden, `update_tenant_credentials(notify_events=...)` schreibt das JSON). Aber der **Reload** zeigt den Toggle trotzdem als nicht-aktiv. Live-Test des Users: Toggle anhaken → Speichern → Reload → Toggle leer.
+
+Zwei weitere Bugs entlang der Read-Kette:
+
+1. **`get_tenant_full_by_user_id` returnt `notify_events` GAR NICHT** — die Spalte wird zwar gelesen aus der DB-Row, aber im finalen Result-Dict fehlt der Key. Das settings.html-Template bekommt `tenant.notify_events = Undefined`, der Bedingungs-Check `if (tenant and tenant.notify_events)` ist False → Template fällt auf Default `["log_error"]` zurück → Toggle nicht checked.
+
+2. **Jinja-Filter `from_json` ist nirgends registriert.** Template ruft `tenant.notify_events | from_json` — Filter existiert nicht im Env, Jinja schickt entweder Undefined oder TemplateError zurück (je nach undefined-Mode). Das wäre der zweite Crash-Punkt selbst wenn das Feld da wäre.
+
+### Was v6.8.17 macht
+- `db.get_tenant_full_by_user_id`: zusaetzlicher Output-Key `notify_events` mit Fallback `'["log_error"]'`.
+- `web/app.py`: zentral registrierter Jinja-Filter `from_json`, None-tolerant (leerer String / None / bereits-Liste werden alle zu `[]` resp. durchgereicht). Damit funktioniert das Template-Snippet `{% set ne = (tenant.notify_events | from_json) ... %}` jetzt produktiv.
+
+### Mit v6.8.17 sollte der Round-Trip endlich funktionieren
+1. Settings → Toggle anhaken → Save: `notify_events=["user_registered"]` in DB ✓ (war schon ok seit v6.8.15)
+2. Reload `/settings`: `tenant.notify_events = '["user_registered"]'` aus DB → `from_json` parst zu Liste → Template `{% if "user_registered" in ne %}checked{% endif %}` greift → **Toggle bleibt sichtbar checked** ✓
+3. Test-Registrierung: `is_event_enabled(tenant, "user_registered")` liefert True → Mail geht raus ✓
+
 ## 6.8.16 (2026-04-28) — Settings-Save: Diagnose-Log fuer Toggle-States
 
 ### Improved

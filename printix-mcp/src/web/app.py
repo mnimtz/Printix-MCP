@@ -98,6 +98,25 @@ def create_app(session_secret: str) -> FastAPI:
 
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
+    # v6.8.17: `from_json` Jinja-Filter — wird in settings.html (und ggf. an
+    # anderen Stellen) genutzt um das `notify_events`-JSON-Array aus der DB
+    # zu parsen. Bisher war der Filter NICHT registriert; jeder Aufruf von
+    # `{{ tenant.notify_events | from_json }}` lieferte daher `Undefined`/
+    # einen TemplateError, was beim Render still in einem leeren `ne`-Set
+    # endete und den Toggle "user_registered" beim Reload nie als checked
+    # darstellte. Hier zentral registriert + None-tolerant.
+    def _from_json_filter(value):
+        import json as _json
+        if value in (None, "", b""):
+            return []
+        if isinstance(value, (list, dict)):
+            return value
+        try:
+            return _json.loads(value)
+        except Exception:
+            return []
+    templates.env.filters["from_json"] = _from_json_filter
+
     def current_app_version() -> str:
         version_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "VERSION")
         try:
