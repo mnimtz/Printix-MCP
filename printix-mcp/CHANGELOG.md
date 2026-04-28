@@ -1,3 +1,24 @@
+## 6.8.12 (2026-04-28) — Bugfix: Admin-Benachrichtigung bei Pending-Registrierung wurde nie verschickt
+
+### Fixed
+- **Bei einer neuen User-Registrierung wurde der Admin nicht per Mail benachrichtigt** — obwohl unter *Settings → Benachrichtigungen* der Toggle *„🔔 Neuer MCP-Benutzer registriert (Admin)"* sichtbar war und gespeichert wurde.
+
+  **Halb-fertiges Feature**: die UI war da (`settings.html:211`), das Setting persistierte korrekt in `notify_events`, der Mail-Helper `send_event_notification(tenant, "user_registered", ...)` und das HTML-Template `html_user_registered(...)` existierten in `reporting/notify_helper.py` — **nur der Trigger im Registrierungs-Flow fehlte**. `register_step4_post` (`web/app.py`) hat den User angelegt + ein Audit-Event geschrieben, aber den Notify-Helper nie aufgerufen.
+
+- **Fix**: neuer Helper `_notify_admins_of_user_registered(new_user)` direkt vor den Registrierungs-Routes, der durch alle approved Admins iteriert, deren Tenant via `get_tenant_full_by_user_id` lädt, und `send_event_notification(tenant, "user_registered", ...)` aufruft. `check_enabled=True` respektiert weiterhin den Settings-Toggle pro Tenant — Admins die's aus haben, bekommen weiter keine Mail.
+
+- **Best-effort**: Mail-Versand-Fehler werden gelogt aber blockieren die Registrierung nicht. Der neue User landet auf jeden Fall korrekt im pending-Zustand.
+
+### Voraussetzungen für die Mail
+Damit die Notification ankommt müssen pro Admin-Tenant alle 5 Bedingungen erfüllt sein:
+1. Admin hat status=`approved` und is_admin=1
+2. Tenant existiert (über `get_tenant_full_by_user_id`)
+3. `notify_events` enthält `user_registered` (UI-Toggle in Settings)
+4. `alert_recipients` ist nicht leer (Empfänger-CSV in Settings)
+5. Mail-Credentials konfiguriert (Tenant-eigene ODER Global-Fallback ODER ENV)
+
+Wenn nach v6.8.12 immer noch keine Mail ankommt, an Punkt 1–5 entlangprüfen. Das Log gibt klare Hinweise (`logger.debug` / `logger.info`).
+
 ## 6.8.11 (2026-04-28) — Tool-Annotations: 82 read-only-Tools markiert (weniger Permission-Prompts)
 
 ### Changed
