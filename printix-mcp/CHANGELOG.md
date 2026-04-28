@@ -1,3 +1,17 @@
+## 6.8.13 (2026-04-28) — user_registered Notify: per-Admin-Diagnose-Logs
+
+### Improved
+- **`_notify_admins_of_user_registered` loggt jetzt fuer JEDEN Admin der NICHT in den Mail-Versand kommt einen klaren INFO-Log mit dem konkreten Grund.** Vorher gab's nur die Zusammenfassung *"X Mail(s) an Admins versendet"* — wenn X=0 war, konnte man im Log nicht sehen welche der 5 Voraussetzungen fehlte.
+- Pre-Flight-Diagnose pro Admin mit Hinweis-Texten, z.B.:
+  - `user_registered: Admin 'a@firma.de' hat 'user_registered' NICHT in notify_events aktiv — Toggle in Settings → Benachrichtigungen → '🔔 Neuer MCP-Benutzer registriert' anhaken (skip)`
+  - `user_registered: Admin 'a@firma.de' hat den Toggle aktiv, ABER 'alert_recipients' ist LEER — bitte Empfaenger-Email(s) in Settings → Benachrichtigungen → Empfaenger (CSV) eintragen (skip)`
+  - `user_registered: Admin 'a@firma.de' — keine Mail-Credentials gefunden (Reihenfolge: Tenant-Settings, Global-Fallback unter /admin/settings, ENV MAIL_API_KEY/MAIL_FROM). Bitte einen der drei konfigurieren (skip)`
+- Erfolgsfall loggt jetzt auch: `Mail an Admin '...' gesendet (Empfaenger: ..., Mail-Source: tenant|global|env)` — User sieht direkt welche Mail-Credential-Kette gegriffen hat.
+- `check_enabled=False` beim send-Aufruf, weil wir oben schon das `notify_events`-Toggle gepruft haben — spart redundanten DB-Hit + macht das Logging klarer (wenn der Helper "send_event_notification ... check_enabled=True" intern wegen `notify_events` skipped, bekommt der User keinen Hinweis WARUM).
+
+### Background — warum
+Test-Registrierung des Users (Bug-Reporter) lieferte: `0 Mail(s) versendet` ohne Aufschluss WARUM. v6.8.13 macht's transparent.
+
 ## 6.8.12 (2026-04-28) — Bugfix: Admin-Benachrichtigung bei Pending-Registrierung wurde nie verschickt
 
 ### Fixed
