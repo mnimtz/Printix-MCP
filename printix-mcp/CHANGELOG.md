@@ -1,3 +1,26 @@
+## 6.8.11 (2026-04-28) — Tool-Annotations: 82 read-only-Tools markiert (weniger Permission-Prompts)
+
+### Changed
+- **Alle 126 MCP-Tools haben jetzt `ToolAnnotations` gesetzt** (war vorher leer = jeder Tool-Call wurde vom Client defensiv permission-prompted). Klassifizierung:
+
+  | Kategorie | Anzahl | Annotation |
+  |-----------|--------|------------|
+  | **Read-only** (list/get/find/query/describe/decode/diagnose/aggregator/...) | **82** | `readOnlyHint=True, idempotentHint=True` |
+  | **Destructive** (delete/offboard/demo_rollback) | **11** | `destructiveHint=True, idempotentHint=True` |
+  | **Write idempotent** (update/create/register_card/onboard/sync/save_template/change_owner) | **18** | `idempotentHint=True` |
+  | **Write non-idempotent** (print_*/send_*/submit/welcome_user/generate_id_code/run_report/schedule/demo_generate/bulk_import) | **14** | (alles default false/false) |
+  | **Open-world** (alle 126) | **126** | `openWorldHint=True` (jeder Tool kann mit Printix-API reden) |
+
+- **Effekt fuer den User**: kompatible MCP-Clients (Cursor, Claude Code, Continue, andere) duerfen Read-only-Tools **ohne Permission-Prompt** ausfuehren. Spart bei normalen Konversationen wie *"wer druckt am meisten?"*, *"welche Drucker sind offline?"* etc. den staendigen Approval-Klick.
+
+- **Echte Schreib-Tools** bleiben prompt-pflichtig — z.B. `delete_user`, `offboard_user`, `demo_rollback`. Kein versehentliches *"alle alten User aufraeumen"* das User-Daten plaettet.
+
+- **claude.ai-Verhalten**: Die Web-UI von claude.ai respektiert Annotations nicht in jeder Version konsistent. Wenn das Permission-Theater dort weiter nervt: dieser Patch hilft trotzdem **vollumfaenglich** in Cursor / Claude Code / Continue / Anthropic Console — und ist semantisch die korrekte Markierung.
+
+### Implementation
+- Refactor-Skript klassifiziert alle Tools nach 4 Kategorien (READ_ONLY / DESTRUCTIVE / WRITE_IDEMPOTENT / WRITE), ersetzt `@mcp.tool()` durch `@mcp.tool(annotations=ToolAnnotations(...))`, ergaenzt `from mcp.types import ToolAnnotations` oben in `server.py`.
+- Funktionscode komplett unveraendert. Kein Behavior-Change. Reine Metadaten.
+
 ## 6.8.10 (2026-04-28) — Tool-Picking-Optimierung Phase 2: alle 126 MCP-Tools mit strukturierten Docstrings
 
 ### Changed
