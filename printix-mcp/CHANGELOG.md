@@ -1,3 +1,20 @@
+## 6.8.16 (2026-04-28) — Settings-Save: Diagnose-Log fuer Toggle-States
+
+### Improved
+- `settings_post` loggt jetzt beim Save den genauen Toggle-State der vom Browser ankam + was als `notify_events` gespeichert wird:
+  ```
+  settings_post: user=marcus — notify-toggle-state vom Form:
+    log_error=True new_printer=False new_queue=False new_guest=False
+    report_sent=False user_registered=True
+    → notify_events=["log_error","user_registered"],
+    alert_recipients='marcus@nimtz.email', alert_min_level='ERROR'
+  ```
+- Damit erkennt der User sofort ob:
+  - der Toggle wirklich angehakt wurde (`user_registered=True`)
+  - die Form-Daten korrekt vom Browser kamen
+  - das JSON-Array korrekt gebaut wurde
+- Falls der nachfolgende `_notify_admins_of_user_registered` weiterhin "NICHT in notify_events aktiv" loggt obwohl hier `user_registered=True` steht, gibt's noch einen DB-Persistierungs-Bug. Aktuell glauben wir aber an einen User-Side-Fehler (Toggle nicht angehakt) — das bestaetigt sich mit dem Log.
+
 ## 6.8.15 (2026-04-28) — DB-Migration: Spalte `tenants.notify_events` (war v6.8.14 versprochen, fehlte aber)
 
 ### Fixed
