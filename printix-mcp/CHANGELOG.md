@@ -1,3 +1,8 @@
+## 6.8.3 (2026-04-28) — Workflow-Tools: send_to_capture asyncio.run-Fehler
+
+### Fixed
+- **`send_to_capture` brach mit `asyncio.run() cannot be called from a running event loop` ab**: FastMCP laeuft selbst in einer asyncio-Eventloop, `asyncio.run()` ist dort nicht erlaubt. Tool ist jetzt selbst `async def` und ruft `await plugin.ingest_bytes(...)` direkt — FastMCP unterstuetzt async Tool-Funktionen nativ.
+
 ## 6.8.2 (2026-04-28) — Workflow-Tools: 3 Bugfixes nach Live-Test
 
 ### Fixed
