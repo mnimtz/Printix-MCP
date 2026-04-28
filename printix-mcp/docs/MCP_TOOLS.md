@@ -1,6 +1,6 @@
 # Printix MCP Server — Tool Reference
 
-> **Version:** 6.7.107
+> **Version:** 6.8.10
 > **Transport:** Streamable HTTP (`/mcp` for claude.ai) + SSE (`/sse` for ChatGPT)
 > **Auth:** OAuth 2.0 Bearer Token per tenant
 > **Public Endpoint:** `https://mcp.printix.cloud`
@@ -367,5 +367,118 @@ printix_compare_periods(days_a=30, days_b=30)
 
 ---
 
-*Generated for Printix MCP Server v6.7.107. For API reference of the
+
+## AI Workflow Tools (v6.8.x — Phase 1)
+
+High-level composition tools that combine multiple low-level steps
+into one AI-friendly call. Auto-PDL conversion (PDF → PCL XL via
+Ghostscript) is built in for every print path; default
+`pdl="auto"` (= PCL XL color), override with `pdl="passthrough"`,
+`"PCLXL"`, `"PCL5"`, `"POSTSCRIPT"`.
+
+### Native File Ingest
+
+- **`printix_print_self(file_b64, filename, ..., pdl="auto", color=True)`**
+  Print a file to the calling MCP user's *own* secure-print queue.
+  Self-user is resolved via `current_tenant.email`. Returns
+  `{ok, job_id, owner_email, size_input, size_after_conversion, pdl, ...}`.
+  → Killer use case: AI generates a PDF inline and queues it on the
+  caller's printer.
+
+- **`printix_send_to_capture(profile, file_b64, filename, metadata_json="{}")`**
+  Push a file directly into a capture workflow (Paperless-ngx, etc.) —
+  same code path as a webhook but without the printer/Azure-Blob detour.
+  Calls `plugin.ingest_bytes()` directly. Async tool.
+
+- **`printix_describe_capture_profile(profile)`**
+  Returns the plugin schema (config fields + types + accepted metadata
+  fields). Use *before* `send_to_capture` so the AI can build the right
+  `metadata_json`.
+
+### Multi-Recipient Print
+
+- **`printix_get_group_members(group_id_or_name)`**
+  Members of a Printix group (UUID or name; case-insensitive).
+  Falls back to `_links.users` HAL link when present.
+
+- **`printix_get_user_groups(user_email_or_id)`**
+  Reverse lookup: which groups is user X in?
+
+- **`printix_resolve_recipients(recipients_csv)`**
+  Diagnostic tool. Resolves a mixed list — emails, `group:Marketing`,
+  `entra:<oid>`, `upn:...` — to a flat printix-user list. Returns
+  `{resolved, not_found, ambiguous}` *without* printing.
+
+- **`printix_print_to_recipients(recipients_csv, file_b64, filename, ..., fail_on_unresolved=True, pdl="auto", color=True)`**
+  One PDF, multiple recipients (one job per recipient). Conversion runs
+  *once* before the loop.
+
+### Onboarding & Time-Bombs
+
+- **`printix_welcome_user(user_email, template="default", auto_print_to_self=True, timebombs="card_enrol_7d,first_print_reminder_3d")`**
+  Onboarding companion: generates a personalized welcome PDF, optionally
+  queues it on the new user, and arms time-bombs (deferred reminders
+  with condition checks).
+
+- **`printix_list_timebombs(user_email="", status="pending")`**
+  List active/historical time-bombs.
+
+- **`printix_defuse_timebomb(bomb_id, reason="manual")`**
+  Manually defuse a time-bomb. Tenant-scoped.
+
+- **`printix_sync_entra_group_to_printix(entra_group_oid, printix_group_id="", sync_mode="report_only")`**
+  Microsoft Graph (`Group.Read.All`) → diff vs Printix group. Default
+  read-only.
+
+### Bonus
+
+- **`printix_card_enrol_assist(user_email, card_uid_raw, profile_id="")`**
+  AI onboarding: UID → profile transform → register in one call.
+
+- **`printix_describe_user_print_pattern(user_email, days=30)`**
+  Top printers, color quote, average page count.
+
+- **`printix_session_print(user_email, file_b64, filename, expires_in_hours=24)`**
+  Print job + auto-expire time-bomb.
+
+- **`printix_quota_guard(user_email="", window_minutes=5, max_jobs=10)`**
+  Pre-flight burst check (verdict `allow` / `throttle` / `block`).
+
+- **`printix_print_history_natural(user_email="", when="today", limit=50)`**
+  Print history with natural-language windows: `today`, `yesterday`,
+  `this_week`, `last_month`, `Q1`–`Q4`, `7d`, `30d`, ...
+
+### Time-Bomb Engine — DB & Scheduler
+
+A new table `user_timebombs` is created idempotently on first call.
+Columns: `id, tenant_id, user_id, user_email, bomb_type, trigger_at,
+action_json, status, created_at, resolved_at, last_message`.
+
+An APScheduler job `timebomb_tick` runs hourly (`minute=7`) and:
+1. Loads pending bombs with `trigger_at <= now`.
+2. Re-checks the original condition (e.g. *"user has no card enrolled"*).
+3. If condition still holds → executes the action (queues a reminder
+   PDF, writes audit log, etc.). Marks `fired`.
+4. If condition no longer holds (user did the thing meanwhile) → marks
+   `defused`. Auto-cleanup, no false reminders.
+
+### Server-Side PDL Conversion
+
+`src/print_conversion.py` ships with:
+- `detect_pdl(file_bytes)` — magic-byte detection (PDF / PostScript /
+  PCL5 / PCL XL / TEXT)
+- `pdf_to_pclxl(pdf_bytes, color=True)` via Ghostscript `pxlcolor` /
+  `pxlmono`
+- `pdf_to_pcl5(pdf_bytes)` via `cdjcolor` / `ljet4`
+- `pdf_to_postscript(pdf_bytes)` via `ps2write`
+- `text_to_postscript(text)` for plaintext input
+- `prepare_for_print(file_bytes, target="PCLXL", color=True)` — main
+  entry, auto-routes based on detected source PDL
+
+Ghostscript is installed in the container (Dockerfile +25 MB). Errors
+are wrapped in `ConversionError` and surfaced cleanly to the AI tool —
+no silent submits with broken bytes.
+
+---
+*Generated for Printix MCP Server v6.8.10. **127 tools** in total — 16 new in v6.8.x (see *AI Workflow Tools* section). For API reference of the
 underlying Printix Cloud API see [printix.net/developer](https://printix.net).*
