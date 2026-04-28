@@ -22,6 +22,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu \
     # Pillow für Image-to-PDF (PNG/JPG/GIF)
     python3-pil \
+    # v6.8.8: Ghostscript für PDF→PCL/PostScript-Konvertierung in den
+    # Print-Workflow-Tools (print_self, print_to_recipients, send_to_user
+    # etc.). Ohne Konvertierung schickt der Server rohe PDF-Bytes an die
+    # Drucker-Queue → Drucker mit reinem PCL-RIP druckt PDF-Source als
+    # Klartext (Hieroglyphen). Default-Target-PDL = PCL XL (pxlcolor),
+    # universellste moderne Druckersprache.
+    ghostscript \
     && rm -rf /var/lib/apt/lists/*
 
 # Sicherstellen dass FreeTDS korrekt registriert ist (tdsodbc macht das meist automatisch,

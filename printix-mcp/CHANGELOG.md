@@ -1,3 +1,29 @@
+## 6.8.8 (2026-04-28) — Auto-PDL-Conversion: Hieroglyphen-Druck behoben
+
+### Fixed
+- **Drucker druckten Hieroglyphen statt PDF-Inhalt**: Die Printix-API akzeptiert kein `PDF` als PDL — nur `PCL5 | PCLXL | POSTSCRIPT | UFRII | TEXT | XPS`. Wir haben rohe PDF-Bytes hochgeladen → der Drucker hat den PDF-Source als ASCII-Text interpretiert und gedruckt. Klassisches v6.8.x-Test-Issue: das Submit klappte, das Druck-Ergebnis war Muell.
+
+### Added
+- **Neues Modul `print_conversion.py`** mit Magic-Byte-Detection, Ghostscript-Wrappers fuer PDF→PCL XL / PCL5 / PostScript, PostScript-Text-Generator und einer `prepare_for_print(file_bytes, target="PCLXL", color=True)`-Hauptfunktion.
+- **Ghostscript** wird ab jetzt im Container installiert (Dockerfile: `+ghostscript`, ~25 MB).
+- **Vier Print-Tools erweitert** um `pdl: str = "auto"` + `color: bool = True`:
+  - `printix_print_self`
+  - `printix_print_to_recipients`
+  - `printix_send_to_user` (alt — endlich auch mit Conversion)
+  - `printix_session_print` (indirekt via send_to_user)
+
+  Default `pdl="auto"` mappt auf **PCL XL** (`pxlcolor`) — universellste moderne Druckersprache, kompatibel mit HP/Konica/Ricoh/Xerox/Canon/Brother. Werte: `auto` | `PCLXL` | `PCL5` | `POSTSCRIPT` | `passthrough`.
+
+- **Saubere Fehlermeldungen**: `ConversionError` von Ghostscript wird gefangen und als `{"error": "conversion failed: ...", "hint": "..."}` zurueckgegeben — kein silent submit mit kaputten Bytes mehr. Bei `passthrough`-Mode warnt das Tool im Log explizit dass Hieroglyphen-Risiko besteht.
+
+- **Print-Tool Response zeigt `size_input` + `size_after_conversion` + `pdl`** — User sieht direkt was passiert ist (PDF 660 → PCLXL 14k, PDL=PCLXL).
+
+### Hinweise
+
+- Bei Multi-Recipient-Bursts (`print_to_recipients`) wird die Konvertierung **einmalig** vor der Schleife gemacht, nicht pro Empfaenger — spart N×Ghostscript-Calls.
+- `passthrough` ist explizit fuer Debug oder fuer Tenants mit Cloud-Print-Gateway-Queue, die serverseitig konvertieren. Default bleibt `auto`.
+- PCL5 nutzt `cdjcolor`/`ljet4` Ghostscript-Devices als Fallback — moderne Drucker bevorzugen PCL XL.
+
 ## 6.8.7 (2026-04-28) — Azure Blob Upload braucht `x-ms-blob-type`-Header
 
 ### Fixed
