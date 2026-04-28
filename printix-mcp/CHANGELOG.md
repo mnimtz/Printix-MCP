@@ -1,3 +1,13 @@
+## 6.8.1 (2026-04-28) — Hotfix: NameError 'Any' beim Import
+
+### Fixed
+- **Container-Boot-Loop**: v6.8.0 nutzte `Any | None` als Type-Hint in
+  `_follow_hal_link`, ohne `Any` aus `typing` zu importieren. Beim
+  Modul-Load schlug das mit `NameError: name 'Any' is not defined`
+  fehl, der HA-Addon-Container ging in einen Restart-Loop. `Any` wird
+  jetzt zusammen mit `Optional` aus `typing` importiert. Keine weiteren
+  Code-Aenderungen.
+
 ## 6.8.0 (2026-04-27) — Workflow-Tools: 16 neue MCP-Tools fuer KI-getriebene Print-Workflows
 
 Minor-Bump (6.7 → 6.8) weil das Tool-Inventory von 111 → 127 waechst und ein
