@@ -1,3 +1,113 @@
+## 6.8.0 (2026-04-27) — Workflow-Tools: 16 neue MCP-Tools fuer KI-getriebene Print-Workflows
+
+Minor-Bump (6.7 → 6.8) weil das Tool-Inventory von 111 → 127 waechst und ein
+neuer Workflow-Layer entsteht (Time-Bomb-Engine, Multi-Recipient-Print,
+Native-File-Ingest in Capture). Keine Breaking-Changes — bestehende Tools
+und Endpunkte sind unveraendert.
+
+### Added — Phase 1: Native File-Ingest
+
+- **`printix_print_self(file_b64, filename, ...)`** — KI-Modell erzeugt
+  inline ein PDF (Bericht, Vertragsentwurf, Auswertung), das Tool sendet
+  es in die Secure-Print-Queue des aufrufenden MCP-Users. Self-User wird
+  aus `current_tenant.email` aufgeloest, mit Fallback auf einen
+  klaren Fehler.
+- **`printix_send_to_capture(profile, file_b64, filename, metadata_json)`**
+  — Datei direkt in einen Capture-Workflow einspeisen, gleicher Code-Pfad
+  wie ein Webhook-Event aber ohne Azure-Blob-Zwischenstation. Ruft
+  `plugin.ingest_bytes()` direkt auf. Killer-Use-Case: KI-generiertes
+  Dokument direkt in Paperless archivieren.
+- **`printix_describe_capture_profile(profile)`** — Self-describing-Tool
+  das das Plugin-Schema (akzeptierte metadata-Felder, aktuelle Konfig
+  ohne Secrets) zurueckgibt, damit der KI-Assistent das richtige
+  `metadata_json` baut.
+
+### Added — Phase 2: Multi-Recipient Print
+
+- **`printix_get_group_members(group_id_or_name)`** — listet Mitglieder
+  einer Printix-Gruppe. Folgt HAL-Links `_links.users` mit Fallbacks.
+- **`printix_get_user_groups(user_email_or_id)`** — Reverse-Lookup:
+  in welchen Gruppen ist User X.
+- **`printix_resolve_recipients(recipients_csv)`** — Diagnose-Tool, loest
+  gemischte Eingaben (`alice@firma.de`, `group:Marketing`,
+  `entra:<oid>`, `upn:...`) zu einer flachen Printix-User-Liste auf.
+  KI-Assistent kann VORAB pruefen *„du sendest an 14 Personen"*.
+- **`printix_print_to_recipients(recipients_csv, file_b64, filename, ...)`**
+  — Multi-Recipient-Print im `individual`-Modus: ein eigener Job pro
+  Empfaenger in dessen Secure-Print-Queue. `fail_on_unresolved=True` als
+  sicherer Default. *(Hinweis: ein `shared_pickup`-Modus war ueberlegt,
+  aber bewusst nicht implementiert — wuerde nur dort sinnvoll sein wo
+  Printix nativ Job-Sharing in Secure-Print unterstuetzt.)*
+
+### Added — Phase 3: Onboarding + Time-Bomb-Engine
+
+- **`printix_welcome_user(user_email, ...)`** — Onboarding-Begleiter:
+  generiert ein personalisiertes Welcome-PDF, schickt es optional als
+  ersten Job in die User-Queue, und scharft Time-Bombs:
+  - `card_enrol_7d` — Reminder nach 7 Tagen wenn keine Karte enrolled
+  - `first_print_reminder_3d` — Reminder nach 3 Tagen ohne ersten Druck
+  - `card_enrol_30d` — letzter Reminder nach 30 Tagen
+- **Time-Bomb-Engine** — neue Tabelle `user_timebombs`, stuendlicher
+  APScheduler-Job (`minute=7`) ueberprueft fuer alle pending Bomben ob
+  die Bedingung noch zutrifft (z.B. *„User hat noch keine Karte"*) und
+  fuehrt nur dann die Action aus. Auto-Defuse wenn die Bedingung sich
+  zwischenzeitlich erfuellt hat. Eingebauter PDF-Generator
+  (`_generate_reminder_pdf_b64`) fuer minimale A4-Reminder-PDFs ohne
+  externe Dependencies.
+- **`printix_list_timebombs(user_email, status)`** — Admin-Sicht auf
+  geplante/gefeuerte/entschaerfte Bomben.
+- **`printix_defuse_timebomb(bomb_id, reason)`** — Bombe manuell
+  deaktivieren (z.B. wenn User Sonderfall ist).
+- **`printix_sync_entra_group_to_printix(entra_group_oid, ...)`** — pulled
+  Entra-Group-Members via MS-Graph (App-Permission `Group.Read.All`),
+  zeigt Diff zu Printix-Group-Members. `sync_mode="report_only"` als
+  Default — additive/mirror sind vorbereitet, schreiben aber erst wenn
+  der Printix-Public-API einen Add-Member-Endpoint exponiert.
+
+### Added — Bonus
+
+- **`printix_card_enrol_assist(user_email, card_uid_raw, profile_id)`** —
+  Karte aus iOS-NFC-Scan via Card-Transformer (`transform_card_value`)
+  durchlaufen lassen und einem User zuordnen.
+- **`printix_describe_user_print_pattern(user_email, days)`** — Druck-
+  Profil eines Users (Top-Drucker, Farb-Quote, durchschnittliche
+  Seitenzahl). Versucht zuerst SQL-Reports, faellt auf API-Scan zurueck.
+- **`printix_session_print(user_email, file_b64, filename, expires_in_hours)`**
+  — Job mit Time-Bomb: nach Ablauf wird ein Logeintrag erzeugt (Hinweis
+  fuer manuelles `printix_delete_job`).
+- **`printix_quota_guard(user_email, window_minutes, max_jobs)`** —
+  Pre-flight-Burst-Check, gibt verdict `allow/throttle/block` zurueck.
+- **`printix_print_history_natural(user_email, when, limit)`** — Druck-
+  Historie mit natuerlich-sprachlichen Zeitangaben (`today`, `yesterday`,
+  `this_week`, `last_month`, `Q1`-`Q4`, `7d`).
+
+### Helpers (intern, nicht als MCP-Tools exponiert)
+
+- `_resolve_self_user(c)` — MCP-Caller → Printix-User
+- `_resolve_capture_profile(profile, tid)` — Name oder UUID → Profil-Row
+- `_follow_hal_link(c, obj, rel)` — folgt HAL `_links.<rel>.href`
+- `_group_members_from_obj(c, gobj)` — extrahiert Members aus Group-
+  Objekt mit Sub-Resource-Fallback
+- `_resolve_recipients_internal(c, list)` — Recipient-Resolver-Engine
+- `_entra_group_members(group_oid)` — MS-Graph App-only Group-Members
+- `_ensure_timebomb_table()` / `_ensure_timebomb_scheduler()` — idempotent
+- `_run_timebomb_tick()` / `_check_timebomb_condition()` /
+  `_execute_timebomb()` — Time-Bomb-Engine-Core
+- `_generate_reminder_pdf_b64(title, body)` — Mini-PDF-Skelett, ~700 Bytes,
+  keine externe Dependency
+
+### DB-Migration
+
+Idempotent: neue Tabelle `user_timebombs` wird beim ersten Tool-Aufruf
+via `_ensure_timebomb_table()` erzeugt. Keine bestehenden Tabellen
+geaendert.
+
+### Schedules
+
+`reporting.scheduler._scheduler` bekommt einen neuen Cron-Job
+`timebomb_tick` (jede Stunde, Minute 7) wenn er laeuft. Idempotent —
+wird beim ersten Time-Bomb-Tool-Aufruf registriert.
+
 ## 6.7.122 (2026-04-27) — iOS Entra-Login: Graph /me 403 (fehlender User.Read-Scope)
 
 ### Fixed
