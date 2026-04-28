@@ -6248,14 +6248,23 @@ def printix_card_enrol_assist(
         # Profil laden — printix_transform_card_value-Tool existiert; wir
         # rufen die zugrundeliegende Funktion direkt auf wenn moeglich,
         # sonst Fallback: Raw verwenden.
-        from cards.transform import transform_card_value  # type: ignore
+        # Card-Transformer via Profil ODER mit Default-Regeln.
+        # `apply_profile_transform` kennt das rules_json-Format der Profile.
         try:
-            transformed = transform_card_value(
-                tenant_id=_get_card_tenant_id(),
-                raw_value=card_uid_raw,
-                profile_id=profile_id or None,
-            )
-        except Exception:
+            from cards.transform import apply_profile_transform, transform_card_value  # type: ignore
+            from cards.store import get_profile  # type: ignore
+            tenant_id_db = _get_card_tenant_id()
+            rules = {}
+            if profile_id:
+                prof = get_profile(profile_id, tenant_id_db)
+                if prof and isinstance(prof, dict):
+                    rules = prof.get("rules_json") or prof.get("rules") or {}
+            tdict = apply_profile_transform(card_uid_raw, rules) if rules \
+                    else {"final": transform_card_value(card_uid_raw).get(
+                            "final", card_uid_raw)}
+            transformed = tdict.get("final") or card_uid_raw
+        except Exception as te:
+            logger.warning("card transform fallback (raw): %s", te)
             transformed = card_uid_raw
 
         # Karte registrieren via Printix (Signatur: user_id, card_number)
