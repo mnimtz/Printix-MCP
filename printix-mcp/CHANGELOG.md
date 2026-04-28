@@ -1,3 +1,13 @@
+## 6.8.7 (2026-04-28) — Azure Blob Upload braucht `x-ms-blob-type`-Header
+
+### Fixed
+- **Direkt nach v6.8.6 brach der Submit-Pfad mit HTTP 400 / `MissingRequiredHeader`** vom Azure-Blob-Storage ab. Die Printix-API gibt im `submit_print_job`-Response nicht nur die Upload-URL, sondern auch die noetigen Headers fuer den PUT-Request:
+  ```
+  uploadLinks: [{"url": "https://...blob...", "headers": {"x-ms-blob-type": "BlockBlob"}}]
+  ```
+  Azure verlangt fuer PUTs auf einen BlockBlob diesen Header — sonst Fehler. Mein Code (und der alte send_to_user-Code) hat ihn nie ausgelesen oder mitgesendet.
+- `_extract_job_id_and_upload(job)` gibt jetzt zusaetzlich ein `upload_headers`-Dict zurueck (Tuple wechselt 2-elementig → 3-elementig). Alle 3 Aufrufer (print_self, print_to_recipients, alter send_to_user) reichen die Headers an `c.upload_file_to_url(upload_url, file_bytes, extra_headers=upload_headers)` durch.
+
 ## 6.8.6 (2026-04-28) — upload_file_to_url: ungueltiger Parameter `filename`
 
 ### Fixed
