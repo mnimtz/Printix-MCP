@@ -4577,8 +4577,11 @@ def printix_send_to_user(
             return _ok({"error": "could not resolve printer_id/queue_id"})
 
         # Job submit
+        # NOTE v6.8.4: PrintixClient.submit_print_job() hat kein size_bytes-Argument.
+        # Frueheres send_to_user crashte mit TypeError beim Submit — historisch
+        # nie getestet. Wir nutzen jetzt nur die akzeptierten Felder.
         job = c.submit_print_job(printer_id=printer_id, queue_id=queue_id,
-                                  title=filename, size_bytes=len(file_bytes), copies=copies)
+                                  title=filename, copies=copies)
         job_id = job.get("jobId") or job.get("id") or ""
         upload_url = (job.get("_links") or {}).get("upload", {}).get("href") or job.get("uploadUrl") or ""
         if not (job_id and upload_url):
@@ -4987,8 +4990,7 @@ def printix_print_self(
 
         # 4) 5-Stage-Submit
         job = c.submit_print_job(printer_id=printer_id, queue_id=queue_id,
-                                  title=title or filename,
-                                  size_bytes=len(file_bytes), copies=copies)
+                                  title=title or filename, copies=copies)
         job_id = job.get("jobId") or job.get("id") or ""
         upload_url = (job.get("_links") or {}).get("upload", {}).get("href") or job.get("uploadUrl") or ""
         if not (job_id and upload_url):
@@ -5709,8 +5711,7 @@ def printix_print_to_recipients(
             email = u.get("email") or ""
             try:
                 job = c.submit_print_job(printer_id=printer_id, queue_id=queue_id,
-                                          title=filename, size_bytes=len(file_bytes),
-                                          copies=copies)
+                                          title=filename, copies=copies)
                 job_id = job.get("jobId") or job.get("id") or ""
                 upload_url = (job.get("_links") or {}).get("upload", {}).get("href") \
                               or job.get("uploadUrl") or ""

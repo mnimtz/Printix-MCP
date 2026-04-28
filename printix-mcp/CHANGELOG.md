@@ -1,3 +1,8 @@
+## 6.8.4 (2026-04-28) — submit_print_job: ungueltiger Parameter `size_bytes`
+
+### Fixed
+- **`print_self`, `print_to_recipients`, `send_to_user` crashten beim Submit** mit `PrintixClient.submit_print_job() got an unexpected keyword argument 'size_bytes'`. Die echte Client-Signatur kennt kein `size_bytes` — der Parameter wurde aus einer alten Code-Generation in den neuen Tools mitgeschleppt. Auch der bestehende `printix_send_to_user` (seit langem) war von diesem Bug betroffen, wurde aber offenbar nie produktiv genutzt. Alle drei Aufruf-Sites bereinigt.
+
 ## 6.8.3 (2026-04-28) — Workflow-Tools: send_to_capture asyncio.run-Fehler
 
 ### Fixed
