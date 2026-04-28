@@ -1,3 +1,21 @@
+## 6.8.15 (2026-04-28) — DB-Migration: Spalte `tenants.notify_events` (war v6.8.14 versprochen, fehlte aber)
+
+### Fixed
+- **`no such column: notify_events`** beim Settings-Save in v6.8.14. Ich habe in der vorherigen CHANGELOG-Beschreibung behauptet *„notify_events column already existed in the tenants table"* — das stimmte nicht. Die Spalte existierte nirgends. Beim ersten Save-Versuch via UPDATE crashte SQLite mit OperationalError.
+- **Fix**: idempotente ALTER-Migration in `init_db()` analog zu den existierenden alert_recipients/alert_min_level/mail_from_name-Migrations. Default-Wert `'["log_error"]'` damit Bestandsdaten kompatibel mit Pre-v6.8.x-Code bleiben (`reporting/log_alert_handler` faellt auf log_error zurueck wenn notify_events leer ist).
+- Migration laeuft beim naechsten Container-Start einmalig (idempotent — `if "notify_events" not in existing_t`). Keine Datenverluste.
+
+### Reproduktions-Schritte
+1. v6.8.14 installiert
+2. Settings → Toggle anhaken → Speichern
+3. Im Container-Log: `Settings-Fehler: no such column: notify_events`
+
+### Mit v6.8.15
+1. Container restarten → Migration legt die Spalte an
+2. Settings → Toggle anhaken → Speichern → kein Crash
+3. Reload → Toggle bleibt gesetzt
+4. Test-Registrierung → Mail kommt an
+
 ## 6.8.14 (2026-04-28) — Settings-Save: Notification-Toggles wurden NIE gespeichert
 
 ### Fixed
