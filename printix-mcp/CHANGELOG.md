@@ -1,3 +1,89 @@
+## 6.9.0 (2026-04-30) — GDPR-konformes RBAC + Help-Page mit OAuth-Secret-Reveal
+
+### Added — RBAC (Role-Based Access Control)
+
+Vollständiges, GDPR-konformes Rollensystem für MCP-Tool-Aufrufe.
+Aus dem Schwester-Repo (printix-mcp-docker v7.2.18 + v7.2.23 + v7.2.38)
+in das HA-Addon portiert. Aktivierung ist **opt-in** — bis Admin den
+Schalter umlegt, ist das Verhalten identisch zur Vorgängerversion.
+
+**Fünf Rollen mit GDPR-Artikel-Mapping:**
+
+| Rolle | DSGVO-Bezug |
+|-------|-------------|
+| `end_user` | Art. 15-22 (Betroffenenrechte) |
+| `helpdesk` | Art. 32 (TOMs / Funktionstrennung) |
+| `admin` | Art. 24 (Verantwortlicher) |
+| `auditor` (DSB) | Art. 37-39 (Datenschutzbeauftragter) |
+| `service_account` | Art. 28 + 32 (Auftragsverarbeitung) |
+
+**Zwei Zuweisungs-Pfade:** pro User (expliziter Override) ODER pro
+Printix-Gruppe (Default für alle Mitglieder). Auditor und Service
+Account werden nur explizit pro User vergeben.
+
+### Aktivierung (Priorität in dieser Reihenfolge)
+
+1. **UI-Toggle** auf `/admin/mcp-permissions` (DB-Setting `rbac_enabled`),
+   wirkt sofort, kein Container-Restart
+2. **Env-Var `MCP_RBAC_ENABLED=1`** in den Add-on-Optionen
+3. **Default off** — keine Verhaltensänderung
+
+### Implementation
+
+- `src/permissions.py` (neu, ~280 Zeilen) — Rollen-Katalog,
+  Tool-Scope-Map, `resolve_mcp_role()`, `has_permission()`,
+  `permission_denied_payload()`
+- `src/db.py` — additive idempotente Migration: `users.mcp_role` Spalte,
+  `mcp_group_roles` Tabelle, `user_group_cache` Tabelle. Bestehende User
+  bekommen Default `'admin'` damit niemand bei Aktivierung ausgesperrt
+  wird. Plus 8 neue CRUD-Helper.
+- `src/server.py` — Monkey-Patch auf `mcp.tool` mit Permission-Check.
+  Denied-Calls werden im audit_log mit
+  `action='mcp_permission_denied'` festgehalten.
+- `src/web/app.py` — vier neue Admin-Routen unter `/admin/mcp-permissions`
+  (Status, User-Role, Group-Role, RBAC-Toggle)
+- `src/web/templates/admin_mcp_permissions.html` (neu) — UI mit
+  DSGVO-Legende, Live-Gruppen-Tabelle mit Mitglieder-Counts,
+  User-Override-Liste, "active groups only"-Filter, RBAC-Aktiv-Banner
+  mit Toggle
+- `printix_my_role` Self-Introspection-Tool
+
+### Compliance-Dokumentation
+
+Zwei PDFs ausgeliefert + verlinkt aus `/admin/mcp-permissions`:
+
+- **GDPR Compliance Guide** (`/manuals/gdpr-compliance.pdf`) — Artikel-
+  für-Artikel Coverage für Procurement, DSB, Auditoren
+- **Permission Matrix** (`/manuals/permission-matrix.pdf`) — alle MCP-
+  Tools nach Scope gruppiert, Role-to-Scope-Tabelle
+
+### Added — `/help` mit OAuth-Secret-Reveal
+
+Verbindungsdaten-Block auf `/help` zeigt jetzt das **OAuth Client
+Secret** mit Reveal-Toggle (default verdeckt). Spart einen Sprung zu
+`/settings` für den ChatGPT-Konnektor-Setup. Plus Single-Tenant-
+Fallback für Employees ohne eigenen Tenant: laden vom Owner-Admin.
+
+### i18n
+
+Vollständige `mp_*`- und `rbac_*`-Übersetzungen in `de`, `en`, `no`.
+
+### Compatibility
+
+- **Schema-Migration** additiv + idempotent
+- **MCP-Verhalten** identisch bis Admin RBAC bewusst aktiviert
+- **Existing Sessions** bleiben gültig
+
+### Bewusst NICHT enthalten
+
+Diese Features bleiben ausschließlich im Docker-Repo, kein Port:
+
+- Pro-Feature-Activation-Codes
+- Cloudflare Tunnel-Manager
+- Auto-HTTPS via sslip.io + Let's Encrypt
+- TLS-Cert-Import
+- MCP-Proxy auf Web-Port
+
 ## 6.8.17 (2026-04-28) — Toggle-Persistierungs-Bug: zwei fehlende Glieder in der Kette
 
 ### Fixed

@@ -5,15 +5,52 @@
   <div class="card">
     <h2 class="section-title">{{ _('help_title') }}</h2>
 
-    <!-- Deine Verbindungsdaten -->
+    <!-- Deine Verbindungsdaten (v6.9.0: jetzt mit Secret-Reveal) -->
     {% if tenant %}
-    <div class="alert alert-info" style="margin-bottom:28px;">
-      <strong>{{ _('help_your_url') }}:</strong>
-      <code style="word-break:break-all;">{{ mcp_url }}</code><br>
-      <strong>{{ _('help_your_oauth_id') }}:</strong>
-      <code>{{ tenant.oauth_client_id }}</code><br>
-      <strong>{{ _('help_your_oauth_sec') }}:</strong>
-      <small><a href="/settings">{{ _('settings_title') }}</a> → {{ _('dash_oauth_secret') }}</small>
+    <div class="card" style="margin-bottom:28px; padding:18px; background:#f0f9ff; border-left:4px solid #0ea5e9;">
+      <div style="font-weight:700; color:#003366; margin-bottom:10px; font-size:1.02em;">
+        🪪 {{ _('help_your_data_title') }}
+      </div>
+
+      <table style="width:100%; border-collapse:collapse; font-size:.92em;">
+        <tr>
+          <td style="padding:6px 10px; font-weight:600; color:#003366; vertical-align:top; white-space:nowrap;">{{ _('help_your_url') }}</td>
+          <td style="padding:6px 10px;">
+            <div class="code-block" id="hlp-mcp" style="margin:0;">
+              <button class="copy-btn" onclick="copyToClipboard('hlp-mcp-val', this)">⧉</button>
+              <span id="hlp-mcp-val">{{ mcp_url }}</span>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:6px 10px; font-weight:600; color:#003366; vertical-align:top;">{{ _('help_your_oauth_id') }}</td>
+          <td style="padding:6px 10px;">
+            <div class="code-block" id="hlp-oid" style="margin:0;">
+              <button class="copy-btn" onclick="copyToClipboard('hlp-oid-val', this)">⧉</button>
+              <span id="hlp-oid-val">{{ tenant.oauth_client_id }}</span>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:6px 10px; font-weight:600; color:#003366; vertical-align:top;">{{ _('help_your_oauth_sec') }}</td>
+          <td style="padding:6px 10px;">
+            {% if tenant.oauth_client_secret %}
+            <div class="code-block" id="hlp-osec" style="margin:0; display:flex; align-items:center; gap:8px;">
+              <button class="copy-btn" onclick="copyToClipboard('hlp-osec-val', this)">⧉</button>
+              <span id="hlp-osec-val" data-real="{{ tenant.oauth_client_secret }}" data-revealed="0" style="flex:1;">••••••••••••••••••••</span>
+              <button type="button" id="hlp-reveal-btn" onclick="toggleHelpSecret()" class="btn btn-secondary btn-sm" style="font-size:.78em;">
+                👁 <span id="hlp-reveal-label">{{ _('help_secret_show') }}</span>
+              </button>
+            </div>
+            <div style="font-size:.78em; color:#666; margin-top:4px;">
+              {{ _('help_secret_hint') }} <a href="/settings#oauth-secret-box">/settings</a>.
+            </div>
+            {% else %}
+            <span style="color:#999;">— {{ _('help_no_secret') }} — </span>
+            {% endif %}
+          </td>
+        </tr>
+      </table>
     </div>
     {% endif %}
 
@@ -94,4 +131,24 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function toggleHelpSecret() {
+  const span = document.getElementById('hlp-osec-val');
+  const lbl  = document.getElementById('hlp-reveal-label');
+  if (!span) return;
+  const revealed = span.dataset.revealed === '1';
+  if (revealed) {
+    span.textContent = '••••••••••••••••••••';
+    span.dataset.revealed = '0';
+    if (lbl) lbl.textContent = "{{ _('help_secret_show') }}";
+  } else {
+    span.textContent = span.dataset.real || '';
+    span.dataset.revealed = '1';
+    if (lbl) lbl.textContent = "{{ _('help_secret_hide') }}";
+  }
+}
+</script>
 {% endblock %}

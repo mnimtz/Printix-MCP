@@ -334,6 +334,49 @@ def init_db() -> None:
         if "index_fields_json" not in existing_cols:
             conn.execute("ALTER TABLE capture_profiles ADD COLUMN index_fields_json TEXT NOT NULL DEFAULT '[]'")
 
+    # v6.9.0: MCP-Role Permission Layer (GDPR-konformes RBAC).
+    # Pro User eine optional explizite MCP-Rolle (Override). Pro Printix-
+    # Gruppe eine optionale MCP-Rolle (Default-Vergabe). User-Gruppen-
+    # Mitgliedschaft wird gecached (TTL ~5 min).
+    #
+    # Backwards-Compat: Bestehende User werden auf mcp_role='admin' gesetzt,
+    # damit beim späteren Aktivieren der Enforcement (RBAC_ENABLED=1)
+    # niemand plötzlich ausgesperrt wird. Erst der Decorator auf MCP-Tools
+    # macht die Roles wirksam — bis dahin ist das Verhalten identisch zur
+    # Vorgängerversion.
+    with _conn() as conn:
+        existing_users_cols = {
+            r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()
+        }
+        if "mcp_role" not in existing_users_cols:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN mcp_role TEXT NOT NULL DEFAULT ''"
+            )
+            conn.execute("UPDATE users SET mcp_role = 'admin'")
+            logger.info(
+                "Migration v6.9.0: mcp_role-Spalte angelegt; bestehende "
+                "User-Defaults auf 'admin' gesetzt"
+            )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS mcp_group_roles (
+                group_id    TEXT PRIMARY KEY,
+                group_name  TEXT NOT NULL,
+                mcp_role    TEXT NOT NULL,
+                assigned_by TEXT NOT NULL DEFAULT '',
+                created_at  TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_group_cache (
+                user_id   TEXT PRIMARY KEY,
+                group_ids TEXT NOT NULL DEFAULT '[]',
+                cached_at TEXT NOT NULL
+            )
+        """)
+
     logger.info("DB initialisiert: %s", DB_PATH)
 
 
@@ -757,7 +800,173 @@ def _user_public(user: dict) -> dict:
         "invitation_accepted_at": user.get("invitation_accepted_at", ""),
         "created_at": user.get("created_at", ""),
         "entra_oid":  user.get("entra_oid", ""),
+        # v6.9.0: MCP-Rollen-Override für /admin/mcp-permissions
+        "mcp_role":   user.get("mcp_role", ""),
     }
+
+
+# ─── MCP Permissions (v6.9.0) ────────────────────────────────────────────────
+#
+# Persistence layer für das GDPR-konforme RBAC-Modell. Der Decorator
+# der diese Rollen erzwingt liegt in server.py; hier nur store/retrieve.
+
+def set_user_mcp_role(user_id: str, mcp_role: str) -> bool:
+    """Setzt (oder löscht) den expliziten MCP-Rollen-Override des Users.
+    Leere Eingabe = Override löschen → fällt auf Gruppen-Resolve zurück.
+    """
+    if not user_id:
+        return False
+    role = (mcp_role or "").strip().lower()
+    valid = {"", "end_user", "helpdesk", "admin", "auditor", "service_account"}
+    if role not in valid:
+        logger.warning("set_user_mcp_role: rejected unknown role '%s'", role)
+        return False
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE users SET mcp_role = ? WHERE id = ?",
+            (role, user_id),
+        )
+        return cur.rowcount > 0
+
+
+def get_user_mcp_role(user_id: str) -> str:
+    """Gibt nur den expliziten Override zurück (kein Group-Resolve).
+    Für die effektive Rolle siehe permissions.resolve_mcp_role()."""
+    if not user_id:
+        return ""
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT mcp_role FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    if not row:
+        return ""
+    return (row["mcp_role"] or "").strip().lower()
+
+
+def set_group_mcp_role(
+    group_id: str,
+    group_name: str,
+    mcp_role: str,
+    assigned_by: str = "",
+) -> bool:
+    """Upsert einer MCP-Rollen-Zuweisung für eine Printix-Gruppe.
+    Leere Rolle = Zuweisung löschen."""
+    if not group_id:
+        return False
+    role = (mcp_role or "").strip().lower()
+    valid_assignable = {"", "end_user", "helpdesk", "admin"}
+    if role not in valid_assignable:
+        logger.warning(
+            "set_group_mcp_role: rejected non-assignable role '%s' for group %s",
+            role, group_id,
+        )
+        return False
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with _conn() as conn:
+        if role == "":
+            cur = conn.execute(
+                "DELETE FROM mcp_group_roles WHERE group_id = ?", (group_id,)
+            )
+            return cur.rowcount > 0 or True
+        existing = conn.execute(
+            "SELECT group_id FROM mcp_group_roles WHERE group_id = ?",
+            (group_id,),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE mcp_group_roles SET group_name = ?, mcp_role = ?, "
+                "assigned_by = ?, updated_at = ? WHERE group_id = ?",
+                (group_name, role, assigned_by, now, group_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO mcp_group_roles "
+                "(group_id, group_name, mcp_role, assigned_by, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (group_id, group_name, role, assigned_by, now, now),
+            )
+    return True
+
+
+def get_group_mcp_role(group_id: str) -> str:
+    """MCP-Rolle einer Printix-Gruppe oder '' falls keine Zuweisung."""
+    if not group_id:
+        return ""
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT mcp_role FROM mcp_group_roles WHERE group_id = ?",
+            (group_id,),
+        ).fetchone()
+    if not row:
+        return ""
+    return (row["mcp_role"] or "").strip().lower()
+
+
+def list_group_mcp_roles() -> list[dict]:
+    """Alle aktuellen Gruppen→Rolle-Zuweisungen, neueste zuerst."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT group_id, group_name, mcp_role, assigned_by, "
+            "       created_at, updated_at "
+            "FROM mcp_group_roles ORDER BY updated_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_group_mcp_role(group_id: str) -> bool:
+    """Entfernt die MCP-Rollen-Zuweisung einer Printix-Gruppe."""
+    if not group_id:
+        return False
+    with _conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM mcp_group_roles WHERE group_id = ?", (group_id,)
+        )
+    return cur.rowcount > 0
+
+
+def get_user_group_cache(user_id: str, ttl_seconds: int = 300) -> list[str] | None:
+    """Cached Printix-Gruppen-Mitgliedschaft. None = leer/stale."""
+    import json as _json
+    if not user_id:
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT group_ids, cached_at FROM user_group_cache WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return None
+    cached_at = row["cached_at"] or ""
+    try:
+        ts = datetime.fromisoformat(cached_at)
+        age = (datetime.now(timezone.utc) - ts).total_seconds()
+        if age > ttl_seconds:
+            return None
+    except Exception:
+        return None
+    try:
+        v = _json.loads(row["group_ids"] or "[]")
+        return [str(x) for x in v] if isinstance(v, list) else []
+    except Exception:
+        return None
+
+
+def set_user_group_cache(user_id: str, group_ids: list[str]) -> None:
+    """Speichert/refresht die Printix-Gruppen-Mitgliedschaft eines Users."""
+    import json as _json
+    if not user_id:
+        return
+    payload = _json.dumps([str(x) for x in (group_ids or [])])
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO user_group_cache (user_id, group_ids, cached_at) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET "
+            "  group_ids = excluded.group_ids, "
+            "  cached_at = excluded.cached_at",
+            (user_id, payload, now),
+        )
 
 
 # ─── Entra ID SSO ───────────────────────────────────────────────────────────
