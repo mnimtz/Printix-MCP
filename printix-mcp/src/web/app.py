@@ -118,6 +118,22 @@ def create_app(session_secret: str) -> FastAPI:
     templates.env.filters["from_json"] = _from_json_filter
 
     def current_app_version() -> str:
+        # Single source of truth for HA addons = config.yaml (the file the
+        # Supervisor itself reads to decide "update available?"). VERSION
+        # file is kept as fallback for legacy/dev setups, but config.yaml
+        # wins so dashboard never disagrees with the addon store.
+        addon_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        cfg_path = os.path.join(addon_root, "config.yaml")
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    s = line.strip()
+                    if s.startswith("version:"):
+                        v = s.split(":", 1)[1].strip().strip('"').strip("'")
+                        if v:
+                            return v
+        except Exception:
+            pass
         version_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "VERSION")
         try:
             with open(version_path, "r", encoding="utf-8") as fh:
@@ -2070,20 +2086,22 @@ def create_app(session_secret: str) -> FastAPI:
 
     # ── Hilfe / Verbindungsanleitung ──────────────────────────────────────────
 
-    @app.get("/help", response_class=HTMLResponse)
-    async def help_page(request: Request):
+    # v6.9.1: Connect-Center ersetzt die alte /help-Seite.
+    # Personalisierte URL-/OAuth-Daten in einer schickeren UI mit
+    # Reveal-Toggle für das Secret und Schritt-für-Schritt Anleitungen
+    # für claude.ai, ChatGPT und Claude Code CLI.
+    @app.get("/my/connect", response_class=HTMLResponse)
+    async def my_connect(request: Request):
         user = require_login(request)
         if not user:
             return RedirectResponse("/login", status_code=302)
 
-        base   = mcp_base_url()
+        base = mcp_base_url()
         tenant = None
         try:
-            # v6.9.0: voller Record inkl. entschlüsseltem oauth_client_secret
-            # so dass das Help-Template den Secret-Wert mit Reveal-Toggle
-            # anzeigen kann (wie das Connect-Center im Docker-Repo).
-            # Single-Tenant-Fallback wie im Connect-Center: Employees
-            # sehen die Credentials ihres parent_user_id-Owners.
+            # Voller Record inkl. entschlüsselter Secrets — die Seite zeigt
+            # ausschließlich Daten des angemeldeten Users (eigene Tenant-
+            # Zuordnung). Single-Tenant-Fallback für Employees.
             from db import (
                 get_tenant_full_by_user_id, _find_tenant_owner_user_id,
             )
@@ -2100,7 +2118,51 @@ def create_app(session_secret: str) -> FastAPI:
                     except Exception:
                         pass
         except Exception as e:
-            logger.warning("help_page: tenant load failed: %s", e)
+            logger.warning("my_connect: tenant load failed: %s", e)
+
+        return templates.TemplateResponse("my_connect.html", {
+            "request": request, "user": user, "tenant": tenant,
+            "base_url":           base,
+            "mcp_url":            f"{base}/mcp",
+            "sse_url":            f"{base}/sse",
+            "oauth_authorize_url":f"{base}/oauth/authorize",
+            "oauth_token_url":    f"{base}/oauth/token",
+            **t_ctx(request),
+        })
+
+    @app.get("/help", response_class=HTMLResponse)
+    async def help_page(request: Request):
+        # v6.9.1: Verschmilzt mit Connect-Center. Alte Bookmarks werden
+        # transparent dorthin weitergeleitet.
+        return RedirectResponse("/my/connect", status_code=302)
+
+    @app.get("/_legacy/help", response_class=HTMLResponse)
+    async def legacy_help_page(request: Request):
+        """Aktuelle Help-Seite vor v6.9.1 — bleibt für Referenz hier."""
+        user = require_login(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+
+        base   = mcp_base_url()
+        tenant = None
+        try:
+            from db import (
+                get_tenant_full_by_user_id, _find_tenant_owner_user_id,
+            )
+            tenant = get_tenant_full_by_user_id(user["id"])
+            if not tenant:
+                parent_id = (user.get("parent_user_id") or "").strip()
+                if parent_id:
+                    tenant = get_tenant_full_by_user_id(parent_id)
+                if not tenant:
+                    try:
+                        owner_id = _find_tenant_owner_user_id()
+                        if owner_id and owner_id != user["id"]:
+                            tenant = get_tenant_full_by_user_id(owner_id)
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.warning("legacy_help_page: tenant load failed: %s", e)
 
         return templates.TemplateResponse("help.html", {
             "request": request, "user": user, "tenant": tenant,
@@ -2111,6 +2173,37 @@ def create_app(session_secret: str) -> FastAPI:
             "oauth_token_url":    f"{base}/oauth/token",
             **t_ctx(request),
         })
+
+    @app.get("/manuals/{lang}.pdf")
+    async def download_manual(lang: str, request: Request):
+        """v6.9.1: Liefert das MCP-Handbuch als PDF aus.
+
+        Quelle: src/web/assets/manuals/MCP_MANUAL_<LANG>.pdf
+        Erlaubt: de, en, no.
+        """
+        user = require_login(request)
+        if not user:
+            return RedirectResponse("/login", status_code=302)
+        lang = (lang or "").strip().lower()
+        if lang not in ("de", "en", "no"):
+            return JSONResponse(
+                {"detail": f"Manual not available for language '{lang}'."},
+                status_code=404,
+            )
+        path = os.path.join(
+            os.path.dirname(__file__), "assets", "manuals",
+            f"MCP_MANUAL_{lang.upper()}.pdf",
+        )
+        if not os.path.isfile(path):
+            return JSONResponse(
+                {"detail": "Manual file missing on server."},
+                status_code=404,
+            )
+        return FileResponse(
+            path,
+            filename=f"MCP_MANUAL_{lang.upper()}.pdf",
+            media_type="application/pdf",
+        )
 
     # ── Admin ──────────────────────────────────────────────────────────────────
 

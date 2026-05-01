@@ -51,11 +51,13 @@ RUN pip3 install --no-cache-dir --break-system-packages -r /app/requirements.txt
 # 2026-04-10 — v3.7.2: reporting.v_tracking_data/v_jobs/v_jobs_scan Views gefixt
 COPY src/ /app/
 
-# v6.7.1: VERSION als Single Source of Truth aus dem Repo-Top-Level nach
-# /app/VERSION kopieren. Vorher gab es ein `src/VERSION` (gelöscht in 6.7.0)
-# — dadurch hatte das Banner alten Layer-Cache angezeigt. Jetzt eindeutig:
-# /app/VERSION = Repo-Top-Level VERSION, von run.sh + app_version.py gelesen.
+# v6.9.1: config.yaml ist die Single Source of Truth (HA-Supervisor liest
+# das Feld direkt für die Update-Anzeige). VERSION wird beim Build daraus
+# abgeleitet, damit Dashboard und Addon-Store nie auseinanderlaufen.
+COPY config.yaml /app/config.yaml
 COPY VERSION /app/VERSION
+RUN sed -n 's/^version:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}.*/\1/p' /app/config.yaml | head -1 > /app/VERSION.tmp && \
+    if [ -s /app/VERSION.tmp ]; then mv /app/VERSION.tmp /app/VERSION; else rm -f /app/VERSION.tmp; fi
 
 # Copy run script
 COPY run.sh /app/run.sh

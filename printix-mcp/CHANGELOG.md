@@ -1,3 +1,72 @@
+## 6.9.2 (2026-05-01) — Scheduled Reports SQL-Fix
+
+Geplante Reports crashten beim Ausführen mit:
+
+```
+RuntimeError: SQL nicht konfiguriert. Bitte SQL-Credentials für
+diesen Tenant in der Web-UI eintragen.
+```
+
+obwohl der Tenant in der Web-UI komplett konfiguriert war.
+
+**Ursache:** `sql_client._current_sql_config` ist eine ContextVar.
+Die Web-Auth-Middleware setzt sie pro HTTP-Request. APScheduler
+startet `_run_report_job` aber in einem eigenen Thread ohne
+Request-Kontext → ContextVar bleibt None → `is_configured()`
+False → RuntimeError.
+
+**Fix:** In `_run_report_job` und `run_report_now` wird vor
+`run_query()` der Tenant des Report-Owners aus der DB geladen und
+`set_config_from_tenant()` gerufen — exakt das was die Middleware
+pro Request macht.
+
+Betroffen waren ALLE SQL-basierten geplanten Report-Typen
+(`sensitive_documents`, `service_desk`, `print_trends`, `anomalies`,
+`cost_report`, `top_users`, `top_printers` etc.) — nicht nur einer.
+Web-UI-Reports + MCP-Tool-Calls waren nicht betroffen
+(HTTP-Request-Kontext).
+
+Synchronisiert mit `printix-mcp-docker` v7.6.8.
+
+### Vorher zurückgehaltene v6.9.1-Inhalte sind hier mit drin
+
+VERSION-Drift-Fix (Dashboard zeigte 6.7.51 obwohl `config.yaml`
+schon längst weiter war), Connect-Center-Port mit OAuth-Secret-
+Reveal und der Display-Bug `mp_gdpr_pdf` / `mp_matrix_pdf`
+(literale i18n-Keys) — siehe v6.9.1-Block unten für Details.
+
+---
+
+## 6.9.1 (2026-04-30) — Connect-Center + i18n-Bugfix
+
+### Added — Connect-Center (Port aus Docker)
+
+Personalisierte MCP-Verbindungsseite ersetzt die bisherige `/help`-Seite.
+Jeder User sieht seine eigene MCP-URL **inklusive OAuth Client Secret**
+mit Reveal-Toggle (Auge-Icon, „Kopieren"-Button), Quick-Setup-Snippets
+für Claude Desktop / ChatGPT / VSCode, und Links zu den PDF-Manuals.
+
+- `src/web/templates/my_connect.html` (neu, aus Docker portiert)
+- `src/web/app.py` — `/my/connect` Route, `/help` redirected hierhin,
+  `/_legacy/help` für Alt-Bookmarks. Manual-Routen
+  `/manuals/{lang}.pdf`, `/manuals/gdpr-compliance.pdf`,
+  `/manuals/permission-matrix.pdf`.
+- `src/web/templates/base.html` — Nav-Link `/help` → `/my/connect`
+  (Label `cc_nav_label`).
+- `src/web/i18n.py` — `cc_*` Keys für de/en/no, plus `help_secret_*`
+  Strings für die OAuth-Secret-Reveal-Toggle.
+
+### Fixed — Display-Bug auf MCP-Permissions-Seite
+
+Auf `/admin/mcp-permissions` wurden die PDF-Buttons als literale
+i18n-Keys angezeigt („📄 mp_gdpr_pdf 📊 mp_matrix_pdf") weil die Keys
+beim v6.9.0-Port nicht ins Addon i18n-File übernommen wurden.
+
+- `src/web/i18n.py` — `mp_gdpr_pdf` und `mp_matrix_pdf` ergänzt für
+  de/en/no.
+
+---
+
 ## 6.9.0 (2026-04-30) — GDPR-konformes RBAC + Help-Page mit OAuth-Secret-Reveal
 
 ### Added — RBAC (Role-Based Access Control)
