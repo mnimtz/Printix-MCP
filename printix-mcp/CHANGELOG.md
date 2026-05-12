@@ -1,3 +1,85 @@
+## 6.9.3 (2026-05-12) — Backup-Stack komplett aus Docker-Repo portiert
+
+Synchronisiert mit `printix-mcp-docker` v7.6.5-7.6.7. Komplette
+Überarbeitung von Backup + Restore.
+
+### Wo das Backup landet (Addon-spezifisch)
+
+- **`/backup/printix-mcp/`** — HA Supervisor mountet `/backup`, und
+  HA's eigener Snapshot-Mechanismus erfasst das automatisch.
+  Hierfür neu in `config.yaml`: `map: - backup:rw`.
+- **Fallback auf `/data/backups`** wenn `/backup` nicht beschreibbar
+  ist (älteres HA-Setup, Edge-Cases). Erkennung im Modul beim Import.
+- `BACKUP_DIR` env weiterhin als manueller Override möglich.
+
+### verify_backup() — Pre-flight vor jedem Restore
+
+Validiert ZIP/Manifest/Sizes/SQLite-Header bevor irgendwas extracted
+wird. Schlägt fehl → kein partieller Restore.
+
+- 200 MB Upload-Limit (env-overridable via MAX_RESTORE_SIZE_BYTES)
+- Manifest-Format-Check (`v1` und `v1-encrypted` akzeptiert)
+- Required-Files (printix_multi.db, fernet.key) müssen drin sein
+
+### AES-verschlüsseltes Backup mit Passphrase (optional)
+
+UI-Eingabefeld auf `/admin/settings` Backup-Sektion. Wenn gesetzt:
+
+- 16-Byte random Salt → PBKDF2-HMAC-SHA256 (600k Iter) → Fernet-Key
+- Jede Datei einzeln verschlüsselt vor dem Zippen
+- Manifest-Format wechselt auf `printix-mcp-backup-v1-encrypted`
+- Restore fragt Passphrase ab; falsch → klar abgewiesen, kein
+  partieller Restore
+
+Macht Cloud-Sicherung (OneDrive/Dropbox/S3) sicher — ohne Passphrase
+ist das ZIP wertlos.
+
+### Komplette Daten — was alles im Backup ist
+
+Audit ergab drei fehlende Pfade aus der alten Version:
+
+- ✅ `printix_multi.db` (Hauptdatenbank mit Settings, Tenants, Users,
+  RBAC, Cards, Reports, Audit, GuestPrint, Cloudprint, etc.)
+- ✅ `demo_data.db`, `fernet.key`, `report_templates.json`,
+  `mcp_secrets.json`
+- 🆕 `web_session_key` — vermeidet dass nach Restore alle Sessions
+  invalidiert werden
+- 🆕 `tls/` Verzeichnis (Cert+Key bei Auto-TLS oder Manual Import)
+- 🆕 `letsencrypt/` Verzeichnis (Certbot-Account + Renewal-State —
+  rettet vor Let's-Encrypt-Rate-Limit nach Restore)
+
+### Sicherheits-Hinweis in der UI
+
+Gelbe Box auf `/admin/settings` macht klar: fernet.key liegt
+PLAINTEXT im unverschlüsselten Backup. Mit Verweis auf das neue
+Passphrase-Feld.
+
+### End-to-End-Test-Script
+
+`bin/test-backup-restore.py` — 13 Schritte (6 plain + 5 encrypted +
+2 dir-roundtrip). Aufruf im laufenden Container:
+```bash
+docker exec addon_<slug> python3 /app/bin/test-backup-restore.py
+```
+Lokal direkt im Repo läuft auch (siehe README). Lief beim Port
+durch — alle 13 Schritte ✓.
+
+### i18n
+
+`backup_security_*`, `backup_passphrase_*` Keys für de/en/no,
+andere Sprachen über EN-Fallback (Standard-Pattern).
+
+### Migration
+
+- Bestehende `v1`-Backups bleiben uneingeschränkt restorebar
+- Bisher unter `/data/backups` liegende Backups in der vorherigen
+  Version werden NICHT automatisch ins neue `/backup/printix-mcp/`
+  verschoben — manuell rüberkopieren oder einfach alte Backups
+  unter `/data/backups` belassen (BACKUP_DIR env override) und neue
+  unter `/backup/...` neu erstellen
+
+---
+
 ## 6.9.2 (2026-05-01) — Scheduled Reports SQL-Fix
 
 Geplante Reports crashten beim Ausführen mit:

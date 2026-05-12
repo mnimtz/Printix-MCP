@@ -1,7 +1,7 @@
 # Home Assistant Add-on: Printix MCP Server
 # https://github.com/mnimtz/Printix-MCP
 name: Printix MCP Server
-version: "6.9.2"
+version: "6.9.3"
 slug: printix-mcp
 description: >-
   Multi-Tenant MCP Server für die Printix Cloud Print API.
@@ -93,6 +93,10 @@ schema:
 map:
   - config:rw
   - ssl:ro
+  # v6.9.3: HA-Backup-Volume schreibbar mounten — Printix-Backups
+  # landen damit unter /backup/printix-mcp/ und werden von HA's
+  # Standard-Snapshot-Mechanismus automatisch miterfasst.
+  - backup:rw
 
 # Kein 'image:' hier = HA baut lokal aus dem Dockerfile (für lokales Testen)
 # Für Production mit GitHub Actions:
