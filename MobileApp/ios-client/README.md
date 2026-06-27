@@ -17,9 +17,9 @@ macOS-Client den Netzwerk-Layer via Swift-Package `PrintixSendCore`
 
 ```
 ios-client/
-├── Printix MobilePrint.xcodeproj/      Xcode-Projekt (Folder-Name historisch beibehalten)
-├── Printix MobilePrint/                Haupt-App-Target — Bundle: de.nimtz.mysecureprint
-│   ├── Printix_MobilePrintApp.swift    @main
+├── MySecurePrint.xcodeproj/            Xcode-Projekt
+├── MySecurePrint/                      Haupt-App-Target — Bundle: de.nimtz.mysecureprint
+│   ├── MySecurePrintApp.swift          @main
 │   ├── ContentView.swift               Router: Setup→Login vs. Tabs
 │   ├── SetupView.swift                 Server-URL-Eingabe
 │   ├── LoginView.swift                 Password + Entra Auth-Code (PKCE)
@@ -29,14 +29,17 @@ ios-client/
 │   ├── KeychainTokenStore.swift        Bearer-Token in Keychain-Access-Group
 │   ├── ApiClientFactory.swift          PrintixSendCore-Client-Factory
 │   ├── PrivacyInfo.xcprivacy           Apple-Privacy-Manifest
-│   └── Printix MobilePrint.entitlements
-├── PrintixShareExtension/              Share-Extension — Bundle: de.nimtz.mysecureprint.share
+│   └── MySecurePrint.entitlements
+├── MySecurePrintShare/                 Share-Extension — Bundle: de.nimtz.mysecureprint.share
 │   ├── ShareViewController.swift       PDF/Bild → Background-URLSession-Upload
-│   ├── PrintixShareExtension.entitlements
+│   ├── MySecurePrintShare.entitlements
 │   ├── PrivacyInfo.xcprivacy
 │   └── Info.plist
-└── Printix-MobilePrint-Info.plist
+└── MySecurePrint-Info.plist
 ```
+
+> Folder/file-Rebrand: *Printix MobilePrint* → *MySecurePrint* (cosmetic, App-Store-Polish).
+> Bundle-ID + Display-Name wurden bereits in Commit `4e34497` umgestellt.
 
 ## Identitaeten
 

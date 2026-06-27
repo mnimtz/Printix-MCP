@@ -9,7 +9,7 @@
 /* Begin PBXBuildFile section */
 		CA13A1B12F9749BE001B6E19 /* PrintixSendCore in Frameworks */ = {isa = PBXBuildFile; productRef = CA13A1B02F9749BE001B6E19 /* PrintixSendCore */; };
 		CA13A1B42F974A47001B6E19 /* PrintixSendCore in Frameworks */ = {isa = PBXBuildFile; productRef = CA13A1B32F974A47001B6E19 /* PrintixSendCore */; };
-		CA4D33F22F27A11C00850FC2 /* PrintixShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CA4D33E82F27A11C00850FC2 /* PrintixShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CA4D33F22F27A11C00850FC2 /* MySecurePrintShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CA4D33E82F27A11C00850FC2 /* MySecurePrintShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -18,7 +18,7 @@
 			containerPortal = CA17DD202F24BB4F00DC2502 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = CA4D33E72F27A11C00850FC2;
-			remoteInfo = PrintixShareExtension;
+			remoteInfo = MySecurePrintShare;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -29,7 +29,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				CA4D33F22F27A11C00850FC2 /* PrintixShareExtension.appex in Embed Foundation Extensions */,
+				CA4D33F22F27A11C00850FC2 /* MySecurePrintShare.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -37,32 +37,32 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		CA17DD282F24BB4F00DC2502 /* Printix MobilePrint.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Printix MobilePrint.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		CA4D33E82F27A11C00850FC2 /* PrintixShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PrintixShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		CA17DD282F24BB4F00DC2502 /* MySecurePrint.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MySecurePrint.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CA4D33E82F27A11C00850FC2 /* MySecurePrintShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MySecurePrintShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		CA4D33F32F27A11C00850FC2 /* Exceptions for "PrintixShareExtension" folder in "PrintixShareExtension" target */ = {
+		CA4D33F32F27A11C00850FC2 /* Exceptions for "MySecurePrintShare" folder in "MySecurePrintShare" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = CA4D33E72F27A11C00850FC2 /* PrintixShareExtension */;
+			target = CA4D33E72F27A11C00850FC2 /* MySecurePrintShare */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		CA17DD2A2F24BB4F00DC2502 /* Printix MobilePrint */ = {
+		CA17DD2A2F24BB4F00DC2502 /* MySecurePrint */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Printix MobilePrint";
+			path = "MySecurePrint";
 			sourceTree = "<group>";
 		};
-		CA4D33E92F27A11C00850FC2 /* PrintixShareExtension */ = {
+		CA4D33E92F27A11C00850FC2 /* MySecurePrintShare */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				CA4D33F32F27A11C00850FC2 /* Exceptions for "PrintixShareExtension" folder in "PrintixShareExtension" target */,
+				CA4D33F32F27A11C00850FC2 /* Exceptions for "MySecurePrintShare" folder in "MySecurePrintShare" target */,
 			);
-			path = PrintixShareExtension;
+			path = MySecurePrintShare;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -97,8 +97,8 @@
 		CA17DD1F2F24BB4F00DC2502 = {
 			isa = PBXGroup;
 			children = (
-				CA17DD2A2F24BB4F00DC2502 /* Printix MobilePrint */,
-				CA4D33E92F27A11C00850FC2 /* PrintixShareExtension */,
+				CA17DD2A2F24BB4F00DC2502 /* MySecurePrint */,
+				CA4D33E92F27A11C00850FC2 /* MySecurePrintShare */,
 				CA13A1B22F974A47001B6E19 /* Frameworks */,
 				CA17DD292F24BB4F00DC2502 /* Products */,
 			);
@@ -107,8 +107,8 @@
 		CA17DD292F24BB4F00DC2502 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				CA17DD282F24BB4F00DC2502 /* Printix MobilePrint.app */,
-				CA4D33E82F27A11C00850FC2 /* PrintixShareExtension.appex */,
+				CA17DD282F24BB4F00DC2502 /* MySecurePrint.app */,
+				CA4D33E82F27A11C00850FC2 /* MySecurePrintShare.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -116,9 +116,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		CA17DD272F24BB4F00DC2502 /* Printix MobilePrint */ = {
+		CA17DD272F24BB4F00DC2502 /* MySecurePrint */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CA17DD332F24BB4F00DC2502 /* Build configuration list for PBXNativeTarget "Printix MobilePrint" */;
+			buildConfigurationList = CA17DD332F24BB4F00DC2502 /* Build configuration list for PBXNativeTarget "MySecurePrint" */;
 			buildPhases = (
 				CA17DD242F24BB4F00DC2502 /* Sources */,
 				CA17DD252F24BB4F00DC2502 /* Frameworks */,
@@ -131,19 +131,19 @@
 				CA4D33F12F27A11C00850FC2 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				CA17DD2A2F24BB4F00DC2502 /* Printix MobilePrint */,
+				CA17DD2A2F24BB4F00DC2502 /* MySecurePrint */,
 			);
-			name = "Printix MobilePrint";
+			name = "MySecurePrint";
 			packageProductDependencies = (
 				CA13A1B02F9749BE001B6E19 /* PrintixSendCore */,
 			);
-			productName = "Printix MobilePrint";
-			productReference = CA17DD282F24BB4F00DC2502 /* Printix MobilePrint.app */;
+			productName = "MySecurePrint";
+			productReference = CA17DD282F24BB4F00DC2502 /* MySecurePrint.app */;
 			productType = "com.apple.product-type.application";
 		};
-		CA4D33E72F27A11C00850FC2 /* PrintixShareExtension */ = {
+		CA4D33E72F27A11C00850FC2 /* MySecurePrintShare */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CA4D33F42F27A11C00850FC2 /* Build configuration list for PBXNativeTarget "PrintixShareExtension" */;
+			buildConfigurationList = CA4D33F42F27A11C00850FC2 /* Build configuration list for PBXNativeTarget "MySecurePrintShare" */;
 			buildPhases = (
 				CA4D33E42F27A11C00850FC2 /* Sources */,
 				CA4D33E52F27A11C00850FC2 /* Frameworks */,
@@ -154,14 +154,14 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				CA4D33E92F27A11C00850FC2 /* PrintixShareExtension */,
+				CA4D33E92F27A11C00850FC2 /* MySecurePrintShare */,
 			);
-			name = PrintixShareExtension;
+			name = MySecurePrintShare;
 			packageProductDependencies = (
 				CA13A1B32F974A47001B6E19 /* PrintixSendCore */,
 			);
-			productName = PrintixShareExtension;
-			productReference = CA4D33E82F27A11C00850FC2 /* PrintixShareExtension.appex */;
+			productName = MySecurePrintShare;
+			productReference = CA4D33E82F27A11C00850FC2 /* MySecurePrintShare.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -182,7 +182,7 @@
 					};
 				};
 			};
-			buildConfigurationList = CA17DD232F24BB4F00DC2502 /* Build configuration list for PBXProject "Printix MobilePrint" */;
+			buildConfigurationList = CA17DD232F24BB4F00DC2502 /* Build configuration list for PBXProject "MySecurePrint" */;
 			developmentRegion = de;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -206,8 +206,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				CA17DD272F24BB4F00DC2502 /* Printix MobilePrint */,
-				CA4D33E72F27A11C00850FC2 /* PrintixShareExtension */,
+				CA17DD272F24BB4F00DC2502 /* MySecurePrint */,
+				CA4D33E72F27A11C00850FC2 /* MySecurePrintShare */,
 			);
 		};
 /* End PBXProject section */
@@ -249,7 +249,7 @@
 /* Begin PBXTargetDependency section */
 		CA4D33F12F27A11C00850FC2 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = CA4D33E72F27A11C00850FC2 /* PrintixShareExtension */;
+			target = CA4D33E72F27A11C00850FC2 /* MySecurePrintShare */;
 			targetProxy = CA4D33F02F27A11C00850FC2 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -380,14 +380,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				CODE_SIGN_ENTITLEMENTS = "Printix MobilePrint/Printix MobilePrint.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "MySecurePrint/MySecurePrint.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQGPPH4S33;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Printix-MobilePrint-Info.plist";
+				INFOPLIST_FILE = "MySecurePrint-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "MySecurePrint";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -419,14 +419,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				CODE_SIGN_ENTITLEMENTS = "Printix MobilePrint/Printix MobilePrint.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "MySecurePrint/MySecurePrint.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQGPPH4S33;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Printix-MobilePrint-Info.plist";
+				INFOPLIST_FILE = "MySecurePrint-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "MySecurePrint";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -455,12 +455,12 @@
 		CA4D33F52F27A11C00850FC2 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = PrintixShareExtension/PrintixShareExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = MySecurePrintShare/MySecurePrintShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQGPPH4S33;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = PrintixShareExtension/Info.plist;
+				INFOPLIST_FILE = MySecurePrintShare/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "MySecurePrint";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -484,12 +484,12 @@
 		CA4D33F62F27A11C00850FC2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = PrintixShareExtension/PrintixShareExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = MySecurePrintShare/MySecurePrintShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQGPPH4S33;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = PrintixShareExtension/Info.plist;
+				INFOPLIST_FILE = MySecurePrintShare/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "MySecurePrint";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -513,7 +513,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		CA17DD232F24BB4F00DC2502 /* Build configuration list for PBXProject "Printix MobilePrint" */ = {
+		CA17DD232F24BB4F00DC2502 /* Build configuration list for PBXProject "MySecurePrint" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CA17DD312F24BB4F00DC2502 /* Debug */,
@@ -522,7 +522,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CA17DD332F24BB4F00DC2502 /* Build configuration list for PBXNativeTarget "Printix MobilePrint" */ = {
+		CA17DD332F24BB4F00DC2502 /* Build configuration list for PBXNativeTarget "MySecurePrint" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CA17DD342F24BB4F00DC2502 /* Debug */,
@@ -531,7 +531,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CA4D33F42F27A11C00850FC2 /* Build configuration list for PBXNativeTarget "PrintixShareExtension" */ = {
+		CA4D33F42F27A11C00850FC2 /* Build configuration list for PBXNativeTarget "MySecurePrintShare" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CA4D33F52F27A11C00850FC2 /* Debug */,

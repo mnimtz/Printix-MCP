@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "CA17DD272F24BB4F00DC2502"
-               BuildableName = "Printix MobilePrint.app"
-               BlueprintName = "Printix MobilePrint"
-               ReferencedContainer = "container:Printix MobilePrint.xcodeproj">
+               BuildableName = "MySecurePrint.app"
+               BlueprintName = "MySecurePrint"
+               ReferencedContainer = "container:MySecurePrint.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -45,9 +45,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "CA17DD272F24BB4F00DC2502"
-            BuildableName = "Printix MobilePrint.app"
-            BlueprintName = "Printix MobilePrint"
-            ReferencedContainer = "container:Printix MobilePrint.xcodeproj">
+            BuildableName = "MySecurePrint.app"
+            BlueprintName = "MySecurePrint"
+            ReferencedContainer = "container:MySecurePrint.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -62,9 +62,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "CA17DD272F24BB4F00DC2502"
-            BuildableName = "Printix MobilePrint.app"
-            BlueprintName = "Printix MobilePrint"
-            ReferencedContainer = "container:Printix MobilePrint.xcodeproj">
+            BuildableName = "MySecurePrint.app"
+            BlueprintName = "MySecurePrint"
+            ReferencedContainer = "container:MySecurePrint.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
