@@ -30,8 +30,8 @@ struct LoginView: View {
     /// Custom-URL-Scheme-Redirect; muss im Info.plist als
     /// CFBundleURLScheme registriert sein UND in der Entra-App-
     /// Registration als Mobile-Redirect-URI hinterlegt werden.
-    private let oauthRedirectURI = "printixmobileprint://oauth/callback"
-    private let oauthCallbackScheme = "printixmobileprint"
+    private let oauthRedirectURI = "mysecureprint://oauth/callback"
+    private let oauthCallbackScheme = "mysecureprint"
 
     var body: some View {
         Form {

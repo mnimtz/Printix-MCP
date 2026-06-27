@@ -121,8 +121,13 @@ private final class NFCSessionHandler: NSObject, NFCTagReaderSessionDelegate {
         // Wird aufgerufen bei Abbruch (User-Cancel oder Timeout). Wenn
         // wir schon resumed haben (erfolgreich UID gelesen), ist die
         // continuation bereits nil.
-        guard let cont = self.continuation else { return }
+        guard let cont = self.continuation else {
+            // Continuation schon verbraucht — trotzdem session-Ref freigeben.
+            self.session = nil
+            return
+        }
         self.continuation = nil
+        self.session = nil
         let ns = error as NSError
         // NFC_READER_SESSION_INVALIDATION_ERROR_USER_CANCELED = 200
         // NFC_READER_SESSION_INVALIDATION_ERROR_SESSION_TIMEOUT = 201
@@ -141,7 +146,9 @@ private final class NFCSessionHandler: NSObject, NFCTagReaderSessionDelegate {
     func tagReaderSession(_ session: NFCTagReaderSession, didDetect tags: [NFCTag]) {
         // Diagnose: was wurde ueberhaupt gefunden?
         let typeDesc = tags.map { describe($0) }.joined(separator: ", ")
+        #if DEBUG
         NSLog("[NFCScanner] Tags erkannt: \(tags.count) — \(typeDesc)")
+        #endif
 
         guard let first = tags.first else {
             session.invalidate(errorMessage: String(localized: "Kein Tag erkannt."))
@@ -163,16 +170,25 @@ private final class NFCSessionHandler: NSObject, NFCTagReaderSessionDelegate {
             return
         }
         let hex = uid.map { String(format: "%02X", $0) }.joined()
+        #if DEBUG
+        // UID nur in Debug-Builds loggen — UIDs sind Firmen-Ausweis-IDs
+        // (Tueroeffner!) und gehoeren nicht ins Unified Log eines
+        // Release-Builds (sysdiagnose-Bundles, Console.app).
         NSLog("[NFCScanner] UID: \(hex) (\(typeName))")
+        #else
+        NSLog("[NFCScanner] Karte gelesen — Typ: \(typeName), Laenge: \(uid.count) Bytes")
+        #endif
         session.alertMessage = String(format: String(localized: "Karte gelesen: %@"), hex)
         session.invalidate()
         // Resume passiert hier, nicht im didInvalidate — sonst wuerde
         // unser eigener invalidate()-Aufruf als "Fehler" durchlaufen.
+        // I-1 fix: self.session + self.continuation NULLen, sonst leakt
+        // der Handler ueber den NFC-Session-Retain-Cycle.
         Task { @MainActor in
-            if let cont = self.continuation {
-                self.continuation = nil
-                cont.resume(returning: hex)
-            }
+            let cont = self.continuation
+            self.continuation = nil
+            self.session = nil
+            cont?.resume(returning: hex)
         }
     }
 

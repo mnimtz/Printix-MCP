@@ -16,7 +16,11 @@ import UIKit
 final class SettingsStore: ObservableObject {
 
     // MUSS mit den Entitlements von Haupt-App + Share-Extension übereinstimmen.
-    static let appGroupID = "group.com.mnimtz.printixmobileprint"
+    static let appGroupID = "group.de.nimtz.mysecureprint"
+
+    /// Migrations-Flag: stellt sicher, dass der Bearer-Token nur einmal
+    /// aus UserDefaults in den Keychain wandert.
+    private static let migrationKeychainFlag = "migrated_to_keychain_v1"
 
     private enum Keys {
         static let serverURL         = "serverURL"
@@ -50,7 +54,12 @@ final class SettingsStore: ObservableObject {
     }
 
     @Published var bearerToken: String {
-        didSet { defaults.set(bearerToken, forKey: Keys.bearerToken) }
+        didSet {
+            // C-4: primaer im Keychain (Access-Group geteilt mit
+            // Share-Extension); UserDefaults-Spiegel raeumen.
+            KeychainTokenStore.set(bearerToken)
+            defaults.removeObject(forKey: Keys.bearerToken)
+        }
     }
 
     @Published var userEmail: String {
@@ -140,7 +149,22 @@ final class SettingsStore: ObservableObject {
         self.defaults = appGroupDefaults ?? .standard
 
         self.serverURL    = defaults.string(forKey: Keys.serverURL)    ?? ""
-        self.bearerToken  = defaults.string(forKey: Keys.bearerToken)  ?? ""
+        // C-4: Bearer-Token aus Keychain laden; bei erstem Start nach
+        // dem Upgrade einmalig aus den alten App-Group-Defaults migrieren
+        // (guard via migration-Flag, damit wir bei spaeterem Sign-out
+        // den dann leeren Token nicht erneut "migrieren").
+        let migrated = defaults.bool(forKey: Self.migrationKeychainFlag)
+        if migrated {
+            self.bearerToken = KeychainTokenStore.get()
+        } else {
+            let legacyToken = defaults.string(forKey: Keys.bearerToken) ?? ""
+            if !legacyToken.isEmpty {
+                _ = KeychainTokenStore.set(legacyToken)
+            }
+            defaults.removeObject(forKey: Keys.bearerToken)
+            defaults.set(true, forKey: Self.migrationKeychainFlag)
+            self.bearerToken = KeychainTokenStore.get()
+        }
         self.userEmail    = defaults.string(forKey: Keys.userEmail)    ?? ""
         self.userFullName = defaults.string(forKey: Keys.userFullName) ?? ""
         self.userRoleType = defaults.string(forKey: Keys.userRoleType) ?? ""

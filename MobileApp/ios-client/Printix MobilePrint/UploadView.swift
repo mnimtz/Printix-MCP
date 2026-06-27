@@ -210,10 +210,17 @@ struct UploadView: View {
         }
     }
 
-    /// 1-Sekunden-Timer fuer den Reset-Check. Wir haengen das
-    /// oben an die Form via .onReceive — so bleibt der Publisher
-    /// an den View-Lifecycle gebunden (kein Leak bei Dismiss).
-    private let resetTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    /// 1-Sekunden-Timer fuer den Reset-Check. Vorher als `let` auf
+    /// dem struct deklariert — was bei jeder View-Rebuild ein
+    /// frisches `Timer.publish(...).autoconnect()` ausgeloest hat,
+    /// ohne den alten Publisher zu cancelen (I-3, CPU-/Akku-Drain).
+    /// Jetzt in eine `ResetClock` ObservableObject gekapselt und
+    /// via `@StateObject` an den View-Lifecycle gebunden — SwiftUI
+    /// instanziiert das Objekt genau einmal.
+    @StateObject private var clock = ResetClock()
+    private var resetTick: AnyPublisher<Date, Never> {
+        clock.publisher
+    }
 
     /// PhotosPickerItem → temporaere Datei im Tmp-Verzeichnis.
     /// Der Rest von sendNow() kann dann ueber pickedURL wie gewohnt
@@ -319,4 +326,21 @@ struct UploadView: View {
         return status
     }
 
+}
+
+/// I-3: Haelt genau EINEN autoconnected 1s-Timer ueber den
+/// gesamten View-Lifecycle. SwiftUI instanziiert StateObjects einmal,
+/// sodass nicht bei jedem `body`-Rebuild ein neuer Publisher entsteht.
+@MainActor
+final class ResetClock: ObservableObject {
+    let publisher: AnyPublisher<Date, Never>
+    private let cancellable: AnyCancellable
+
+    init() {
+        let p = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+        self.publisher = p.eraseToAnyPublisher()
+        // Cancellable-Halter, damit der autoconnect aktiv bleibt; wird
+        // beim Deinit der View automatisch geloest -> Timer endet.
+        self.cancellable = p.sink { _ in }
+    }
 }

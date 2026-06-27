@@ -4,7 +4,11 @@
 <dict>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.mnimtz.printixmobileprint</string>
+		<string>group.de.nimtz.mysecureprint</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)group.de.nimtz.mysecureprint</string>
 	</array>
 </dict>
 </plist>

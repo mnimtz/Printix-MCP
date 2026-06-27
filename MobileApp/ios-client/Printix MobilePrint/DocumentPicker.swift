@@ -32,7 +32,7 @@ struct DocumentPicker: UIViewControllerRepresentable {
     }
 }//
 //  DocumentPicker.swift
-//  Printix MobilePrint
+//  MySecurePrint
 //
 //  Created by Marcus Nimtz on 26.01.26.
 //

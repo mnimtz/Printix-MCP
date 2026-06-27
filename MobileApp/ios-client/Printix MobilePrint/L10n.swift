@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import SwiftUI
 
-/// In-App-Sprachumschaltung fuer Printix MobilePrint.
+/// In-App-Sprachumschaltung fuer MySecurePrint.
 ///
 /// Warum `AppleLanguages` und nicht Bundle-Swizzle?
 /// ------------------------------------------------

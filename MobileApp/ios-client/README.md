@@ -1,95 +1,71 @@
-# Mobile Print — iOS Client
+# MySecurePrint — iOS Client
 
-iOS-Companion zur Printix-MCP-Serverlandschaft. Teilt sich mit dem
-macOS-Client den gesamten Netzwerk-Layer via Swift-Package
-`PrintixSendCore` (unter `macos-client/`).
+iOS-Companion zum Open-Source-Server **printix-mcp**. Teilt sich mit dem
+macOS-Client den Netzwerk-Layer via Swift-Package `PrintixSendCore`
+(unter `macos-client/`).
+
+> **Hinweis / Disclaimer:** MySecurePrint ist eine unabhaengige
+> Drittanbieter-App. Sie ist **NICHT** entwickelt, unterstuetzt oder
+> autorisiert von Tungsten Automation Corp. ("Printix" ist eine
+> eingetragene Marke der Tungsten Automation Corp.), HP Inc., Konica
+> Minolta, Brother, Lexmark, PaperCut oder einem anderen
+> Druckerhersteller bzw. Print-Management-Anbieter. MySecurePrint
+> spricht ausschliesslich den vom Nutzer selbst betriebenen
+> `printix-mcp`-Server an.
 
 ## Aufbau
 
 ```
 ios-client/
-├── Printix MobilePrint.xcodeproj/      Xcode-Projekt (beibehalten aus app.old)
-├── Printix MobilePrint/                Haupt-App-Target
-│   ├── Printix_MobilePrintApp.swift    @main (MobilePrintApp)
+├── Printix MobilePrint.xcodeproj/      Xcode-Projekt (Folder-Name historisch beibehalten)
+├── Printix MobilePrint/                Haupt-App-Target — Bundle: de.nimtz.mysecureprint
+│   ├── Printix_MobilePrintApp.swift    @main
 │   ├── ContentView.swift               Router: Setup→Login vs. Tabs
 │   ├── SetupView.swift                 Server-URL-Eingabe
-│   ├── LoginView.swift                 Password + Entra Device-Code
+│   ├── LoginView.swift                 Password + Entra Auth-Code (PKCE)
 │   ├── TargetsView.swift               Druck-Ziele auswählen
 │   ├── UploadView.swift                Datei wählen + senden
 │   ├── SettingsStore.swift             App-Group-UserDefaults-Wrapper
+│   ├── KeychainTokenStore.swift        Bearer-Token in Keychain-Access-Group
 │   ├── ApiClientFactory.swift          PrintixSendCore-Client-Factory
-│   ├── DocumentPicker.swift            UIKit-Bridge (bisher ungenutzt, Reserve)
+│   ├── PrivacyInfo.xcprivacy           Apple-Privacy-Manifest
 │   └── Printix MobilePrint.entitlements
-├── PrintixShareExtension/              Share-Extension-Target
-│   ├── ShareViewController.swift       PDF/Bild → PrintixSendCore.sendData
+├── PrintixShareExtension/              Share-Extension — Bundle: de.nimtz.mysecureprint.share
+│   ├── ShareViewController.swift       PDF/Bild → Background-URLSession-Upload
 │   ├── PrintixShareExtension.entitlements
-│   ├── Info.plist
-│   └── Base.lproj/MainInterface.storyboard
+│   ├── PrivacyInfo.xcprivacy
+│   └── Info.plist
 └── Printix-MobilePrint-Info.plist
 ```
 
-## App Group
+## Identitaeten
 
-Beide Targets teilen:
+| Schluessel | Wert |
+|---|---|
+| App-Anzeigename | MySecurePrint |
+| Haupt-Bundle-ID | `de.nimtz.mysecureprint` |
+| Share-Extension-Bundle-ID | `de.nimtz.mysecureprint.share` |
+| Custom-URL-Scheme (OAuth) | `mysecureprint://oauth/callback` |
+| App-Group | `group.de.nimtz.mysecureprint` |
+| Keychain-Service | `de.nimtz.mysecureprint` |
+| Keychain-Access-Group | `$(AppIdentifierPrefix)group.de.nimtz.mysecureprint` |
+| Marketing-Version | 1.0.0 |
+| iOS-Deployment-Target | 17.0 |
 
-```
-group.com.mnimtz.printixmobileprint
-```
+## OAuth-Redirect-URI
 
-Dort liegen (in UserDefaults des App-Group-Suites):
-- `serverURL` — Basis-URL des MCP-Servers
-- `bearerToken` — Login-Token aus `/desktop/auth/login`
-- `userEmail`, `userFullName` — angemeldeter User
-- `lastTargetId` — zuletzt gewähltes Druck-Ziel
-- `deviceName` — Gerätename für Login-Device-Binding
+Beim Entra-Login (Authorization-Code + PKCE) verwendet der iOS-Client
+`mysecureprint://oauth/callback` als Custom-URL-Scheme-Redirect.
+Server-seitig (printix-mcp 7.7.7+) muss dieser Wert in der Entra
+App-Registration unter **Authentication -> Mobile and desktop
+applications -> Add URI** hinterlegt sein. Der frueher genutzte
+Wert `printixmobileprint://oauth/callback` wird vom Server
+weiterhin akzeptiert (transitional), sodass aeltere Builds nicht
+abrupt abreissen.
 
-> Der Token liegt für das MVP/TestFlight bewusst in den App-Group-
-> Defaults (nicht im Keychain). iOS-Apps sind sandboxed, das Risiko ist
-> überschaubar. Ein Migrations-Schritt auf Keychain-Access-Group kann
-> jederzeit ohne Änderung der UI nachgeschoben werden.
+## Lizenz / Markenrechte
 
-## Einmalige Xcode-Schritte nach dem Öffnen
-
-Die Swift-Dateien sind bereits angepasst, aber das Xcode-Projekt kennt
-noch ein paar Dinge nicht automatisch:
-
-1. **Local Swift Package einbinden**
-   In Xcode: `File → Add Packages → Add Local…` → Ordner
-   `../../macos-client` wählen. Beim Dialog beide Targets
-   (`Printix MobilePrint` + `PrintixShareExtension`) an
-   `PrintixSendCore` anhängen. Die iOS-Unterstützung ist im
-   `Package.swift` bereits deklariert (`.iOS(.v16)`).
-
-2. **Alte Dateien entfernen** (falls im Projekt-Navigator noch rot):
-   `APIClient.swift`, `Models.swift`, `GatewayStore.swift`,
-   `StatusView.swift`, `JobOwnerSection.swift`,
-   `JobOwnerViewModel.swift`. Diese wurden aus `Printix MobilePrint/`
-   bereits gelöscht.
-
-3. **Neue Dateien zum Target hinzufügen**:
-   `SettingsStore.swift`, `LoginView.swift`, `TargetsView.swift`,
-   `ApiClientFactory.swift` → Target Membership `Printix MobilePrint`.
-
-4. **Display-Name**: In `Printix-MobilePrint-Info.plist`
-   `CFBundleDisplayName` auf `Mobile Print` setzen. Bundle-ID und
-   Signing bleiben unverändert.
-
-5. **Share-Extension — Info.plist anpassen**: unter
-   `NSExtensionAttributes → NSExtensionActivationRule` sollten PDFs +
-   Bilder aktiv bleiben; der neue Upload-Pfad verlangt nichts
-   Zusätzliches.
-
-## Build & Run
-
-- Scheme `Printix MobilePrint` auf einem iOS-16+ Simulator oder Gerät
-  starten.
-- Erst-Start: Server-URL eingeben → Login mit Portal-Credentials oder
-  Entra Device-Code → Ziel auswählen → Datei hochladen.
-- Aus anderen Apps: „Teilen → Mobile Print“ → Datei geht an das zuletzt
-  gewählte Ziel.
-
-## TestFlight
-
-Bundle-ID + App-Group sind bereits im Apple-Developer-Account
-registriert (Altbestand aus `app.old`). Für TestFlight genügt es,
-Version+Build im Archiv zu erhöhen und hochzuladen.
+Siehe Wurzel-`LICENSE`. "Printix" ist eine eingetragene Marke der
+Tungsten Automation Corp. Die App nennt den Server-Namen `printix-mcp`
+ausschliesslich in nominativ-fair-use-Manier zur Beschreibung der
+Kompatibilitaet, ohne Markenrechte zu beanspruchen.
